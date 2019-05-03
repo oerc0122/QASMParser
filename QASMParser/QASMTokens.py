@@ -182,14 +182,14 @@ def _setup_QASMParser():
         keyOverride = (~dirOpenSyntax + ~dirCloseSyntax + dirSyntax))
     
     def splitArgs(toks):
-        toks[0]["keyword"] = "directiveBlock"
+        toks[0]["keyword"] = "directive"
         toks[0]["args"] = toks[0]["args"].strip().split(" ")
     
-    directiveBlock = nestedExpr(dirOpenSyntax,
+    directiveBlock = ungroup(nestedExpr(dirOpenSyntax,
                                 dirCloseSyntax,
                                 content = directiveName("directive") + restOfLine("args") +
-                                Group(ZeroOrMore (Combine(White(" ") + ~dirCloseSyntax + Word(printables+" "))))("block"), 
-                                ignoreExpr = comment | quotedString).setWhitespaceChars("\n").setParseAction(splitArgs)
+                                Group(ZeroOrMore (Combine(Optional(White(" ")) + ~dirCloseSyntax + Word(printables+" "))))("block"), 
+                                ignoreExpr = comment | quotedString).setWhitespaceChars("\n").setParseAction(splitArgs))
     
     
     _Op("let", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM")
@@ -218,9 +218,9 @@ def _setup_QASMParser():
     qopsParsers = list(map ( lambda qop: qop.parser, qops.values())) + [callGate]
     blocksParsers = list(map ( lambda block: block.parser, _blocks.values()))
     
-    _Op("if", _blocks["if"].parser + (Group(Or(qopsParsers)))("block"), keyOverride = Empty())
-    _Op("for", _blocks["for"].parser + (Group(Or(qopsParsers)))("block"), version="REQASM", keyOverride = Empty())
-    _Op("while", _blocks["while"].parser + (Group(Or(qopsParsers)))("block"), version="REQASM", keyOverride = Empty())
+    _Op("if", _blocks["if"].parser       + Group(Group(Group(Or(qopsParsers))))("block"), keyOverride = Empty())
+    _Op("for", _blocks["for"].parser     + Group(Group(Group(Or(qopsParsers))))("block"), version="REQASM", keyOverride = Empty())
+    _Op("while", _blocks["while"].parser + Group(Group(Group(Or(qopsParsers))))("block"), version="REQASM", keyOverride = Empty())
     
     reserved = Or(_reservedKeys) ^ e ^ pi
     validName << (~reserved) + Word(alphas,alphanums+"_")

@@ -31,7 +31,6 @@ class ProgFile(CodeBlock):
         def print_code(self, code, outputFile):
             self.depth += 1
             for line in code:
-                print(line)
                 if verbose and hasattr(line,'original') and type(line) is not Comment: # Verbose -- Print original
                     outputFile.write(self.depth*indent + Comment(line.original).to_lang() + "\n")
                 
@@ -41,13 +40,10 @@ class ProgFile(CodeBlock):
                     writeln(lang.blockClose)
                     
                 elif issubclass(type(line), ExternalLang): # Handle verbatim language blocks
+                    print("Hi", line)
                     writeln(line.to_lang())
-                    self.depth -= 1
-                    print_code(self,line._code,outputFile)
-                    self.depth += 1
-
+                    
                 elif hasattr(line,"_code"): # Print children
-                    print(line._code)
                     writeln(line.to_lang() + lang.blockOpen)
                     print_code(self,line._code,outputFile)
                     writeln(lang.blockClose)

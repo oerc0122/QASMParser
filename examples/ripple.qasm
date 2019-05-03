@@ -38,3 +38,4 @@ measure b[1] -> ans[1];
 measure b[2] -> ans[2];
 measure b[3] -> ans[3];
 measure cout[0] -> ans[4];
+output ans;

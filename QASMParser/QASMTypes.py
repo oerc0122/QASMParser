@@ -27,48 +27,29 @@ class Operation:
             pass
 
     def handle_loops(self, pargs, slice = None):
-
         for parg in pargs:
-            parg[1] = parg[1]
-            if parg[1] is None:
-                parg[1] = parg[0].name + "_index"
-                self.add_loop(parg[1], parg[0].start, parg[0].end)
-
-            elif isinstance(parg[1], str):
-                pargSplit = parg[1].split(":")
-                if len(pargSplit) == 1: # Just index
-                    if pargSplit[0].isdecimal():
-                        parg[1] = int(pargSplit[0])
-                    else: # Do nothing, assume the variable is fine
-                        pass
-
-                elif len(pargSplit) == 2: # Min Max
+            if isinstance(parg[1], tuple):
+                start, end = parg[1]
+                if start == end :
+                    parg[1] = start
+                else:
                     parg[1] = parg[0].name + "_index"
-                    pargMin = 1
-                    pargMax = parg[0].size
-                    if pargSplit[0]: pargMin = int(pargSplit[0])
-                    if pargSplit[1]: pargMax = int(pargSplit[1])
-                    self.add_loop(parg[1], pargMin, pargMax)
-
-                else: raise IOError("Bad Index syntax")
+                    start = self.resolve_arg( (parg[0], start) )
+                    end = self.resolve_arg( (parg[0], end + 1) )
+                    self.add_loop(parg[1], start, end)
 
     def resolve_arg(self, arg):
+
         if type(arg[0]) is Argument:
             return str(arg[1])
         elif issubclass(type(arg[0]),Register):
-            if isinstance(arg[1],tuple):
-                start, end = arg[1]
-                if start == end:
-                    if isinstance(start, int):
-                        return str(arg[0].start + start)
-                    elif isinstance(start, Constant):
-                        return str(arg[0].start + arg[1].val)
-                    else:
-                        return arg[1]
-                else:
-                    return str(arg[1])
+            start = arg[1]
+            if isinstance(start, int):
+                return str(arg[0].start + start)
+            elif isinstance(start, Constant):
+                return str(arg[0].start + arg[1].val)
             else:
-                raise TypeError(parseArgWarning.format("index", type(arg[1]).__name__))
+                return arg[1]
         else:
             raise TypeError(parseArgWarning.format("arg", type(arg[0]).__name__))
 
@@ -136,10 +117,10 @@ class Alias(Register):
         self.type_ = "QuantumRegister"
 
 class Argument(Referencable):
-    def __init__(self, name, classical):
+    def __init__(self, name):
         Referencable.__init__(self)
         self.name = name
-        self.classical = classical
+        self.type_ = "QuantumRegister"
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
@@ -159,9 +140,8 @@ class Let:
 class CallGate(Operation):
     def __init__(self, gate, cargs, qargs):
         self.name = gate
-        
-        Operation.__init__(self, qargs, cargs)
 
+        Operation.__init__(self, qargs, cargs)
         self.handle_loops(self._qargs)
 
     def to_lang(self):
@@ -171,6 +151,8 @@ class Measure(Operation):
     def __init__(self, qarg, carg):
         Operation.__init__(self, qarg, carg)
         self.handle_loops([self._qargs])
+        if self._loops: self._cargs[1] = self._qargs[1]
+        self.handle_loops([self._cargs])
         carg = self._cargs[0]
         bindex = self._cargs[1]
         qarg = self._qargs[0]
@@ -222,19 +204,20 @@ class CodeBlock:
             self._error(QASMWarning.format(QASMType))
 
     def _resolve(self, var, type_, index = ""):
-        if type_ in ["ClassicalRegister","QuantumRegister","Alias"]:
+        if type_ in ["ClassicalRegister","QuantumRegister"]:
 
             self._is_def(var, create=False, type_ = type_)
             var = self._objs[var]
 
-            if index or index is None: # If index or implicit loop
+            if isinstance(var,Argument):
+
+                return [var, var.name + "_index"]
+
+            elif index or index is None: # If index or implicit loop
 
                 index = self.parse_range(index, var)
 
                 return [var, index]
-
-            else: # Usually arguments through here
-                return var
 
         elif type_ == "Constant":
             if var is None:
@@ -246,12 +229,13 @@ class CodeBlock:
             elif isinstance(var,str) and re.fullmatch(isDigit, var):
                 return float(var)
             elif isinstance(var, ParseResults):
-                # Parse maths here!
-                print("BROKEN")
-                pass
+                return self.parse_maths(var)
             else:
                 self._is_def(var, create=False, type_ = type_)
-                return self._objs[var].val
+                if self._objs[var].val:
+                    return self._objs[var].val
+                else: # Is argument or not set yet
+                    return self._objs[var].name
 
         elif type_ == "Gate":
             self._is_def(var, create=False, type_ = type_)
@@ -266,9 +250,6 @@ class CodeBlock:
         else: # Check exists and type is right
             if name not in self._objs:
                 self._error(existWarning.format(Type=type_, Name=name))
-            elif type_ == "Index": # Special case for index vars
-                if self._objs[name].type_ not in ["Constant", "ClassicalRegister"]:
-                    self._error(wrongTypeWarning.format(self._objs[name].type_, type_))
             elif self._objs[name].type_ is not type_:
                 self._error(wrongTypeWarning.format(type_,self._objs[name].type_))
             else: pass
@@ -279,8 +260,7 @@ class CodeBlock:
             self._error(indexWarning.format(Req=interval[0], Var = arg.name, Max = arg.size))
         elif isinstance(interval[1],int) and interval[1] > arg.size:
             self._error(indexWarning.format(Req=interval[1], Var = arg.name, Max = arg.size))
-        
-            
+
     def comment(self, comment):
         self._code += [Comment(comment)]
 
@@ -316,13 +296,13 @@ class CodeBlock:
 
     def let(self, var, val):
         self._is_def(var, create=True)
+        val = (self._resolve(val[0], type_="Constant"), val[1])
         letobj = Constant( var, val )
         self._objs[letobj.name] = letobj
         self._code += [Let( letobj )]
 
     def call_gate(self, funcName, cargs, qargs, gargs=None, spargs=None):
         self._is_def(funcName, create=False, type_ = "Gate")
-
         cargs = self.parse_args(cargs, type_ = "Constant")
         qargs = self.parse_args(qargs, type_ = "QuantumRegister")
         gargs = self.parse_args(gargs, type_ = "Gate")
@@ -385,13 +365,13 @@ class CodeBlock:
             if block:
                 self.cBlock(block)
             else:
-                self.cBlock(args)
+                self.cBlock([args+";"])
         elif directive == "opaque":
             if not block: self._error("Cannot set opaque by inline directive")
-            gate = args
+            gate = args[0]
             if self._objs[gate]:
                 target = self._objs[gate]
-                target.add_block(block)
+                target.cBlock(block)
             else:
                 self._error("Cannot find opaque {}".format(gate))
         else:
@@ -399,7 +379,6 @@ class CodeBlock:
     def parse_line(self, token):
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
-
         if keyword == "include":
             if hasattr(self,"include"):
                 self.include(token["file"])
@@ -442,9 +421,8 @@ class CodeBlock:
             bindex = token["creg"].get("ref", None)
             self.measurement(qarg, qindex, carg, bindex)
         elif keyword == "if":
-            cond = token["cond"]
-            block = QASMBlock(self.currentFile, token.get("block", None))
-            print("NNNN",block.File)
+            cond = self.parse_maths(token["cond"])
+            block = QASMBlock(self.currentFile, token["block"])
             self.new_if(cond, block)
         elif keyword == "barrier":
             pass
@@ -483,7 +461,6 @@ class CodeBlock:
             block = token.get("block", None)
             self.directive(directive, args, block)
         elif keyword is None:
-            print(token.dump())
             self.comment(comment)
         else:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType))
@@ -491,7 +468,7 @@ class CodeBlock:
         if keyword is not None : self._code[-1].comment =  Comment(comment)
 
     def parse_args(self, args_in, type_):
-        if not args_in: return None
+        if not args_in: return []
 
         args = []
 
@@ -546,6 +523,17 @@ class CodeBlock:
             self._error("Unknown range specification: {}".format(rangeSpec))
         return interval
 
+    def parse_maths(self, maths):
+        from collections import Iterable
+        def flatten(coll):
+            for i in coll:
+                if isinstance(i, Iterable) and not isinstance(i, str):
+                    for subc in flatten(i):
+                        yield subc
+                else:
+                    yield i
+        maths = flatten(maths.asList())
+        return "".join(maths)
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
@@ -581,7 +569,7 @@ class Gate(Referencable, CodeBlock):
             self._objs[arg] = Constant( (arg, "float") , (None, None) )
             self._cargs.append(self._objs[arg])
         else:
-            self._objs[arg] = QuantumRegister(arg, None)
+            self._objs[arg] = Argument(arg)
             self._qargs.append(self._objs[arg])
 
     def parse_gate_args(self, args_in, type_):
@@ -621,12 +609,12 @@ class Opaque(Gate):
 
 class ExternalLang:
     pass
-    
+
 class CBlock(ExternalLang):
     def __init__(self, parent, block):
         self.parent = parent
         self.block = block
-        
+
 class Loop(CodeBlock):
     def __init__(self, parent, block, var, start, end, step = 1):
         CodeBlock.__init__(self,block, parent=parent)

@@ -18,8 +18,6 @@ class QuESTLibGate(Gate):
         for expect in self.argOrder:
             if expect == "nextQureg":
                 args.append('qreg')
-                # qarg = qargs.pop(0)
-                # args.append(qarg[0].name)
             elif expect == "nextIndex":
                 qarg = qargs.pop(0)
                 args.append(Operation.resolve_arg(self,qarg))
@@ -30,7 +28,8 @@ class QuESTLibGate(Gate):
                         raise TypeError('Expected number of indices')
                     else:
                         nArgs = len(qargs)
-                nArgs = int(nArgs)
+                else:
+                    nArgs = int(nArgs)
                 tmp = []
                 for i in range(nArgs):
                     qarg = qargs.pop(0)

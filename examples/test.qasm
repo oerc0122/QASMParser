@@ -6,7 +6,7 @@ include "qelib1.inc";
 
 gate majority a,b,c
 { 
-  cx(pi,e,123.,1,15) c,b; 
+  cx c,b; 
   cx c,a; 
   ccx a,b,c; 
 }
@@ -15,9 +15,9 @@ opaque magic a;
 
 opaque rotateytate a;
 *** begin opaque rotateytate
-  rotateX(qreg, a_index, 13.);
-  rotateZ(qreg, a_index, 15.1);
-  rotateY(qreg, a_index, 91.);
+rotateX(qreg, a_index, 13.);
+rotateZ(qreg, a_index, 15.1);
+rotateY(qreg, a_index, 91.);
 *** end 
 
 gate unmaj(i) a,b,c 
@@ -29,12 +29,12 @@ gate unmaj(i) a,b,c
 }
 
 *** begin classical
-   printf("%s \n", "Hello!");
-   int A = 3;
-   float C = 0.6;
-   for (int i = 1; i < 3; i++) {
-       printf("%s %d","hi",i)
-   }
+printf("%s \n", "Hello!");
+int A = 3;
+float C = 0.6;
+for (int i = 1; i < 3; i++) {
+   printf("%s %d","hi",i);
+}
 *** end
 
 qreg cin[1];
@@ -75,7 +75,7 @@ measure b -> loopVar;
 
 if (ans[1] == 1)
 {
-  *** classical printf("%i", 128); 
+  *** classical printf("%i", 128);
 }
 
 let lambda = 1.3e5;

@@ -45,12 +45,12 @@ class QASMFile:
         except AttributeError:
             return
 
-    def _handler(err):
+    def _handler(self,err):
             if not err.line:
                 self._error(unknownParseWarning)
             print(err.line)
             print(" "*(err.column-1) + "^")
-            problem = testKeyword.parseString(err.line)
+            problem = errorKeywordParser.parseString(err.line)
             try:
                 if problem["keyword"] in qops.keys():
                     temp = qops[problem["keyword"]].parser.parseString(err.line)
@@ -102,7 +102,6 @@ class QASMBlock(QASMFile):
     def __init__(self, parent, block, startline = None):
         self._parent_file(parent)
         if startline: self.nLine = startline
-        else : self.nLine = 0
         self.File = block
         
     def __len__(self):
@@ -110,23 +109,12 @@ class QASMBlock(QASMFile):
 
     def read_instruction(self):
         for instruction in self.File[0]:
-            print("QASMBLOCK", instruction.dump())
             self.nLine += 1
             yield instruction
     
     def readline(self):
         """ Reads a line from a file """
         raise NotImplementedError()
-        # while len(self.File) > 0:
-        #     line = self.File.pop(0)
-        #     self.nLine += 1
-        #     if not line: continue
-        #     print(self.nLine, line)
-        #     return line
-        # else:
-        #     # Recallable
-        #     self.File = self.orig.splitlines()
-        #     return None
 
     def __del__(self):
         pass

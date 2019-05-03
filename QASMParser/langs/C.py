@@ -67,13 +67,13 @@ def Argument_to_c(self):
 
 def Let_to_c(self):
     var = self.const
+
     assignee = var.name
     if var.var_type: assignee = f"{var.var_type} {assignee}"
 
     # Simple declaration
     if var.val is None: return f"{assignee};"
 
-    print(type(var.val))
     if type(var.val) is list: value =  f'{{{",".join(var.val)}}}'
     else:  value =  f'{var.val}'
     if var.cast: value = f"({var.cast}) {value}"
@@ -81,7 +81,7 @@ def Let_to_c(self):
     return f"{assignee} = {value};"
 
 def CBlock_to_c(self):
-    return ""
+    return "\n".join(self.block)
     
 def CallGate_to_c(self):
     printArgs = ""
@@ -89,10 +89,11 @@ def CallGate_to_c(self):
         printArgs += "qreg, "
         printArgs += ", ".join([self.resolve_arg(qarg) for qarg in self._qargs])
     for carg in self._cargs:
+        if carg is None: continue
         if printArgs:
-            printArgs += ", "+carg
+            printArgs += ", "+str(carg)
         else:
-            printArgs = carg
+            printArgs = str(carg)
     printGate = self.name
     preString = []
     outString = ""    
@@ -105,18 +106,22 @@ def Comment_to_c(self):
     return "//" + self.comment
 
 def Measure_to_c(self):
-    carg, bindex = self._cargs
+    carg = self._cargs
     qarg = self._qargs
     qargRef = self.resolve_arg(qarg)
-    return f"{carg.name}[{bindex}-{qarg[0].start}] = measure(qreg, {qargRef});"
+    cargRef = self.resolve_arg(carg)
+    return f"{carg[0].name}[{cargRef}] = measure(qreg, {qargRef});"
 
 def IfBlock_to_c(self):
     return f"if ({self._cond})"
 
 def CreateGate_to_c(self):
-    printQargs = "Qureg qreg, " + ", ".join((f"int {qarg.name}_index" for qarg in self._qargs))
-    printPargs = ", ".join((f"{carg.var_type} {carg.name}" for carg in self._cargs))
-    printArgs = ", ".join((printQargs, printPargs))
+    printQargs = ""
+    printPargs = ""
+    if self._qargs: printQargs = "Qureg qreg, " + ", ".join((f"int {qarg.name}_index" for qarg in self._qargs))
+    if self._cargs: printPargs = ", ".join((f"{carg.var_type} {carg.name}" for carg in self._cargs))
+        
+    printArgs = ", ".join((printQargs, printPargs)).rstrip(", ")
     returnType = typesTranslation[self.returnType]
     outStr = f"{returnType} {self.name}({printArgs}) "
     return outStr
