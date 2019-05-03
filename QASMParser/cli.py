@@ -8,4 +8,8 @@ parser.add_argument('-d','--debug', help="Output original QASM in translation", 
 parser.add_argument('-c','--to-module', help = "Compile as module for inclusion into larger project", action="store_true")
 
 def get_command_args():
-    return parser.parse_args()
+    argList = parser.parse_args()
+    if not argList.sources:
+        parser.print_help()
+        exit()
+    return argList

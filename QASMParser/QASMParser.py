@@ -6,6 +6,7 @@ from .QASMTypes import *
 from .FileHandle import *
 from .QASMErrors import *
 
+lang_constants = ["e", "pi"]
 
 class ProgFile(CodeBlock):
     def __init__(self, filename):
@@ -13,6 +14,8 @@ class ProgFile(CodeBlock):
         CodeBlock.__init__(self, QASMFile(filename), parent = None, copyFuncs = False, copyObjs = False)
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
+        for constants in lang_constants:
+            self._objs[constants] = Constant( (Constant, "float"), ( None, None ))
         self.parse_instructions()
         
     def to_lang(self, filename = None, module = False, lang = "C", verbose = False):
@@ -28,7 +31,7 @@ class ProgFile(CodeBlock):
         def print_code(self, code, outputFile):
             self.depth += 1
             for line in code:
-                
+                print(line)
                 if verbose and hasattr(line,'original') and type(line) is not Comment: # Verbose -- Print original
                     outputFile.write(self.depth*indent + Comment(line.original).to_lang() + "\n")
                 
@@ -44,6 +47,7 @@ class ProgFile(CodeBlock):
                     self.depth += 1
 
                 elif hasattr(line,"_code"): # Print children
+                    print(line._code)
                     writeln(line.to_lang() + lang.blockOpen)
                     print_code(self,line._code,outputFile)
                     writeln(lang.blockClose)
@@ -116,6 +120,7 @@ class ProgFile(CodeBlock):
             self._code += other._code
             for obj in other._objs:
                 if obj in Gate.internalGates: continue
+                if obj in lang_constants: continue
                 if obj in self._objs:
                     self._error(includeWarning.format(
                         name = obj, type = self._objs[obj].type_, other = other.filename, me = self.filename)

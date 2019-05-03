@@ -1,102 +1,247 @@
-import copy
-import re
+from pyparsing import *
 
-class Token:
+ParserElement.enablePackrat()
 
-    def __init__(self, name: str, pattern: str):
-        self.name = name
-        self.re = re.compile(pattern.replace(' ','\s*'), re.I + re.X)
-        self.string = pattern
+cops = {}
+qops = {}
+_blocks = {}
+_reservedKeys = []
+
+def _overrideKeyword(toks, name):
+    toks["keyword"]=name
+
+def ungroup_non_groups(string,l,tokens):
+    for i in range(len(tokens)):
+        currToken = tokens[i]
+        if len(currToken) == 1:
+            tokens[i] = currToken[0]
+    
         
-    def __str__(self):
-        return self.string
+def _setup_QASMParser():    
 
-    def __call__(self, string):
-        return self.re.match(string)
+    class _Op:
     
-
-class TokenSet(dict):
-    def add(self, token: Token):
-        if token not in self.__dict__: self.__dict__[token.name] = token
-        else: raise IOError(f'Token {token.name} already in tokenSet')
-
-    def __add__(self, other):
-        out = copy.copy(self.__dict__)
-        for token in other.__dict__.values():
-            if token not in out: out[token.name] = token
-        new = TokenSet()
-        new.__dict__ = out
-        return new
-
-    def tokens(self):
-        return self.__dict__.values()
+        def __init__(self, name, argParser, version = "OPENQASM", qop = False, keyOverride = None):
+            global cops
+            global qops
+            global _reservedKeys
+            if name in qops or name in cops: raise IOError(f'{name} already defined')
+            self.operation = name
+            if keyOverride is not None:
+                self.parser = (keyOverride + argParser).addParseAction(lambda s,l,t: _overrideKeyword(t, name))
+            else:
+                self.parser = Keyword(name)("keyword") + argParser
     
-coreTokens = TokenSet()
-openQASM = TokenSet()
+            self.version = version
+    
+            _reservedKeys.append(name)
+            if qop:
+                qops[name] = self
+            else:
+                cops[name] = self
+                
+    class _Routine(_Op):
+        def __init__(self, name, pargs = False, spargs = False, gargs = False, qargs = False,
+                     returnable = False, prefixes = None, version = "OPENQASM"):
+            global cops
+            global qops
+            global _reservedKeys
+            if name in qops or name in cops: raise IOError(f'{name} already defined')
+            self.operation = name
+    
+            self.parser = Keyword(name)("keyword") + validName("gateName")
+            
+            if prefixes: self.parser = Each( map(Optional,prefixes) ) + self.parser
+            
+            # Handle different args
+            req = []
+            if pargs: req.append(Optional(pargParser)("pargs"))
+            if spargs: req.append(Optional(spargParser)("spargs"))
+            if gargs: req.append(Optional(gargParser)("gargs"))
+            self.parser = self.parser + Each(req)
+            if qargs: self.parser = self.parser + qargParser("qargs")
+            if returnable: self.parser = self.parser + returnParser
+            
+            _blocks[name] = self
+    
+    class _Block(_Op):
+        def __init__(self, name, detParser, version = "OPENQASM"):
+            global _blocks
+            global _reservedKeys
+            self.operation = name
+            self.parser = Keyword(name)("keyword") + detParser
+            _reservedKeys.append(name)
+            _blocks[name] = self
+    
+    sign = Word("+-", exact=1)
+    number = Word(nums)
+    expo = Combine(CaselessLiteral("e") + Optional(sign) + number).setResultsName("exponent")
+    
+    e = CaselessKeyword("e")
+    pi = CaselessKeyword("pi")
+    
+    integer  = Combine( number + Optional(expo))
+    real = Combine( Optional(sign) + ( ("." + number) ^ ( number + "." + Optional(number) ) ) + Optional(expo))
+    boolean = Word("TF", exact=1)
+    validName = Forward()
+    lineEnd = Literal(";")
+    
+    _is_ = Keyword("is").suppress()
+    _in_ = Keyword("in").suppress()
+    toClass = Literal("->").suppress()
+    
+    
+    commentSyntax = "//"
+    
+    dirSyntax = "***"
+    dirOpenStr = f"{dirSyntax} begin"
+    dirCloseStr = f"{dirSyntax} end"
+    dirSyntax = Keyword(dirSyntax)
+    dirOpenSyntax  = Keyword(dirOpenStr)
+    dirCloseSyntax = Keyword(dirCloseStr)
+    
+    intFunc = oneOf("abs rempow")
+    realFunc = Or(intFunc, oneOf("arcsin arccos arctan sin cos tan exp ln sqrt"))
+    
+    inL,inS,inR = map(Suppress, "[:]")
+    
+    intExp = Forward()
+    realExp = Forward()
+    
+    index = intExp.setResultsName('index')
+    interval = Optional(intExp.setResultsName('start'), default=None) + inS + Optional(intExp.setResultsName('end'), default=None)
+    indexRef = Group(inL + index + inR)
+    interRef = Group(inL + interval + inR)
+    ref = inL + Group(delimitedList(index ^ interval))('ref') + inR
+    regNoRef = validName("var")
+    regRef   = Group(validName("var") + Optional(ref))
+    regMustRef = Group(validName("var") + ref)
+    regListNoRef = Group(delimitedList( regNoRef ))
+    regListRef = Group(delimitedList( regRef ))
+    regListMustRef = Group(delimitedList( regMustRef ))
+    
+    
+    intExp << infixNotation(
+        integer ^ regRef,
+        [
+            (intFunc, 1, opAssoc.RIGHT),
+            (oneOf("-")  , 1, opAssoc.RIGHT),
+            (oneOf("^")  , 2, opAssoc.LEFT),
+            (oneOf("* / div"), 2, opAssoc.LEFT),
+            (oneOf("+ -"), 2, opAssoc.LEFT)
+        ]
+    )
+    
+    
+    realExp << infixNotation(
+        real ^ integer ^ pi ^ e ^ regRef,
+        [
+            (realFunc, 1, opAssoc.RIGHT),
+            (oneOf("-")  , 1, opAssoc.RIGHT),
+            (oneOf("^")  , 2, opAssoc.LEFT),
+            (oneOf("* / div"), 2, opAssoc.LEFT),
+            (oneOf("+ -"), 2, opAssoc.LEFT)
+        ]
+    )
+    
+    boolExp = infixNotation(
+        boolean ^ realExp ^ intExp,
+        [
+            (oneOf("! not"), 1, opAssoc.RIGHT),
+            (oneOf("and or xor"), 2, opAssoc.LEFT),
+            (oneOf("orof xorof andof"), 1, opAssoc.RIGHT),
+            (oneOf("< <= == != => >"), 2, opAssoc.LEFT)
+        ]
+    )
+    
+    mathExp = realExp ^ intExp ^ boolExp
+    
+    
+    op  = []
+    qop = []
+    blockDelims = []
+    
+    procAttr = ["unitary recursive"]
+    callMods = ["CTRL-", "INV-"] 
 
-# Base Types
-coreTokens.add(Token('blank', '^\s*$'))
-coreTokens.add(Token('int', '\d+(?:[eE]+?\d+)?'))
-coreTokens.add(Token('float', '[+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?'))
-coreTokens.add(Token('compOp', '(?:<|>|==|!=)'))
-coreTokens.add(Token('compJoin', '(?:&&|\|\|)'))
-coreTokens.add(Token('mathOp', '[-+*/^]'))
-coreTokens.add(Token('funcOp', '(?:sin|cos|tan|exp|ln|sqrt)'))
-coreTokens.add(Token('validName', '[a-z]\w*'))
-coreTokens.add(Token('openBlock', '\{'))
-coreTokens.add(Token('closeBlock', '\}'))
+    pargParser = nestedExpr("(",")", delimitedList(realExp.addParseAction(ungroup_non_groups)), None)
+    spargParser = ungroup(nestedExpr("[","]", delimitedList(realExp.addParseAction(ungroup_non_groups)), None))
+    gargParser = ungroup(nestedExpr("<",">", delimitedList(ungroup(validName)), None))
+    qargParser = Group(delimitedList( regNoRef ))
 
-coreTokens.add(Token('validSingRef', f'(?:(?:{coreTokens.int})|(?:{coreTokens.validName}))'))
-coreTokens.add(Token('validRef', r'(?:{}(?:\:{})?)'.format(coreTokens.validSingRef, coreTokens.validSingRef)))
+    
+    modifiers = Group(ZeroOrMore(oneOf(callMods)))
+    attributes  = Each( map(Optional, map(Keyword, procAttr)) )("attributes")
+    
+    comment = Literal(commentSyntax).suppress() + restOfLine("comment")
+    
+    directiveName = Word(alphas)
+    directiveArgs = CharsNotIn(";") #Group(ZeroOrMore((Word( alphas ) | quotedString | mathExp))) 
+    
+    _Op("directive", directiveName("directive") + Suppress(White()*(1,)) + directiveArgs("args"), version="REQASM",
+        keyOverride = (~dirOpenSyntax + ~dirCloseSyntax + dirSyntax))
+    
+    def splitArgs(toks):
+        toks[0]["keyword"] = "directiveBlock"
+        toks[0]["args"] = toks[0]["args"].strip().split(" ")
+    
+    directiveBlock = nestedExpr(dirOpenSyntax,
+                                dirCloseSyntax,
+                                content = directiveName("directive") + restOfLine("args") +
+                                Group(ZeroOrMore (Combine(White(" ") + ~dirCloseSyntax + Word(printables+" "))))("block"), 
+                                ignoreExpr = comment | quotedString).setWhitespaceChars("\n").setParseAction(splitArgs)
+    
+    
+    _Op("let", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM")
+    _Op("version", real("versionNumber"), version = None, keyOverride = (Keyword("REQASM")^Keyword("OPENQASM"))("type") )
+    _Op("include", quotedString("file").addParseAction(removeQuotes))
+    _Op("opaque", validName("name") + regListNoRef("qargs"), keyOverride = attributes + "opaque")
+    _Routine("gate", pargs = True, qargs = True, prefixes = attributes)
+    _Op("creg", regRef("arg"))
+    _Op("qreg", regRef("arg"))
+    
+    
+    _Op("measure", regRef("qreg") + toClass + regRef("creg"), qop = True)
+    _Op("barrier", regListNoRef("args"))
+    _Op("alias", regRef("alias") + _is_ + regRef("target"), version = "REQASM")
+    _Op("output", regRef("value"), version = "REQASM")
+    _Op("reset", regRef("qreg"))
+    
+    _Block("for", validName("var") + _in_ + interRef("range"), version = "REQASM")
+    _Block("if", "(" + boolExp("cond") + ")", version = "REQASM")
+    _Block("while", "(" + boolExp("cond") + ")", version = "REQASM")
+    
+    callParser =  Optional(pargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
+    callGate = (modifiers("mods") + validName("gate")) + callParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call"))
+    
+    
+    qopsParsers = list(map ( lambda qop: qop.parser, qops.values())) + [callGate]
+    blocksParsers = list(map ( lambda block: block.parser, _blocks.values()))
+    
+    _Op("if", _blocks["if"].parser + (Group(Or(qopsParsers)))("block"), keyOverride = Empty())
+    _Op("for", _blocks["for"].parser + (Group(Or(qopsParsers)))("block"), version="REQASM", keyOverride = Empty())
+    _Op("while", _blocks["while"].parser + (Group(Or(qopsParsers)))("block"), version="REQASM", keyOverride = Empty())
+    
+    reserved = Or(_reservedKeys) ^ e ^ pi
+    validName << (~reserved) + Word(alphas,alphanums+"_")
+    
+    copsParsers = list(map ( lambda cop: cop.parser, cops.values()))
+    
+    operations = ( (Or(copsParsers) ^ Or(qopsParsers)) | callGate ) + lineEnd.suppress()
+    
+    validLine = Forward()
+    codeBlock = nestedExpr("{","}", Group(validLine), (quotedString | comment))
+    
+    validLine << (    (
+        (operations + Optional(comment)) ^
+        (Or(blocksParsers) + Optional(comment) + codeBlock("block")) ^
+                comment))                              # Whole line comment
+    
+    testLine = directiveBlock | ((~dirOpenSyntax + ~dirCloseSyntax + CharsNotIn("{;")) + lineEnd) ^ (CharsNotIn("{") + codeBlock) ^ comment
+    testKeyword = dirSyntax.setParseAction(lambda s,l,t: _overrideKeyword(t, "directive")) | Word(alphas)("keyword")
+    
+    code = (Group(directiveBlock)) | Group(validLine)
 
-coreTokens.add(Token('qubitRef', '(?:\[{}\])'.format(coreTokens.validRef)))
-coreTokens.add(Token('namedQubitRef', '(?:\[(?P<qubitIndex>{})\])'.format(coreTokens.validRef)))
-coreTokens.add(Token('namedBitRef', '(?:\[(?P<bitIndex> {})\])'.format(coreTokens.validRef)))
-coreTokens.add(Token('namedQarg', '(?P<qargName>{})'.format(coreTokens.validName)))
-coreTokens.add(Token('namedCarg', '(?P<cargName>{})'.format(coreTokens.validName)))
-
-coreTokens.add(Token('qarg', '{} {}?'.format(coreTokens.validName,coreTokens.qubitRef)))
-coreTokens.add(Token('singCarg', '(?:{}|{}|{}{}?)'.format(coreTokens.float,coreTokens.int,coreTokens.validName,coreTokens.qubitRef)))
-coreTokens.add(Token('cargOp', '{}(?: {} {})*'.format(coreTokens.singCarg,coreTokens.mathOp,coreTokens.singCarg)))
-coreTokens.add(Token('funcCarg', '(?:(?:{}\({}\))|(?:{}))'.format(coreTokens.funcOp,coreTokens.cargOp, coreTokens.cargOp)))
-coreTokens.add(Token('carg', '{}(?: {} {})*'.format(coreTokens.funcCarg, coreTokens.mathOp, coreTokens.funcCarg)))
-
-coreTokens.add(Token('funcName', '(?P<funcName>{})'.format(coreTokens.validName)))
-coreTokens.add(Token('namedQubit', '{} {}?'.format(coreTokens.namedQarg,coreTokens.namedQubitRef)))
-coreTokens.add(Token('namedParam', '{} {}?'.format(coreTokens.namedCarg,coreTokens.namedBitRef)))
-
-coreTokens.add(Token('singCond','{} {} {}'.format(coreTokens.carg,coreTokens.compOp,coreTokens.carg)))
-coreTokens.add(Token('conditional','{}(?: {} {})*'.format(coreTokens.singCond,coreTokens.compJoin,coreTokens.singCond)))
-
-coreTokens.add(Token('qargList', '(?P<qargs>{} (?:, {})*)'.format(coreTokens.qarg,coreTokens.qarg)))
-coreTokens.add(Token('cargList', '(?:\((?P<cargs>{} (?:, {})*)\))'.format(coreTokens.carg,coreTokens.carg)))
-coreTokens.add(Token('comment', '//(?P<comment>.*)$'))
-coreTokens.add(Token('gate', '{} {}?\s+{} $'.format(coreTokens.funcName,coreTokens.cargList,coreTokens.qargList)))
-
-openQASM.add(Token('createReg', '(?P<regType>[qc])reg\s+{}'.format(coreTokens.namedQubit)))
-openQASM.add(Token('measure', 'measure\s+{}? -> {}'.format(coreTokens.namedQubit,coreTokens.namedParam)))
-openQASM.add(Token('wholeLineComment','^ //(?P<comment>.*)'))
-openQASM.add(Token('version', '(?P<version>[a-zA-Z]+QASM)\s+(?P<majorVer>\d+)\.(?P<minorVer>\d+)'))
-openQASM.add(Token('include', 'include\s+[\'"](?P<filename>(?:\w|[./])+)[\'"]'))
-openQASM.add(Token('reset', 'reset\s+{}'.format(coreTokens.namedQubit)))
-openQASM.add(Token('barrier', 'barrier\s+{}'.format(coreTokens.qargList)))
-openQASM.add(Token('opaque', 'opaque\s+{}'.format(coreTokens.gate)))
-openQASM.add(Token('createGate', 'gate\s+{}'.format(coreTokens.gate)))
-openQASM.add(Token('callGate', coreTokens.gate.string))
-openQASM.add(Token('qop', re.sub(r'\(\?P\<[a-zA-Z]+\>','(','(?:{})'.format('|'.join(
-    map(str,[openQASM.callGate,openQASM.createReg,openQASM.include,openQASM.measure, openQASM.reset]))
-))))
-openQASM.add(Token('ifLine','if \((?P<cond>{cond})\)(?P<op> {op})?'.format(cond=coreTokens.conditional,op=openQASM.qop)))
-
-OAQEQASM = TokenSet()
-
-OAQEQASM.add(Token('forLoop', 'for\s+(?P<var>{})\s+in\s+\[(?P<range>{})\]\s+do'.format(coreTokens.validName, coreTokens.validRef)))
-OAQEQASM.add(Token('CBlock', 'CBLOCK'))
-OAQEQASM.add(Token('PyBlock', 'PYBLOCK'))
-OAQEQASM.add(Token('createRGate', 'rgate\s+{}'.format(coreTokens.gate)))
-OAQEQASM.add(Token('exit', 'exit'))
-OAQEQASM.add(Token('let', 'let\s+(?P<var>{}) = (?P<val>{})'.format(coreTokens.validName, coreTokens.carg)))
-OAQEQASM.add(Token('output', 'output\s+{}'.format(coreTokens.namedParam)))
-OAQEQASM.add(Token('alias','alias\s+(?P<alias>{}) -> {}'.format(coreTokens.validName, coreTokens.namedQubit)))
-
-OAQEQASM = OAQEQASM + openQASM
+    return code, testLine, testKeyword
+        
+QASMcodeParser, lineParser, errorKeywordParser = _setup_QASMParser()

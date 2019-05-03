@@ -73,6 +73,7 @@ def Let_to_c(self):
     # Simple declaration
     if var.val is None: return f"{assignee};"
 
+    print(type(var.val))
     if type(var.val) is list: value =  f'{{{",".join(var.val)}}}'
     else:  value =  f'{var.val}'
     if var.cast: value = f"({var.cast}) {value}"
@@ -113,13 +114,9 @@ def IfBlock_to_c(self):
     return f"if ({self._cond})"
 
 def CreateGate_to_c(self):
-    printArgs = ""
-    if self._qargs:
-        printArgs += "Qureg qreg"
-        printArgs += ", " + ", ".join([f"int {qarg}_index" for qarg in self._qargs])
-    for carg in self._cargs:
-        if printArgs: printArgs += ", float "+carg
-        else: printArgs += "float "+carg
+    printQargs = "Qureg qreg, " + ", ".join((f"int {qarg.name}_index" for qarg in self._qargs))
+    printPargs = ", ".join((f"{carg.var_type} {carg.name}" for carg in self._cargs))
+    printArgs = ", ".join((printQargs, printPargs))
     returnType = typesTranslation[self.returnType]
     outStr = f"{returnType} {self.name}({printArgs}) "
     return outStr

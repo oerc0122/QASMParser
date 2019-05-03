@@ -1,7 +1,7 @@
 import os.path
-from .QASMTokens import coreTokens, openQASM
+import copy
+from .QASMTokens import *
 from .QASMErrors import *
-import re
 
 class QASMFile:
 
@@ -11,7 +11,7 @@ class QASMFile:
     def __init__(self,filename, reqVersion=("2","0")):
         if filename in QASMFile._QASMFiles: raise IOError('Circular dependency in includes')
         if os.path.isfile(filename): self.File = open(filename,'r')
-        else: raise FileNotFoundError()
+        else: raise FileNotFoundError(fnfWarning.format(filename))
         self.path = filename
         self.name = filename[filename.rfind('/')+1:] # Remove path
         if len(QASMFile._QASMFiles) > self.depth_limit: self._error(recursionError.format(self.depth_limit))
@@ -19,26 +19,19 @@ class QASMFile:
         self.nLine = 0
         temp = ''
         self.header = []
-        try:
-            line=self.readline()
-            while line is not None:
-                if openQASM.wholeLineComment(line):
-                    self.header += [line.lstrip('/')]
-                elif openQASM.version(line):
-                    self.version = openQASM.version(line).group('version','minorVer','majorVer')
-                    self.QASMType, self.majorVer, self.minorVer = self.version
-                    break
-                else:
-                    self._error('Header of file :\n'+temp+"\n does not contain version")
-                line=self.readline()
+        for line in self.read_instruction():
 
-            if reqVersion[0] > self.version[0] :
-                self._error('Unsupported QASM version: {}.{}'.format(*self.version))
-        
-        except AttributeError:
-            self._error("Header does not contain version")
-        except RuntimeError:
-            self._error(eofWarning.format('trying to determine QASM version'))
+            if line.get('keyword',None) is None:
+                self.header += [line['comment']]
+            elif line.get('keyword') == "version":
+                self.QASMType, self.majorVer, self.minorVer = (line["type"], *line["versionNumber"].split("."))
+                self.version = (self.majorVer, self.minorVer)
+                break
+            else:
+                self._error("Header does not contain version")
+
+        if reqVersion[0] > self.version[0] :
+            self._error('Unsupported QASM version: {}.{}'.format(*self.version))
 
     def _error(self, message=""):
         raise IOError(fileWarning.format(message=message,
@@ -52,45 +45,49 @@ class QASMFile:
         except AttributeError:
             return
 
-    def block_split(self, line):
-        match = re.findall('(\{|\}|[^{}]+)', line)
-        return [inst for inst in match if not re.match('^\s+$',inst)]
+    def _handler(err):
+            if not err.line:
+                self._error(unknownParseWarning)
+            print(err.line)
+            print(" "*(err.column-1) + "^")
+            problem = testKeyword.parseString(err.line)
+            try:
+                if problem["keyword"] in qops.keys():
+                    temp = qops[problem["keyword"]].parser.parseString(err.line)
+                elif problem["keyword"] in cops.keys():
+                    temp = cops[problem["keyword"]].parser.parseString(err.line)
+                else:
+                    self._error(instructionWarning.format(problem["keyword"], self.QASMType))
+                self._error(unknownParseWarning + f" with parsing {problem['keyword']}")
+            except ParseException as subErr:
+                self._error(subErr)
 
     def read_instruction(self):
         line = self.readline()
-        lines = ""
-        depth = 0
-        instructions = []
+        currentLine = line
         while line is not None:
-            lines += line.rstrip('\n')
-            if openQASM.wholeLineComment(lines):
-                yield lines
-                lines = ""
-
-            *tmpInstructions, lines = lines.split(';')
-            if len(tmpInstructions) > 0:
-                instructions = []
-                for instruction in tmpInstructions:
-                    instructions += self.block_split(instruction)
-                while instructions:
-                    currInstruction = instructions.pop(0).strip()
-                    yield currInstruction
+            *test, = lineParser.scanString(currentLine)
+            if test and test[0][1] == 0: # If line looks like valid instruction
+                try:
+                    yield QASMcodeParser.parseString(currentLine)[0]
+                    currentLine = ""
+                except ParseException as err:
+                    self._handler(err)
+                    
             line = self.readline()
-        # Catch remainder
-        tmpInstructions = lines.split(';')
-    
-        for instruction in tmpInstructions:
-            instructions += self.block_split(instruction)
-        while instructions:
-            currInstruction = instructions.pop(0).strip()
-            yield currInstruction
-
+            if line is not None: currentLine += line
+            
+        if currentLine: # Catch remainder
+            try:
+                yield QASMcodeParser.parseString(currentLine)[0]
+            except ParseException as err:
+                self._handler(err)
 
     def readline(self):
         """ Reads a line from a file """
         for line in self.File:
             self.nLine += 1
-            if coreTokens.blank(line): continue
+            if not line.strip(): continue
             return line
         else:
             return None
@@ -101,28 +98,35 @@ class QASMFile:
         self.QASMType = parent.QASMType
         self.nLine = parent.nLine
         
-        
 class QASMBlock(QASMFile):
     def __init__(self, parent, block, startline = None):
         self._parent_file(parent)
         if startline: self.nLine = startline
-        self.File = block.splitlines()
-        self.orig = block
-
+        else : self.nLine = 0
+        self.File = block
+        
     def __len__(self):
         return len(self.File)
-        
+
+    def read_instruction(self):
+        for instruction in self.File[0]:
+            print("QASMBLOCK", instruction.dump())
+            self.nLine += 1
+            yield instruction
+    
     def readline(self):
         """ Reads a line from a file """
-        while len(self.File) > 0:
-            line = self.File.pop(0)
-            self.nLine += 1
-            if coreTokens.blank(line): continue
-            return line
-        else:
-            # Recallable
-            self.File = self.orig.splitlines()
-            return None
+        raise NotImplementedError()
+        # while len(self.File) > 0:
+        #     line = self.File.pop(0)
+        #     self.nLine += 1
+        #     if not line: continue
+        #     print(self.nLine, line)
+        #     return line
+        # else:
+        #     # Recallable
+        #     self.File = self.orig.splitlines()
+        #     return None
 
     def __del__(self):
         pass

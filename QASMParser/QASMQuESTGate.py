@@ -5,18 +5,12 @@ class QuESTLibGate(Gate):
     def __init__(self, name, cargs, qargs, argOrder, internalName):
         self.type_ = "Gate"
         self.name = name
-        self._cargs = {}
-        self._qargs = {}
-        self._qargs = self.parse_qarg_string(qargs)
+        self._cargs = cargs
+        self._qargs = qargs
         self.internalName = internalName
         self.argOrder = argOrder
         Gate.internalGates[self.name] = self
-
-    def parse_qarg_string(self, qargString):
-        qargs = [ coreTokens.namedQubit(qarg).groups() for qarg in qargString.split(',')]
-        qargs = [[arg[0], arg[0]+"_index"] for arg in qargs]
-        return qargs
-
+    
     def reorder_args(self, qargs, cargs):
         preCode = []
         args = []

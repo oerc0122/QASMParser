@@ -7,6 +7,7 @@ argList = get_command_args()
 for source in argList.sources:
     myProg = ProgFile(source)
 
+    
 lang = None
 if argList.language:
     lang = argList.language
