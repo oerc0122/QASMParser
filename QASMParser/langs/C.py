@@ -9,6 +9,7 @@ def set_lang():
     Comment.to_lang = Comment_to_c
     Measure.to_lang = Measure_to_c
     IfBlock.to_lang = IfBlock_to_c
+    While.to_lang = While_to_c
     Gate.to_lang = CreateGate_to_c
     Opaque.to_lang = CreateGate_to_c
     CBlock.to_lang = CBlock_to_c
@@ -65,6 +66,37 @@ def Argument_to_c(self):
     if self.classical: return f'qreal {self.name}'
     else: return f'Qureg {self.name}, int {self.name}_index'
 
+def Maths_to_c(parent, maths, logical):
+
+    # Ops which should be unchanged
+    existOp = ["-","+","*","/","<","<=","==","!=",">=",">","!"]
+    outStr = ""
+
+    
+    if maths.logical is not logical:
+        parent._error("Cannot pass logical expression to mathematical expression or vice-versa")
+    for elem in maths.maths:
+        if isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
+            if isinstance(elem[1], tuple):
+                start, end = elem[1]
+                if start == end :
+                    elem[1] = start
+                else:
+                    raise NotImplementedError("lists in frame")
+            outStr += f"{elem[0].name}[{parent.resolve_arg(elem)}]"
+        elif isinstance(elem, str):
+            if elem not in MathsBlock.special:
+                outStr += elem
+            elif elem in existOp:
+                outStr += elem
+            else:
+                raise NotImplementedError(elem)
+        elif isinstance(elem, int) or isinstance(elem, float):
+            outStr += str(elem)
+        else:
+            raise NotImplementedError(elem)
+    return outStr
+        
 def Let_to_c(self):
     var = self.const
 
@@ -74,8 +106,11 @@ def Let_to_c(self):
     # Simple declaration
     if var.val is None: return f"{assignee};"
 
-    if type(var.val) is list: value =  f'{{{",".join(var.val)}}}'
+    if isinstance(var.val, MathsBlock):
+        value = Maths_to_c(self, var.val, False)
+    elif type(var.val) is list: value =  f'{{{",".join(var.val)}}}'
     else:  value =  f'{var.val}'
+    
     if var.cast: value = f"({var.cast}) {value}"
 
     return f"{assignee} = {value};"
@@ -103,7 +138,8 @@ def CallGate_to_c(self):
     return outString
 
 def Comment_to_c(self):
-    return "//" + self.comment
+    if (len(self.comment.splitlines()) > 1): return "/*\n" + self.comment + "\n*/"
+    else: return "//" + self.comment
 
 def Measure_to_c(self):
     carg = self._cargs
@@ -113,7 +149,14 @@ def Measure_to_c(self):
     return f"{carg[0].name}[{cargRef}] = measure(qreg, {qargRef});"
 
 def IfBlock_to_c(self):
-    return f"if ({self._cond})"
+    outStr = Maths_to_c(self, self._cond, True)
+    return f"if ({outStr})"
+
+def While_to_c(self):
+    print(self._cond)
+    outStr = Maths_to_c(self, self._cond, True)
+    return f"while ({outStr})"
+    
 
 def CreateGate_to_c(self):
     printQargs = ""

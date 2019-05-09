@@ -119,42 +119,39 @@ def _setup_QASMParser():
     regListNoRef = Group(delimitedList( regNoRef ))
     regListRef = Group(delimitedList( regRef ))
     regListMustRef = Group(delimitedList( regMustRef ))
+
+    intVar = integer ^ regRef
+    realVar = real ^ integer ^ pi ^ e ^ regRef
+    boolVar = boolean ^ realExp ^ intExp
+    mathOp =  [
+        (oneOf("-")  , 1, opAssoc.RIGHT),
+        (oneOf("^")  , 2, opAssoc.LEFT),
+        (oneOf("* / div"), 2, opAssoc.LEFT),
+        (oneOf("+ -"), 2, opAssoc.LEFT)
+    ]
+    logOp = [
+        (oneOf("! not"), 1, opAssoc.RIGHT),
+        (oneOf("and or xor"), 2, opAssoc.LEFT),
+        (oneOf("orof xorof andof"), 1, opAssoc.RIGHT),
+        (oneOf("< <= == != >= >"), 2, opAssoc.LEFT)
+    ]
+
+   
+    intOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in [(intFunc, 1, opAssoc.RIGHT)] + mathOp]
+    realOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in [(realFunc, 1, opAssoc.RIGHT)] + mathOp]
+    boolOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in logOp]
+
+    intOp = [(intFunc, 1, opAssoc.RIGHT)] + mathOp
+    realOp = [(realFunc, 1, opAssoc.RIGHT)] + mathOp
+    boolOp = logOp
     
+    intExp << infixNotation(intVar, intOp)
+   
+    realExp << infixNotation(realVar, realOp)
     
-    intExp << infixNotation(
-        integer ^ regRef,
-        [
-            (intFunc, 1, opAssoc.RIGHT),
-            (oneOf("-")  , 1, opAssoc.RIGHT),
-            (oneOf("^")  , 2, opAssoc.LEFT),
-            (oneOf("* / div"), 2, opAssoc.LEFT),
-            (oneOf("+ -"), 2, opAssoc.LEFT)
-        ]
-    )
+    boolExp = infixNotation(boolVar, boolOp)
     
-    
-    realExp << infixNotation(
-        real ^ integer ^ pi ^ e ^ regRef,
-        [
-            (realFunc, 1, opAssoc.RIGHT),
-            (oneOf("-")  , 1, opAssoc.RIGHT),
-            (oneOf("^")  , 2, opAssoc.LEFT),
-            (oneOf("* / div"), 2, opAssoc.LEFT),
-            (oneOf("+ -"), 2, opAssoc.LEFT)
-        ]
-    )
-    
-    boolExp = infixNotation(
-        boolean ^ realExp ^ intExp,
-        [
-            (oneOf("! not"), 1, opAssoc.RIGHT),
-            (oneOf("and or xor"), 2, opAssoc.LEFT),
-            (oneOf("orof xorof andof"), 1, opAssoc.RIGHT),
-            (oneOf("< <= == != => >"), 2, opAssoc.LEFT)
-        ]
-    )
-    
-    mathExp = realExp ^ intExp ^ boolExp
+    mathExp = (intExp | realExp) ^ boolExp
     
     
     op  = []

@@ -96,8 +96,10 @@ for Q in [1:3] {
 
 output ans;
 
-while ( Q[0]< 3 )
+let Q = 0;
+while ( Q < 3 )
 {
- output ans[23];
+ output ans[2:3];
+ let Q = Q + 1;
 }
 

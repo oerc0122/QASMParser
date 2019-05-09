@@ -69,7 +69,9 @@ class QASMFile:
             *test, = lineParser.scanString(currentLine)
             if test and test[0][1] == 0: # If line looks like valid instruction
                 try:
-                    yield QASMcodeParser.parseString(currentLine)[0]
+                    instruction = QASMcodeParser.parseString(currentLine)[0]
+                    instruction.original = originalTextFor(QASMcodeParser).parseString(currentLine)[0]
+                    yield instruction
                     currentLine = ""
                 except ParseException as err:
                     self._handler(err)

@@ -44,8 +44,8 @@ class QuESTLibGate(Gate):
                 tempVar   = "tmp"+str(nTemp)
                 indices = args.pop(0)
                 nIndices  = len(indices)
-                preCode  += [Let( (f'{tempVar}[{nIndices}]', "const int ") , (indices, None) )]
-                outCargs += [f"(int*) {tempVar}",f"{nIndices}"]
+                preCode  += [Let( (f'{tempVar}[{nIndices}]', "const int") , (indices, None) )]
+                outCargs += [f"{tempVar}",f"{nIndices}"]
             elif arg == "nextCarg":
                 outCargs += [cargs.pop(0)]
             elif arg == "cargs":

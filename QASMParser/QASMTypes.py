@@ -125,7 +125,7 @@ class Argument(Referencable):
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
-class Let:
+class Let(Operation):
     def __init__(self, var, val = None):
         if type(var) is Constant:
             self.const = var
@@ -237,6 +237,46 @@ class CodeBlock:
                 else: # Is argument or not set yet
                     return self._objs[var].name
 
+        elif type_ == "Maths":
+
+            
+            if var is None:
+                return None
+            elif isinstance(var, int) or isinstance(var, float):
+                return var
+            elif isinstance(var,str) and var.isdecimal():
+                return int(var)
+            elif isinstance(var,str) and re.fullmatch(isDigit, var):
+                return float(var)
+            elif isinstance(var, ParseResults):
+                return self.parse_maths(var)
+            else:
+                self._is_def(var, create=False, type_ = None)
+                var = self._objs[var]
+
+                if isinstance(var,Argument):
+                    
+                    return [var, var.name + "_index"]
+
+                elif isinstance(var,Constant):
+
+                    if var.val:
+                        return var.val
+                    else: # Is argument or not set yet
+                        return var.name
+
+                elif isinstance(var, ClassicalRegister):
+                    
+                    if index or index is None: # If index or implicit loop
+
+                        index = self.parse_range(index, var)
+                        
+                        return [var, index]
+                    else:
+                        return [var, None]
+                else:
+                    self._error("Undetermined type in maths parsing")
+
         elif type_ == "Gate":
             self._is_def(var, create=False, type_ = type_)
             # Add argument checking?
@@ -250,9 +290,9 @@ class CodeBlock:
         else: # Check exists and type is right
             if name not in self._objs:
                 self._error(existWarning.format(Type=type_, Name=name))
+            elif type_ is None: pass
             elif self._objs[name].type_ is not type_:
                 self._error(wrongTypeWarning.format(type_,self._objs[name].type_))
-            else: pass
 
     def _check_bounds(self,interval, arg = None):
         if arg is None: return
@@ -352,6 +392,9 @@ class CodeBlock:
         loop = Loop(self,block, var, start, end)
         self._code += [loop]
 
+    def new_while(self, cond, block):
+        self._code += [While(self, cond, block)]
+        
     def new_if(self, cond, block):
         self._code += [IfBlock(self, cond, block)]
 
@@ -376,7 +419,7 @@ class CodeBlock:
                 self._error("Cannot find opaque {}".format(gate))
         else:
             self._error("Unrecognised directive: {}".format(directive))
-    def parse_line(self, token):
+    def parse_line(self, token, line):
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
         if keyword == "include":
@@ -436,9 +479,9 @@ class CodeBlock:
             block = QASMBlock(self.currentFile, token.get("block", None))
             self.loop(var, block, start, end)
         elif keyword == "while":
-            cond = token["cond"]
+            cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token.get("block", None))
-            pass
+            self.new_while(block, cond)
         elif keyword == "let":
             var = token["var"]
             val = token["val"]
@@ -464,8 +507,8 @@ class CodeBlock:
             self.comment(comment)
         else:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType))
-        self._code[-1].original = line
-        if keyword is not None : self._code[-1].comment =  Comment(comment)
+        if line: self._code[-1].original = line.strip()
+        if keyword is not None and comment is not "": self._code[-1].inlineComment =  Comment(comment)
 
     def parse_args(self, args_in, type_):
         if not args_in: return []
@@ -485,7 +528,7 @@ class CodeBlock:
         return args
     def parse_instructions(self):
         for instruction in self.instructions:
-            self.parse_line(instruction)
+            self.parse_line(instruction, instruction.original)
 
     def parse_range(self, rangeSpec, arg = None):
 
@@ -524,20 +567,52 @@ class CodeBlock:
         return interval
 
     def parse_maths(self, maths):
-        from collections import Iterable
-        def flatten(coll):
-            for i in coll:
-                if isinstance(i, Iterable) and not isinstance(i, str):
-                    for subc in flatten(i):
-                        yield subc
-                else:
-                    yield i
-        maths = flatten(maths.asList())
-        return "".join(maths)
+        return MathsBlock(self,maths)
+    
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
-class IfBlock(CodeBlock):
+
+class MathsBlock:
+
+    arithOp = ["-","+","^","*","/","div"]
+    boolOp = ["!","not","and","or","xor","orof","xorof","andof","<","<=","==","!=",">=",">"]
+    intFunc = ["abs","rempow"]
+    realFunc = ["arcsin", "arccos", "arctan", "sin", "cos", "tan", "exp", "ln", "sqrt"]
+    special = arithOp + boolOp + intFunc + realFunc
+    
+    def __init__(self, parent, maths):
+        self.parent = parent
+        self.maths = []
+        self.logical = False
+        
+        for elem in maths:
+            print(elem)
+            if isinstance(elem, ParseResults):
+                self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))
+            elif isinstance(elem, str):
+                if elem in MathsBlock.arithOp:
+                    self.maths.append(elem)
+                elif elem in MathsBlock.boolOp: 
+                    self.logical = True
+                    self.maths.append(elem)
+                elif elem in MathsBlock.intFunc: 
+                    self.maths.append(elem)
+                elif elem in MathsBlock.realFunc: 
+                    self.maths.append(elem)
+                else:
+                    self.maths.append(parent._resolve(elem, "Maths"))
+                    
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class While(CodeBlock):
+    def __init__(self, parent, block, cond):
+        self._cond = cond
+        CodeBlock.__init__(self,block, parent=parent)
+        self.parse_instructions()
+
+class IfBlock(CodeBlock, Operation):
     def __init__(self, parent, cond, block):
         self._cond = cond
         CodeBlock.__init__(self, block, parent=parent)
