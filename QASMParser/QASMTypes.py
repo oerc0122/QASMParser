@@ -4,8 +4,10 @@ from .FileHandle import QASMFile, QASMBlock, NullBlock
 import re
 import copy
 
-isDigit = re.compile("[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
+isInt  = re.compile("[+-]?(\d+)(?:[eE][+-]?\d+)?")
+isReal = re.compile("[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 
+# Core types
 class Operation:
     def __init__(self, qargs = None, cargs = None):
         self._loops = None
@@ -30,6 +32,8 @@ class Operation:
         for parg in pargs:
             if isinstance(parg[1], tuple):
                 start, end = parg[1]
+                if isinstance(start, int): start -= parg[0].start
+                if isinstance(end, int): end -= parg[0].start
                 if start == end :
                     parg[1] = start
                 else:
@@ -101,29 +105,26 @@ class CodeBlock:
                 return None
             elif isinstance(var, int) or isinstance(var, float):
                 return var
-            elif isinstance(var,str) and var.isdecimal():
+            elif isinstance(var,str) and re.fullmatch(isInt, var):
+                var = float(var)
                 return int(var)
-            elif isinstance(var,str) and re.fullmatch(isDigit, var):
+            elif isinstance(var,str) and re.fullmatch(isReal, var):
                 return float(var)
             elif isinstance(var, ParseResults):
                 return self.parse_maths(var)
             else:
                 self._is_def(var, create=False, type_ = type_)
-                if self._objs[var].val:
-                    return self._objs[var].val
-                else: # Is argument or not set yet
-                    return self._objs[var].name
+                return self._objs[var].name
 
         elif type_ == "Maths":
-
             
             if var is None:
                 return None
             elif isinstance(var, int) or isinstance(var, float):
                 return var
-            elif isinstance(var,str) and var.isdecimal():
+            elif isinstance(var,str) and re.fullmatch(isInt, var):
                 return int(var)
-            elif isinstance(var,str) and re.fullmatch(isDigit, var):
+            elif isinstance(var,str) and re.fullmatch(isReal, var):
                 return float(var)
             elif isinstance(var, ParseResults):
                 return self.parse_maths(var)
@@ -217,7 +218,6 @@ class CodeBlock:
         letobj = Constant( var, val )
         self._objs[letobj.name] = letobj
         self._code += [Let( letobj )]
-
     def call_gate(self, funcName, cargs, qargs, gargs=None, spargs=None):
         self._is_def(funcName, create=False, type_ = "Gate")
         cargs = self.parse_args(cargs, type_ = "Constant")
@@ -280,6 +280,8 @@ class CodeBlock:
 
     def directive(self, directive, args = None, block = None):
         if directive == "ClassLang":
+            if type(self).__name__ is not "ProgFile" : self._error("Cannot set classical language outside of main code")
+            if hasattr(self, "classLang") : self._error("Classical language already defined as {}".format(self.classLang))
             self.classLang = args.strip('"\'')
         elif directive == "classical":
             if block:
@@ -296,7 +298,10 @@ class CodeBlock:
                 self._error("Cannot find opaque {}".format(gate))
         else:
             self._error("Unrecognised directive: {}".format(directive))
+
     def parse_line(self, token, line):
+        non_code = ["alias","exit","comment","barrier","directive"]
+        
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
         if keyword == "include":
@@ -362,14 +367,15 @@ class CodeBlock:
         elif keyword == "let":
             var = token["var"]
             val = token["val"]
-            self.let( (var, "const int"), (val, None) )
+            type_ = token["type"]
+            self.let( (var, type_), (val, None) )
         elif keyword == "exit":
             self.leave()
         elif keyword == "alias":
             name = token["alias"]["var"]
             index = token["alias"].get("ref", None)
             qarg = token["target"]["var"]
-            qindex = token["alias"].get("ref", None)
+            qindex = token["target"].get("ref", None)
             self.alias(name, index, qarg, qindex)
         elif keyword == "output":
             carg = token["value"]["var"]
@@ -384,8 +390,12 @@ class CodeBlock:
             self.comment(comment)
         else:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType))
-        if line: self._code[-1].original = line.strip()
-        if keyword is not None and comment is not "": self._code[-1].inlineComment =  Comment(comment)
+
+        lastLine = self._code[-1]
+        if line:
+            if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = line.strip()
+            elif keyword in non_code: lastLine.original += "\n"+line.strip()
+        if keyword is not None and comment is not "": lastLine.inlineComment = Comment(comment)
 
     def parse_args(self, args_in, type_):
         if not args_in: return []
@@ -449,14 +459,49 @@ class CodeBlock:
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
-class Comment:
-    def __init__(self, comment):
-        self.name = comment
-        self.comment = comment
+class MathsBlock:
 
+    arithOp = ["-","+","^","*","/","div"]
+    boolOp = ["!","not","and","or","xor","orof","xorof","andof","<","<=","==","!=",">=",">"]
+    intFunc = ["abs","rempow"]
+    realFunc = ["arcsin", "arccos", "arctan", "sin", "cos", "tan", "exp", "ln", "sqrt"]
+    special = arithOp + boolOp + intFunc + realFunc
+    
+    def __init__(self, parent, maths, topLevel=True):
+        self.parent = parent
+        self.maths = []
+        self.logical = False
+        self.topLevel = topLevel
+        while(maths):
+            elem = maths.pop(0)
+            if isinstance(elem, ParseResults):
+                if len(elem) < 3 and hasattr(elem,"var"):
+                    self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))
+                else:
+                    self.maths.append(MathsBlock(self.parent, elem, False))
+            elif isinstance(elem, str):
+                if elem in MathsBlock.arithOp:
+                    self.maths.append(elem)
+                elif elem in MathsBlock.boolOp: 
+                    self.logical = True
+                    self.maths.append(elem)
+                elif elem in MathsBlock.intFunc: 
+                    self.maths.append(elem)
+                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], False))
+                elif elem in MathsBlock.realFunc: 
+                    self.maths.append(elem)
+                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], False))
+                else:
+                    self.maths.append(parent._resolve(elem, "Maths"))
+                    
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
+class ExternalLang:
+    pass
+
+
+# Variable types
 class Constant(Referencable):
     def __init__(self, var, val):
         Referencable.__init__(self)
@@ -510,6 +555,16 @@ class Argument(Referencable):
         Referencable.__init__(self)
         self.name = name
         self.type_ = "QuantumRegister"
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+
+# Operation types
+class Comment:
+    def __init__(self, comment):
+        self.name = comment
+        self.comment = comment
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
@@ -576,39 +631,6 @@ class EntryExit:
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
-class MathsBlock:
-
-    arithOp = ["-","+","^","*","/","div"]
-    boolOp = ["!","not","and","or","xor","orof","xorof","andof","<","<=","==","!=",">=",">"]
-    intFunc = ["abs","rempow"]
-    realFunc = ["arcsin", "arccos", "arctan", "sin", "cos", "tan", "exp", "ln", "sqrt"]
-    special = arithOp + boolOp + intFunc + realFunc
-    
-    def __init__(self, parent, maths):
-        self.parent = parent
-        self.maths = []
-        self.logical = False
-        
-        for elem in maths:
-            print(elem)
-            if isinstance(elem, ParseResults):
-                self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))
-            elif isinstance(elem, str):
-                if elem in MathsBlock.arithOp:
-                    self.maths.append(elem)
-                elif elem in MathsBlock.boolOp: 
-                    self.logical = True
-                    self.maths.append(elem)
-                elif elem in MathsBlock.intFunc: 
-                    self.maths.append(elem)
-                elif elem in MathsBlock.realFunc: 
-                    self.maths.append(elem)
-                else:
-                    self.maths.append(parent._resolve(elem, "Maths"))
-                    
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
 class While(CodeBlock):
     def __init__(self, parent, block, cond):
         self._cond = cond
@@ -625,11 +647,13 @@ class Gate(Referencable, CodeBlock):
 
     internalGates = {}
 
-    def __init__(self, parent, name, cargs, qargs, block, recursive = False, returnType = None):
+    def __init__(self, parent, name, cargs, qargs, block, recursive = False, returnType = None, unitary = False):
         Referencable.__init__(self)
         self.name = name
         CodeBlock.__init__(self, block, parent=parent)
         self.returnType = returnType
+        self.unitary = unitary
+        
         if recursive:
             self.gate(name, cargs, qargs, NullBlock(block))
             self._code = []
@@ -730,5 +754,3 @@ class Verbatim:
     def to_lang(self):
         return self.line
 
-class ExternalLang:
-    pass

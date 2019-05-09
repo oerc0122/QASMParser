@@ -52,16 +52,19 @@ class QASMFile:
             print(" "*(err.column-1) + "^")
             problem = errorKeywordParser.parseString(err.line)
             try:
-                if problem["keyword"] in qops.keys():
+                if ";" not in err.line:
+                    raise ParseException("Missing semicolon")
+                elif problem["keyword"] in qops.keys():
                     temp = qops[problem["keyword"]].parser.parseString(err.line)
                 elif problem["keyword"] in cops.keys():
                     temp = cops[problem["keyword"]].parser.parseString(err.line)
                 else:
-                    self._error(instructionWarning.format(problem["keyword"], self.QASMType))
-                self._error(unknownParseWarning + f" with parsing {problem['keyword']}")
+                    raise ParseException(instructionWarning.format(problem["keyword"], self.QASMType))
+                raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
             except ParseException as subErr:
-                self._error(subErr)
-
+                print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))
+                quit()
+                
     def read_instruction(self):
         line = self.readline()
         currentLine = line
@@ -69,21 +72,26 @@ class QASMFile:
             *test, = lineParser.scanString(currentLine)
             if test and test[0][1] == 0: # If line looks like valid instruction
                 try:
-                    instruction = QASMcodeParser.parseString(currentLine)[0]
-                    instruction.original = originalTextFor(QASMcodeParser).parseString(currentLine)[0]
-                    yield instruction
-                    currentLine = ""
+                    prev = 0
+                    for inst, start, end in QASMcodeParser.scanString(currentLine):
+                        if start != prev:
+                            if prev != 0: break
+                            else: QASMcodeParser.parseString(currentLine,parseAll=True)
+                        instruction = inst[0]
+                        instruction.original = currentLine[start:end]
+                        prev = end
+                        yield instruction
+                        currentLine = currentLine[end:].lstrip()
                 except ParseException as err:
                     self._handler(err)
                     
+            if currentLine.strip().startswith(";"): # Handle null statement
+                currentLine = currentLine.lstrip(" ;\n\t")
             line = self.readline()
             if line is not None: currentLine += line
             
-        if currentLine: # Catch remainder
-            try:
-                yield QASMcodeParser.parseString(currentLine)[0]
-            except ParseException as err:
-                self._handler(err)
+        if currentLine.strip(): # Catch remainder
+            self._error("Unexpected end of file")
 
     def readline(self):
         """ Reads a line from a file """

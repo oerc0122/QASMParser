@@ -18,9 +18,9 @@ class ProgFile(CodeBlock):
             self._objs[constants] = Constant( (Constant, "float"), ( None, None ))
         self.parse_instructions()
         
-    def to_lang(self, filename = None, module = False, lang = "C", verbose = False):
+    def to_lang(self, filename = None, module = False, langOut = "C", verbose = False):
         try:
-            lang = import_module(f"QASMParser.langs.{lang}")
+            lang = import_module(f"QASMParser.langs.{langOut}")
             lang.set_lang()
         except ImportError:
             raise NotImplementedError(langNotDefWarning.format(lang))
@@ -28,6 +28,9 @@ class ProgFile(CodeBlock):
         indent = lang.indent
         writeln = lambda writeIn: [outputFile.write(self.depth*indent + toWrite + "\n" ) for toWrite in writeIn.splitlines()]
 
+        if hasattr(self, "classLang") and self.classLang is not langOut:
+            raise NotImplementedError("Classical language {} does not match output language {}".format(self.classLang, langOut))
+        
         def print_code(self, code, outputFile):
             self.depth += 1
             for line in code:

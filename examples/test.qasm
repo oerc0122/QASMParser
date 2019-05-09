@@ -47,7 +47,7 @@ creg ans[5];
 x a[0]; // a = 0001
 x b;    // b = 1111
 
-
+let QWE = sqrt(8.);
 barrier a, b;
 
 // add a to b, storing result in b
@@ -73,12 +73,12 @@ measure cout[0] -> ans[4];
 creg loopVar[4];
 measure b -> loopVar;
 
-if (ans[1] == 1)
+if ((ans[1] == 1) and (ans[0] == 2))
 {
   *** classical printf("%i", 128);
 }
 
-let lambda = 1.3e5;
+let lambda = sqrt(1);
 U(0,0,lambda) a;
 if (ans[0] == 1) U a;
 

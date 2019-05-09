@@ -69,7 +69,13 @@ def Argument_to_c(self):
 def Maths_to_c(parent, maths, logical):
 
     # Ops which should be unchanged
-    existOp = ["-","+","*","/","<","<=","==","!=",">=",">","!"]
+    identOp = ["-","+","*","/","%","<","<=","==","!=",">=",">","!","sin","cos","tan","sqrt","abs"]
+    # Ops which require simple substitution
+    subOp = {"and":"&&","or":"||","xor":"!=","mod":"%",
+             "arccos":"acos", "arcsin":"asin","arctan":"atan",
+             }
+    # Ops which will be more complicated
+    compSubOp = ["^","div"]
     outStr = ""
 
     
@@ -87,15 +93,20 @@ def Maths_to_c(parent, maths, logical):
         elif isinstance(elem, str):
             if elem not in MathsBlock.special:
                 outStr += elem
-            elif elem in existOp:
+            elif elem in identOp:
                 outStr += elem
+            elif elem in subOp:
+                outStr += subOp[elem]
             else:
                 raise NotImplementedError(elem)
         elif isinstance(elem, int) or isinstance(elem, float):
             outStr += str(elem)
+        elif isinstance(elem, MathsBlock):
+            outStr += Maths_to_c(parent, elem, logical)
         else:
             raise NotImplementedError(elem)
-    return outStr
+    if (maths.topLevel): return outStr
+    else: return "(" + outStr + ")"
         
 def Let_to_c(self):
     var = self.const
@@ -150,12 +161,11 @@ def Measure_to_c(self):
 
 def IfBlock_to_c(self):
     outStr = Maths_to_c(self, self._cond, True)
-    return f"if ({outStr})"
+    return f"if {outStr}"
 
 def While_to_c(self):
-    print(self._cond)
     outStr = Maths_to_c(self, self._cond, True)
-    return f"while ({outStr})"
+    return f"while {outStr}"
     
 
 def CreateGate_to_c(self):

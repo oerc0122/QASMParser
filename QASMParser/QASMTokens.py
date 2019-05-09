@@ -85,7 +85,7 @@ def _setup_QASMParser():
     boolean = Word("TF", exact=1)
     validName = Forward()
     lineEnd = Literal(";")
-    
+
     _is_ = Keyword("is").suppress()
     _in_ = Keyword("in").suppress()
     toClass = Literal("->").suppress()
@@ -101,7 +101,7 @@ def _setup_QASMParser():
     dirCloseSyntax = Keyword(dirCloseStr)
     
     intFunc = oneOf("abs rempow")
-    realFunc = Or(intFunc, oneOf("arcsin arccos arctan sin cos tan exp ln sqrt"))
+    realFunc = oneOf("abs rempow arcsin arccos arctan sin cos tan exp ln sqrt")
     
     inL,inS,inR = map(Suppress, "[:]")
     
@@ -136,7 +136,6 @@ def _setup_QASMParser():
         (oneOf("< <= == != >= >"), 2, opAssoc.LEFT)
     ]
 
-   
     intOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in [(intFunc, 1, opAssoc.RIGHT)] + mathOp]
     realOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in [(realFunc, 1, opAssoc.RIGHT)] + mathOp]
     boolOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in logOp]
@@ -150,9 +149,14 @@ def _setup_QASMParser():
     realExp << infixNotation(realVar, realOp)
     
     boolExp = infixNotation(boolVar, boolOp)
+
+    def setMathType(toks, type_):
+        toks["type"] = type_
     
-    mathExp = (intExp | realExp) ^ boolExp
-    
+    mathExp = (intExp.setParseAction(lambda s,l,t: setMathType(t, "int")) ^
+               realExp.setParseAction(lambda s,l,t: setMathType(t, "float")) ^
+               boolExp.setParseAction(lambda s,l,t: setMathType(t, "bool"))
+               )
     
     op  = []
     qop = []
@@ -190,6 +194,7 @@ def _setup_QASMParser():
     
     
     _Op("let", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM")
+
     _Op("version", real("versionNumber"), version = None, keyOverride = (Keyword("REQASM")^Keyword("OPENQASM"))("type") )
     _Op("include", quotedString("file").addParseAction(removeQuotes))
     _Op("opaque", validName("name") + regListNoRef("qargs"), keyOverride = attributes + "opaque")
@@ -229,7 +234,7 @@ def _setup_QASMParser():
     validLine = Forward()
     codeBlock = nestedExpr("{","}", Group(validLine), (quotedString | comment))
     
-    validLine << (    (
+    validLine << (  (
         (operations + Optional(comment)) ^
         (Or(blocksParsers) + Optional(comment) + codeBlock("block")) ^
                 comment))                              # Whole line comment
