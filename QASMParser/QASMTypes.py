@@ -44,10 +44,14 @@ class Operation:
             return str(arg[1])
         elif issubclass(type(arg[0]),Register):
             start = arg[1]
+            offset = arg[0].start
             if isinstance(start, int):
-                return str(arg[0].start + start)
+                return str(offset + start)
             elif isinstance(start, Constant):
-                return str(arg[0].start + arg[1].val)
+                return str(offset + arg[1].val)
+            elif isinstance(start, str):
+                if (offset > 0): return f"{start} + {arg[0].start}"
+                else: return f"{start}"
             else:
                 return arg[1]
         else:
@@ -150,9 +154,9 @@ class CallGate(Operation):
 class Measure(Operation):
     def __init__(self, qarg, carg):
         Operation.__init__(self, qarg, carg)
-        self.handle_loops([self._qargs])
-        if self._loops: self._cargs[1] = self._qargs[1]
         self.handle_loops([self._cargs])
+        if self._loops: self._qargs[1] = self._cargs[1]
+        self.handle_loops([self._qargs])
         carg = self._cargs[0]
         bindex = self._cargs[1]
         qarg = self._qargs[0]
