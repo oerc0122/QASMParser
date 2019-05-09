@@ -64,133 +64,6 @@ class Referencable:
     def __init__(self):
         self.type_ = type(self).__name__
 
-class Comment:
-    def __init__(self, comment):
-        self.name = comment
-        self.comment = comment
-
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class Constant(Referencable):
-    def __init__(self, var, val):
-        Referencable.__init__(self)
-        self.name = var[0]
-        self.var_type = var[1]
-        self.val  = val[0]
-        self.cast = val[1]
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class Register(Referencable):
-    def __init__(self, name, size):
-        Referencable.__init__(self)
-        self.name = name
-        self.size = size
-
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class QuantumRegister(Register):
-
-    numQubits = 0
-
-    def __init__(self, name, size):
-        Register.__init__(self, name, size)
-        if size is None: return# Size is None implies argument
-
-        self.start = QuantumRegister.numQubits
-        self.end   = QuantumRegister.numQubits + self.size
-        QuantumRegister.numQubits += self.size
-
-class ClassicalRegister(Register):
-    def __init__(self, name, size):
-        Register.__init__(self, name, size)
-        if size is None: return # Size is None implies argument
-
-        self.start = 0
-        self.end = self.size
-
-class Alias(Register):
-    def __init__(self, name, referee, interval):
-        start, end = interval
-        size = end - start + 1
-        Register.__init__(self, name, size)
-        self.start = referee.start + start
-        self.end   = self.start + size
-        self.type_ = "QuantumRegister"
-
-class Argument(Referencable):
-    def __init__(self, name):
-        Referencable.__init__(self)
-        self.name = name
-        self.type_ = "QuantumRegister"
-
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class Let(Operation):
-    def __init__(self, var, val = None):
-        if type(var) is Constant:
-            self.const = var
-        elif type(var) in [tuple, list]:
-            self.const = Constant(var, val)
-        else:
-            raise TypeError("Bad assignment of let")
-
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class CallGate(Operation):
-    def __init__(self, gate, cargs, qargs):
-        self.name = gate
-
-        Operation.__init__(self, qargs, cargs)
-        self.handle_loops(self._qargs)
-
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class Measure(Operation):
-    def __init__(self, qarg, carg):
-        Operation.__init__(self, qarg, carg)
-        self.handle_loops([self._cargs])
-        if self._loops: self._qargs[1] = self._cargs[1]
-        self.handle_loops([self._qargs])
-        carg = self._cargs[0]
-        bindex = self._cargs[1]
-        qarg = self._qargs[0]
-        qindex = self._qargs[1]
-        # Check bindices
-        if bindex is None:
-            if carg.size < qarg.size:
-                raise IOError(argSizeWarning.format(Req=qarg.size, Var=carg.name, Var2 = qarg.name, Max=carg.size))
-            if carg.size > qarg.size:
-                raise IOError(argSizeWarning.format(Req=carg.size, Var=qarg.name, Var2 = carg.name, Max=qarg.size))
-            self._cargs[1] = self._qargs[1]
-        self.finalise_loops()
-
-class Reset(Operation):
-    def __init__(self, qarg):
-        Operation.__init__(self, qarg)
-        self.handle_loops([self._qargs])
-
-class Output(Operation):
-    def __init__(self, carg):
-        Operation.__init__(self, cargs = carg)
-        self.handle_loops([self._cargs])
-
-class EntryExit:
-    def __init__(self, parent):
-        self.parent = parent
-        self.depth = 1
-
-    def exited(self):
-        self.depth = 0
-
-    def to_lang(self):
-        raise NotImplementedError(langWarning.format(type(self).__name__))
-
 class CodeBlock:
     def __init__(self, block, parent, copyObjs = True, copyFuncs = True):
         self._code = []
@@ -576,6 +449,132 @@ class CodeBlock:
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
+class Comment:
+    def __init__(self, comment):
+        self.name = comment
+        self.comment = comment
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class Constant(Referencable):
+    def __init__(self, var, val):
+        Referencable.__init__(self)
+        self.name = var[0]
+        self.var_type = var[1]
+        self.val  = val[0]
+        self.cast = val[1]
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class Register(Referencable):
+    def __init__(self, name, size):
+        Referencable.__init__(self)
+        self.name = name
+        self.size = size
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class QuantumRegister(Register):
+
+    numQubits = 0
+
+    def __init__(self, name, size):
+        Register.__init__(self, name, size)
+        if size is None: return# Size is None implies argument
+
+        self.start = QuantumRegister.numQubits
+        self.end   = QuantumRegister.numQubits + self.size
+        QuantumRegister.numQubits += self.size
+
+class ClassicalRegister(Register):
+    def __init__(self, name, size):
+        Register.__init__(self, name, size)
+        if size is None: return # Size is None implies argument
+
+        self.start = 0
+        self.end = self.size
+
+class Alias(Register):
+    def __init__(self, name, referee, interval):
+        start, end = interval
+        size = end - start + 1
+        Register.__init__(self, name, size)
+        self.start = referee.start + start
+        self.end   = self.start + size
+        self.type_ = "QuantumRegister"
+
+class Argument(Referencable):
+    def __init__(self, name):
+        Referencable.__init__(self)
+        self.name = name
+        self.type_ = "QuantumRegister"
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class Let(Operation):
+    def __init__(self, var, val = None):
+        if type(var) is Constant:
+            self.const = var
+        elif type(var) in [tuple, list]:
+            self.const = Constant(var, val)
+        else:
+            raise TypeError("Bad assignment of let")
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class CallGate(Operation):
+    def __init__(self, gate, cargs, qargs):
+        self.name = gate
+
+        Operation.__init__(self, qargs, cargs)
+        self.handle_loops(self._qargs)
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class Measure(Operation):
+    def __init__(self, qarg, carg):
+        Operation.__init__(self, qarg, carg)
+        self.handle_loops([self._cargs])
+        if self._loops: self._qargs[1] = self._cargs[1]
+        self.handle_loops([self._qargs])
+        carg = self._cargs[0]
+        bindex = self._cargs[1]
+        qarg = self._qargs[0]
+        qindex = self._qargs[1]
+        # Check bindices
+        if bindex is None:
+            if carg.size < qarg.size:
+                raise IOError(argSizeWarning.format(Req=qarg.size, Var=carg.name, Var2 = qarg.name, Max=carg.size))
+            if carg.size > qarg.size:
+                raise IOError(argSizeWarning.format(Req=carg.size, Var=qarg.name, Var2 = carg.name, Max=qarg.size))
+            self._cargs[1] = self._qargs[1]
+        self.finalise_loops()
+
+class Reset(Operation):
+    def __init__(self, qarg):
+        Operation.__init__(self, qarg)
+        self.handle_loops([self._qargs])
+
+class Output(Operation):
+    def __init__(self, carg):
+        Operation.__init__(self, cargs = carg)
+        self.handle_loops([self._cargs])
+
+class EntryExit:
+    def __init__(self, parent):
+        self.parent = parent
+        self.depth = 1
+
+    def exited(self):
+        self.depth = 0
+
+    def to_lang(self):
+        raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class MathsBlock:
 
