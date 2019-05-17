@@ -81,14 +81,14 @@ class CodeBlock:
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile._error
         QASMType = self.currentFile.QASMType
-        if QASMType not in ["OPENQASM", "REQASM"]:
-            self._error(QASMWarning.format(QASMType))
 
     def _resolve(self, var, type_, index = ""):
-        if type_ in ["ClassicalRegister","QuantumRegister","Alias"]:
+        if type_ in ["ClassicalRegister","QuantumRegister"]:
 
-            self._is_def(var, create=False, type_ = type_)
-            var = self._objs[var]
+            if self._check_def(var, create=False, type_ = type_):
+                var = self._objs[var]
+            elif self._check_def(var, create=False, type_ = "Alias"):
+                var = self._objs[var]
 
             if isinstance(var,Argument):
 
@@ -99,6 +99,14 @@ class CodeBlock:
                 index = self.parse_range(index, var)
 
                 return [var, index]
+
+        elif type_ == "Alias":
+
+            self._is_def(var, create=False, type_ = type_)
+            var = self._objs[var]
+            
+            index = self.parse_range(index, var)
+            return [var, index]
             
         elif type_ == "Constant":
             if var is None:
@@ -207,11 +215,10 @@ class CodeBlock:
     def alias(self, aliasName, argIndex, referee, refIndex):
         referee, refInter = self._resolve(referee, type_="QuantumRegister", index = refIndex)
         if self._check_def(aliasName, create=True, type_ = "Alias"):
-            self.new_alias(aliasName, refInter[1] - refInter[0])
+            self.new_alias(aliasName, 1 + refInter[1] - refInter[0])
 
-        print(argIndex, refIndex)
-        print(self._objs[aliasName].size)
         alias, aliasInter = self._resolve(aliasName, type_="Alias", index=argIndex)
+
         if aliasInter[1] - aliasInter[0] != refInter[1] - refInter[0]: 
             self._error(f"Mismatched indices {aliasName}: Requested {refInter[1] - refInter[0]}, received {aliasInter[1] - aliasInter[0]}")
             
@@ -320,6 +327,11 @@ class CodeBlock:
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
 
+        print(token.dump())
+        print(token)
+        if self.currentFile.version < token["reqVersion"]:
+            self._error(instructionWarning.format(keyword, self.currentFile.QASMType, self.currentFile.versionNumber))
+
         if keyword == "include":
             if hasattr(self,"include"):
                 self.include(token["file"])
@@ -383,7 +395,7 @@ class CodeBlock:
         elif keyword == "let":
             var = token["var"]
             val = token["val"]
-            type_ = token["type"]
+            type_ = token["val"]["type"]
             self.let( (var, type_), (val, None) )
         elif keyword == "exit":
             self.leave()
@@ -412,6 +424,7 @@ class CodeBlock:
         else:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType))
 
+            
         lastLine = self._code[-1]
         if line:
             if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = line.strip()
@@ -455,9 +468,6 @@ class CodeBlock:
             self._check_bounds(interval, arg)
 
         elif rangeSpec.get("start", None) is not None or rangeSpec.get("end", None) is not None:
-            if self.currentFile.QASMType != "REQASM":
-                self._error(instructionWarning.format("Range specifier", self.currentFile.QASMType))
-
             start, end = rangeSpec.get("start", None), rangeSpec.get("end", None)
             start = self._resolve(start, type_ = "Constant")
             end   = self._resolve(end, type_ = "Constant")
@@ -574,6 +584,8 @@ class Alias(Register):
     def __init__(self, name, size):
         Register.__init__(self, name, size)
         self.type_ = "Alias"
+        self.start = 0
+        self.end = self.size
         self.targets = [(None, None)]*self.size
         
     def contiguous(self):
@@ -586,6 +598,7 @@ class Alias(Register):
                 currBlock = []
             currBlock.append( (target, index) )
         self.blocks.append(currBlock)
+        self.all_set = all(target is not (None, None) for target in self.targets)
         
     def set_target(self, indices, target):
         # Split tuple

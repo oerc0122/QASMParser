@@ -28,6 +28,7 @@ class QASMFile:
             elif line.get('keyword') == "version":
                 self.version = parseVersion(line["version"][0])
                 self.QASMType = line["version"]["type"]
+                self.versionNumber = line["version"]["versionNumber"]
                 break
             else:
                 self._error("Header does not contain version")

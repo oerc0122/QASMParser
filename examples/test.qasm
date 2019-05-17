@@ -1,5 +1,5 @@
 // quantum ripple-carry adder from Cuccaro et al, quant-ph/0410184
-REQASM 2.0;
+OMEQASM 2.0;
 include "qelib1.inc";
 
 *** ClassLang "C";
