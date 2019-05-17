@@ -8,9 +8,13 @@ typedef struct bitstr
 } bitstr;
 
 bitstr toBitstr(int *bits, int nBits);
-_Bool orOf (bitstr bits);
-_Bool xorOf(bitstr bits);
-_Bool andOf(bitstr bits);
+_Bool orOf(int *bits, int nBits);
+_Bool xorOf(int *bits, int nBits);
+_Bool andOf(int *bits, int nBits);
+
+_Bool orOfBits (bitstr bits);
+_Bool xorOfBits(bitstr bits);
+_Bool andOfBits(bitstr bits);
 
 int fllog(int c, int a);
 int powrem(int a, int c);

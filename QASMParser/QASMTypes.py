@@ -85,7 +85,7 @@ class CodeBlock:
             self._error(QASMWarning.format(QASMType))
 
     def _resolve(self, var, type_, index = ""):
-        if type_ in ["ClassicalRegister","QuantumRegister"]:
+        if type_ in ["ClassicalRegister","QuantumRegister","Alias"]:
 
             self._is_def(var, create=False, type_ = type_)
             var = self._objs[var]
@@ -99,7 +99,7 @@ class CodeBlock:
                 index = self.parse_range(index, var)
 
                 return [var, index]
-
+            
         elif type_ == "Constant":
             if var is None:
                 return None
@@ -109,7 +109,8 @@ class CodeBlock:
                 var = float(var)
                 return int(var)
             elif isinstance(var,str) and re.fullmatch(isReal, var):
-                return float(var)
+                var = float(var)
+                return var
             elif isinstance(var, ParseResults):
                 return self.parse_maths(var)
             else:
@@ -117,7 +118,7 @@ class CodeBlock:
                 return self._objs[var].name
 
         elif type_ == "Maths":
-            
+
             if var is None:
                 return None
             elif isinstance(var, int) or isinstance(var, float):
@@ -133,22 +134,19 @@ class CodeBlock:
                 var = self._objs[var]
 
                 if isinstance(var,Argument):
-                    
+
                     return [var, var.name + "_index"]
 
                 elif isinstance(var,Constant):
 
-                    if var.val:
-                        return var.val
-                    else: # Is argument or not set yet
-                        return var.name
+                    return var.name
 
                 elif isinstance(var, ClassicalRegister):
-                    
+
                     if index or index is None: # If index or implicit loop
 
                         index = self.parse_range(index, var)
-                        
+
                         return [var, index]
                     else:
                         return [var, None]
@@ -160,7 +158,15 @@ class CodeBlock:
             # Add argument checking?
             return self._objs[var]
 
-    def _is_def(self, name, create, type_ = None):
+        else:
+            self._error("Unrecognised type {} in _resolve".format(type_))
+        
+    def _check_def(self, name, create:bool, type_ = None):
+        if name not in self._objs: return create
+        elif type_ is not None and self._objs[name].type_ is not type_: return False
+        else: return not create
+
+    def _is_def(self, name, create:bool, type_ = None):
 
         if create: # Check for duplicate naming
             if name in self._objs: self._error(dupWarning.format(Name=name, Type=self._objs[name].type_))
@@ -194,12 +200,22 @@ class CodeBlock:
 
         self._code += [variable]
 
-    def alias(self, argName, argIndex, referee, refIndex):
+    def new_alias(self, argName, size):
         self._is_def(argName, create=True)
-        referee, interval = self._resolve(referee, type_="QuantumRegister", index = refIndex)
-        alias = Alias(argName, referee, interval)
+        self._objs[argName] = Alias(argName, size)
 
-        self._objs[argName] = alias
+    def alias(self, aliasName, argIndex, referee, refIndex):
+        referee, refInter = self._resolve(referee, type_="QuantumRegister", index = refIndex)
+        if self._check_def(aliasName, create=True, type_ = "Alias"):
+            self.new_alias(aliasName, refInter[1] - refInter[0])
+
+        print(argIndex, refIndex)
+        print(self._objs[aliasName].size)
+        alias, aliasInter = self._resolve(aliasName, type_="Alias", index=argIndex)
+        if aliasInter[1] - aliasInter[0] != refInter[1] - refInter[0]: 
+            self._error(f"Mismatched indices {aliasName}: Requested {refInter[1] - refInter[0]}, received {aliasInter[1] - aliasInter[0]}")
+            
+        alias.set_target(aliasInter, (referee, refInter) )
 
     def gate(self, funcName, cargs, qargs, block, recursive = False, opaque = False):
         self._is_def(funcName, create=True)
@@ -271,7 +287,7 @@ class CodeBlock:
 
     def new_while(self, cond, block):
         self._code += [While(self, cond, block)]
-        
+
     def new_if(self, cond, block):
         self._code += [IfBlock(self, cond, block)]
 
@@ -301,9 +317,9 @@ class CodeBlock:
 
     def parse_line(self, token, line):
         non_code = ["alias","exit","comment","barrier","directive"]
-        
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
+
         if keyword == "include":
             if hasattr(self,"include"):
                 self.include(token["file"])
@@ -371,6 +387,11 @@ class CodeBlock:
             self.let( (var, type_), (val, None) )
         elif keyword == "exit":
             self.leave()
+        elif keyword == "defAlias":
+            name = token["alias"]["var"]
+            index = token["alias"]["ref"].get("index", None)
+            if index is None: index = self.parse_range["alias"]["ref"]["range"]
+            self.new_alias(name, index)
         elif keyword == "alias":
             name = token["alias"]["var"]
             index = token["alias"].get("ref", None)
@@ -454,20 +475,21 @@ class CodeBlock:
         return interval
 
     def parse_maths(self, maths):
-        return MathsBlock(self,maths)
-    
+        return MathsBlock(self,maths,topLevel = True)
+
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class MathsBlock:
 
     arithOp = ["-","+","^","*","/","div"]
-    boolOp = ["!","not","and","or","xor","orof","xorof","andof","<","<=","==","!=",">=",">"]
-    intFunc = ["abs","rempow"]
+    boolOp = ["!","not","and","or","xor","<","<=","==","!=",">=",">"]
+    bitFunc = ["orof","xorof","andof"]
+    intFunc = ["abs","rempow","countof"]
     realFunc = ["arcsin", "arccos", "arctan", "sin", "cos", "tan", "exp", "ln", "sqrt"]
     special = arithOp + boolOp + intFunc + realFunc
-    
-    def __init__(self, parent, maths, topLevel=True):
+
+    def __init__(self, parent, maths, topLevel=False, operator = None):
         self.parent = parent
         self.maths = []
         self.logical = False
@@ -475,25 +497,32 @@ class MathsBlock:
         while(maths):
             elem = maths.pop(0)
             if isinstance(elem, ParseResults):
-                if len(elem) < 3 and hasattr(elem,"var"):
+                if len(elem) < 3 and "var" in elem:
                     self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))
+                elif len(elem) == 1:
+                    self.maths.append(elem[0])
                 else:
-                    self.maths.append(MathsBlock(self.parent, elem, False))
+                    self.maths.append(MathsBlock(self.parent, elem))
+            
             elif isinstance(elem, str):
                 if elem in MathsBlock.arithOp:
                     self.maths.append(elem)
-                elif elem in MathsBlock.boolOp: 
+                elif elem in MathsBlock.boolOp:
                     self.logical = True
                     self.maths.append(elem)
-                elif elem in MathsBlock.intFunc: 
+                elif elem in MathsBlock.intFunc:
                     self.maths.append(elem)
-                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], False))
-                elif elem in MathsBlock.realFunc: 
+                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], operator = elem))
+                elif elem in MathsBlock.realFunc:
                     self.maths.append(elem)
-                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], False))
+                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], operator = elem))
+                elif elem in MathsBlock.bitFunc:
+                    self.logical = True
+                    self.maths.append(elem)
+                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], operator = elem))
                 else:
                     self.maths.append(parent._resolve(elem, "Maths"))
-                    
+
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
@@ -516,7 +545,7 @@ class Register(Referencable):
     def __init__(self, name, size):
         Referencable.__init__(self)
         self.name = name
-        self.size = size
+        self.size = int(size)
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
@@ -542,14 +571,30 @@ class ClassicalRegister(Register):
         self.end = self.size
 
 class Alias(Register):
-    def __init__(self, name, referee, interval):
-        start, end = interval
-        size = end - start + 1
+    def __init__(self, name, size):
         Register.__init__(self, name, size)
-        self.start = referee.start + start
-        self.end   = self.start + size
-        self.type_ = "QuantumRegister"
+        self.type_ = "Alias"
+        self.targets = [(None, None)]*self.size
+        
+    def contiguous(self):
+        self.blocks = []
+        currBlock = []
+        prev_target, prev_index = self.targets[0]
+        for target, index in self.targets:
+            if target != prev_target or index != prev_index + 1:
+                self.blocks.append(currBlock)
+                currBlock = []
+            currBlock.append( (target, index) )
+        self.blocks.append(currBlock)
+        
+    def set_target(self, indices, target):
+        # Split tuple
+        target, interval = target
+        for index in range(indices[0],indices[1]):
+            self.targets[index] = (target, interval[0] + index)
+        self.contiguous()
 
+            
 class Argument(Referencable):
     def __init__(self, name):
         Referencable.__init__(self)
@@ -653,7 +698,7 @@ class Gate(Referencable, CodeBlock):
         CodeBlock.__init__(self, block, parent=parent)
         self.returnType = returnType
         self.unitary = unitary
-        
+
         if recursive:
             self.gate(name, cargs, qargs, NullBlock(block))
             self._code = []
@@ -703,9 +748,6 @@ class Opaque(Gate):
         self.parse_gate_args(cargs, "ClassicalArgument")
 
     def set_block(self, block):
-        if block.QASMType != "REQASM" and block.File != ";":
-            self._error(opaqueWarning.format(block.QASMType.title()))
-
         CodeBlock.__init__(self, block, parent=self.parent)
         self.parse_instructions()
 
@@ -753,4 +795,3 @@ class Verbatim:
 
     def to_lang(self):
         return self.line
-

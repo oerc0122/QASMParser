@@ -42,7 +42,7 @@ typesTranslation = {
 
 def c_include(filename):
     return f'#include "{filename}"'
-header = [c_include("QuEST.h"), c_include("stdio.h")]
+header = [c_include("QuEST.h"), c_include("stdio.h"), c_include("reqasm.h")]
 
 def init_env(self):
     return f'QuESTEnv Env = createQuESTEnv();'
@@ -76,11 +76,10 @@ def Maths_to_c(parent, maths, logical):
              }
     # Ops which will be more complicated
     compSubOp = ["^","div"]
-    outStr = ""
+    outStr = " "
 
-    
-    if maths.logical is not logical:
-        parent._error("Cannot pass logical expression to mathematical expression or vice-versa")
+    # if maths.topLevel and maths.logical is not logical:
+    #     raise TypeError("Cannot pass logical expression to mathematical expression or vice-versa")
     for elem in maths.maths:
         if isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             if isinstance(elem[1], tuple):
@@ -89,7 +88,9 @@ def Maths_to_c(parent, maths, logical):
                     elem[1] = start
                 else:
                     raise NotImplementedError("lists in frame")
-            outStr += f"{elem[0].name}[{parent.resolve_arg(elem)}]"
+                outStr += f"{elem[0].name}[{parent.resolve_arg(elem)}]"
+            elif elem[1] is None:
+                outStr += f"{elem[0].name}"
         elif isinstance(elem, str):
             if elem not in MathsBlock.special:
                 outStr += elem
@@ -105,6 +106,7 @@ def Maths_to_c(parent, maths, logical):
             outStr += Maths_to_c(parent, elem, logical)
         else:
             raise NotImplementedError(elem)
+        outStr += " "
     if (maths.topLevel): return outStr
     else: return "(" + outStr + ")"
         
@@ -161,11 +163,11 @@ def Measure_to_c(self):
 
 def IfBlock_to_c(self):
     outStr = Maths_to_c(self, self._cond, True)
-    return f"if {outStr}"
+    return f"if ({outStr}) "
 
 def While_to_c(self):
     outStr = Maths_to_c(self, self._cond, True)
-    return f"while {outStr}"
+    return f"while ({outStr}) "
     
 
 def CreateGate_to_c(self):
@@ -180,5 +182,5 @@ def CreateGate_to_c(self):
     return outStr
 
 def Loop_to_c(self):
-    return  f"for (int {self.var} = {self.start}; {self.var} < {self.end}; {self.var} += {self.step})"
+    return  f"for (int {self.var} = {self.start}; {self.var} < {self.end}; {self.var} += {self.step}) "
 

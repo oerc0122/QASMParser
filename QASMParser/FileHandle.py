@@ -8,7 +8,7 @@ class QASMFile:
     _QASMFiles = []
     depth_limit = 10
     
-    def __init__(self,filename, reqVersion=("2","0")):
+    def __init__(self,filename, reqVersion=(1,2,0)):
         if filename in QASMFile._QASMFiles: raise IOError('Circular dependency in includes')
         if os.path.isfile(filename): self.File = open(filename,'r')
         else: raise FileNotFoundError(fnfWarning.format(filename))
@@ -20,12 +20,14 @@ class QASMFile:
         temp = ''
         self.header = []
         for line in self.read_instruction():
-
             if line.get('keyword',None) is None:
-                self.header += [line['comment']]
+                if line.get("comment", None) is not None:
+                    self.header += [line['comment']]
+                else:
+                    pass
             elif line.get('keyword') == "version":
-                self.QASMType, self.majorVer, self.minorVer = (line["type"], *line["versionNumber"].split("."))
-                self.version = (self.majorVer, self.minorVer)
+                self.version = parseVersion(line["version"][0])
+                self.QASMType = line["version"]["type"]
                 break
             else:
                 self._error("Header does not contain version")
@@ -45,16 +47,18 @@ class QASMFile:
         except AttributeError:
             return
 
-    def _handler(self,err):
+    def _handler(self,err, line):
             if not err.line:
                 self._error(unknownParseWarning)
-            print(err.line)
+            print(" ".join(line.splitlines()))
             print(" "*(err.column-1) + "^")
             problem = errorKeywordParser.parseString(err.line)
+            # if (len(errorKeywordParser.searchString(line)) > 1):
+            #     print("Lines conflated, possible missing semi-colon")
+            #     quit()
+
             try:
-                if ";" not in err.line:
-                    raise ParseException("Missing semicolon")
-                elif problem["keyword"] in qops.keys():
+                if problem["keyword"] in qops.keys():
                     temp = qops[problem["keyword"]].parser.parseString(err.line)
                 elif problem["keyword"] in cops.keys():
                     temp = cops[problem["keyword"]].parser.parseString(err.line)
@@ -83,7 +87,7 @@ class QASMFile:
                         yield instruction
                         currentLine = currentLine[end:].lstrip()
                 except ParseException as err:
-                    self._handler(err)
+                    self._handler(err, currentLine)
                     
             if currentLine.strip().startswith(";"): # Handle null statement
                 currentLine = currentLine.lstrip(" ;\n\t")

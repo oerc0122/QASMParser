@@ -96,7 +96,7 @@ for Q in [1:3] {
 
 output ans;
 
-let Q = 0;
+let Q = 3;
 while ( Q < 3 )
 {
  output ans[2:3];

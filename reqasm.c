@@ -23,7 +23,7 @@ void printBitstr(bitstr bits) {
   printf("\n");
 }
 
-int countOf(bitstr bits) {
+int countOfBits(bitstr bits) {
   int sum = 0;
   for (int j = 0; j < bits.nBits; j++) {
     sum += bits.val[j];
@@ -31,7 +31,7 @@ int countOf(bitstr bits) {
   return sum;
 }
 
-int decOf(bitstr bits) {
+int decOfBits(bitstr bits) {
   int sum = 0;
   int i = 1;
   for (int j = 0; j < bits.nBits; j++) {
@@ -43,7 +43,7 @@ int decOf(bitstr bits) {
 
 }
 
-_Bool orOf (bitstr bits) {
+_Bool orOfBits (bitstr bits) {
   _Bool test = 0;
   for (int j = 0; j < bits.nBits; j++) {
     if (bits.val[j]) {
@@ -55,12 +55,12 @@ _Bool orOf (bitstr bits) {
   return test;
 }
 
-_Bool xorOf(bitstr bits) {
-  _Bool test = countOf(bits)%2;
+_Bool xorOfBits(bitstr bits) {
+  _Bool test = countOfBits(bits)%2;
   return test;
 }
 
-_Bool andOf(bitstr bits) {
+_Bool andOfBits(bitstr bits) {
   _Bool test = 1;
   for (int j = 0; j < bits.nBits; j++) {
     if (bits.val[j]) {
@@ -70,6 +70,21 @@ _Bool andOf(bitstr bits) {
   }
  endAND:
   return test;
+}
+
+_Bool orOf(int* a, int nBits) {
+  bitstr temp = toBitstr(a, nBits);
+  return orOfBits(temp);
+}
+
+_Bool xorOf(int* a, int nBits) {
+  bitstr temp = toBitstr(a, nBits);
+  return xorOfBits(temp);
+}
+
+_Bool andOf(int* a, int nBits) {
+  bitstr temp = toBitstr(a, nBits);
+  return andOfBits(temp);
 }
 
 int fllog(int a, int c) {
@@ -101,29 +116,35 @@ int main() {
   printBitstr(ones);
   _Bool a,b,c = 0;
 
-  a = andOf(rand);
-  b = orOf(rand);
-  c = xorOf(rand);
+  a = andOfBits(rand);
+  b = orOfBits(rand);
+  c = xorOfBits(rand);
   printf("%d %d %d\n",a, b, c);
 
-  a = andOf(zero);
-  b = orOf(zero);
-  c = xorOf(zero);
+  a = andOfBits(zero);
+  b = orOfBits(zero);
+  c = xorOfBits(zero);
   printf("%d %d %d\n",a, b, c);
 
-  a = andOf(ones);
-  b = orOf(ones);
-  c = xorOf(ones);
+  a = andOfBits(ones);
+  b = orOfBits(ones);
+  c = xorOfBits(ones);
   printf("%d %d %d\n",a, b, c);
 
-  a = andOf(ones) && andOf(zero);
-  b = orOf(ones)  && orOf(zero);
-  c = xorOf(ones) && xorOf(zero);
+  a = andOfBits(ones) && andOfBits(zero);
+  b = orOfBits(ones)  && orOfBits(zero);
+  c = xorOfBits(ones) && xorOfBits(zero);
   printf("%d %d %d\n",a, b, c);
 
-  printf("%d %d\n", decOf(rand), countOf(rand));
+  printf("%d %d\n", decOfBits(rand), countOfBits(rand));
 
   printf("%d %d\n", fllog(154, 2), powrem(154, 2));
   
-  return 1;
+  int bits2[10] = {1,0,0,1,1,0,0,1,1};
+  a = andOf(bits2, nBits);
+  b = orOf(bits2, nBits);
+  c = xorOf(bits2, nBits);
+  printf("%d %d %d\n",a, b, c);
+
+  return 0;
 }
