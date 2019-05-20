@@ -4,7 +4,7 @@ include "qelib1.inc";
 
 *** ClassLang "C";
 
-gate majority a,b,c
+unitary gate majority a,b,c
 { 
   cx c,b; 
   cx c,a; 
@@ -82,11 +82,11 @@ let lambda = sqrt(1);
 U(0,0,lambda) a;
 if (ans[0] == 1) U a;
 
-alias geoff is a;
+alias geoff to a;
 reset a;
 reset b[2];
 
-alias q is a[1:2];
+alias q to a[1:2];
 
 x q;
 

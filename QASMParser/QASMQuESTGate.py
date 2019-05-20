@@ -2,9 +2,10 @@ from .QASMParser import *
 from copy import copy
 
 class QuESTLibGate(Gate):
-    def __init__(self, name, cargs, qargs, argOrder, internalName):
+    def __init__(self, name, cargs, qargs, argOrder, internalName, unitary = False):
         self.type_ = "Gate"
         self.name = name
+        self.unitary = unitary
         self._cargs = cargs
         self._qargs = qargs
         self.internalName = internalName
@@ -75,9 +76,9 @@ class QuESTLibGate(Gate):
                 outCargs += [tempVar]
         return preCode, outCargs
 
-QuESTLibGate(name = "x",   cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex"), internalName = "pauliX")
-QuESTLibGate(name = "cx",  cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex", "nextIndex"), internalName = "controlledNot")
-QuESTLibGate(name = "ccx", cargs = None, qargs = "a,b,c", argOrder = ("nextQureg", "nIndex2", "nextIndex", "not"), internalName = "multiControlledUnitary")
-QuESTLibGate(name = "rotateX", cargs = "phi", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateX")
-QuESTLibGate(name = "rotateY", cargs = "theta", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateY")
-QuESTLibGate(name = "rotateZ", cargs = "lambda", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateZ")
+QuESTLibGate(name = "x",   cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex"), internalName = "pauliX", unitary = True)
+QuESTLibGate(name = "cx",  cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex", "nextIndex"), internalName = "controlledNot", unitary = True)
+QuESTLibGate(name = "ccx", cargs = None, qargs = "a,b,c", argOrder = ("nextQureg", "nIndex2", "nextIndex", "not"), internalName = "multiControlledUnitary", unitary = True)
+QuESTLibGate(name = "rotateX", cargs = "phi", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateX", unitary = True)
+QuESTLibGate(name = "rotateY", cargs = "theta", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateY", unitary = True)
+QuESTLibGate(name = "rotateZ", cargs = "lambda", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateZ", unitary = True)

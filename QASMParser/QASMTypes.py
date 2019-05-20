@@ -104,10 +104,10 @@ class CodeBlock:
 
             self._is_def(var, create=False, type_ = type_)
             var = self._objs[var]
-            
+
             index = self.parse_range(index, var)
             return [var, index]
-            
+
         elif type_ == "Constant":
             if var is None:
                 return None
@@ -168,7 +168,7 @@ class CodeBlock:
 
         else:
             self._error("Unrecognised type {} in _resolve".format(type_))
-        
+
     def _check_def(self, name, create:bool, type_ = None):
         if name not in self._objs: return create
         elif type_ is not None and self._objs[name].type_ is not type_: return False
@@ -219,16 +219,16 @@ class CodeBlock:
 
         alias, aliasInter = self._resolve(aliasName, type_="Alias", index=argIndex)
 
-        if aliasInter[1] - aliasInter[0] != refInter[1] - refInter[0]: 
+        if aliasInter[1] - aliasInter[0] != refInter[1] - refInter[0]:
             self._error(f"Mismatched indices {aliasName}: Requested {refInter[1] - refInter[0]}, received {aliasInter[1] - aliasInter[0]}")
-            
+
         alias.set_target(aliasInter, (referee, refInter) )
 
-    def gate(self, funcName, cargs, qargs, block, recursive = False, opaque = False):
+    def gate(self, funcName, cargs, qargs, block, recursive = False, opaque = False, unitary=False):
         self._is_def(funcName, create=True)
 
         if not opaque:
-            gate = Gate(self, funcName, cargs, qargs, block, recursive)
+            gate = Gate(self, funcName, cargs, qargs, block, recursive, unitary)
         else:
             gate = Opaque(self, funcName, cargs, qargs, block)
 
@@ -352,14 +352,11 @@ class CodeBlock:
             funcName = token["gateName"]
             cargs = token.get("pargs", [])
             qargs = token.get("qargs", [])
+            attr = token.get("attributes", "").asList()
+            unitary = "unitary" in attr
+            recursive = "recursive" in attr
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.gate(funcName, cargs, qargs, block)
-        elif keyword == "createRGate":
-            funcName = match.group("funcName")
-            cargs = match.group("cargs")
-            qargs = match.group("qargs")
-            block = QASMBlock(self.currentFile, token.get("block", None))
-            self.gate(funcName, cargs, qargs, block, recursive = True)
+            self.gate(funcName, cargs, qargs, block, unitary = unitary, recursive = recursive)
         elif keyword == "opaque":
             funcName = token.get("name")
             cargs = token.get("cargs", [])
@@ -422,7 +419,7 @@ class CodeBlock:
         else:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType))
 
-            
+
         lastLine = self._code[-1]
         if line:
             if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = line.strip()
@@ -511,7 +508,7 @@ class MathsBlock:
                     self.maths.append(elem[0])
                 else:
                     self.maths.append(MathsBlock(self.parent, elem))
-            
+
             elif isinstance(elem, str):
                 if elem in MathsBlock.arithOp:
                     self.maths.append(elem)
@@ -585,7 +582,7 @@ class Alias(Register):
         self.start = 0
         self.end = self.size
         self.targets = [(None, None)]*self.size
-        
+
     def contiguous(self):
         self.blocks = []
         currBlock = []
@@ -597,7 +594,7 @@ class Alias(Register):
             currBlock.append( (target, index) )
         self.blocks.append(currBlock)
         self.all_set = all(target is not (None, None) for target in self.targets)
-        
+
     def set_target(self, indices, target):
         # Split tuple
         target, interval = target
@@ -605,7 +602,7 @@ class Alias(Register):
             self.targets[index] = (target, interval[0] + index)
         self.contiguous()
 
-            
+
 class Argument(Referencable):
     def __init__(self, name):
         Referencable.__init__(self)
@@ -703,7 +700,7 @@ class Gate(Referencable, CodeBlock):
 
     internalGates = {}
 
-    def __init__(self, parent, name, cargs, qargs, block, recursive = False, returnType = None, unitary = False):
+    def __init__(self, parent, name, cargs, qargs, block, recursive = False, unitary = False, returnType = None):
         Referencable.__init__(self)
         self.name = name
         CodeBlock.__init__(self, block, parent=parent)
@@ -740,10 +737,17 @@ class Gate(Referencable, CodeBlock):
             for arg in args_in:
                 self.argument(arg, False)
 
-
     def new_variable(self, argument):
         if not argument.classical: raise IOError("Cannot declare new qarg in gate")
         else : raise IOError("Cannot declare new carg in gate")
+
+    def call_gate(self, funcName, cargs, qargs, gargs=None, spargs=None):
+        # Perform unitary checks
+        self._is_def(funcName, create=False, type_ = "Gate")
+        if self.unitary and not self._objs[funcName].unitary:
+            self._error(unitaryWarning)
+
+        CodeBlock.call_gate(self,funcName, cargs, qargs, gargs, spargs)
 
 class Opaque(Gate):
     def __init__(self, parent, name, cargs, qargs, returnType = None):

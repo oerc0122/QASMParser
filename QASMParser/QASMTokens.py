@@ -31,13 +31,11 @@ def _overrideKeyword(toks, name):
 def _setVersion(toks, version):
     toks["reqVersion"] = version
 
-    
 def ungroup_non_groups(string,l,tokens):
     for i in range(len(tokens)):
         currToken = tokens[i]
         if len(currToken) == 1:
             tokens[i] = currToken[0]
-
 
 def _setup_QASMParser():
 
@@ -73,8 +71,7 @@ def _setup_QASMParser():
             self.operation = name
 
             self.parser = Keyword(name)("keyword") + validName("gateName")
-
-            if prefixes: self.parser = Each( map(Optional,prefixes) ) + self.parser
+            if prefixes: self.parser = Each(map(Optional, map(Keyword, prefixes)) )("attributes") + self.parser
 
             # Handle different args
             req = []
@@ -116,7 +113,7 @@ def _setup_QASMParser():
     validName = Forward()
     lineEnd = Literal(";")
 
-    _is_ = Keyword("is").suppress()
+    _is_ = Keyword("to").suppress()
     _in_ = Keyword("in").suppress()
     toClass = Literal("->").suppress()
 
@@ -193,7 +190,7 @@ def _setup_QASMParser():
     qop = []
     blockDelims = []
 
-    procAttr = ["unitary recursive"]
+    procAttr = ["unitary","recursive"]
     callMods = ["CTRL-", "INV-"]
 
     pargParser = nestedExpr("(",")", delimitedList(realExp.addParseAction(ungroup_non_groups)), None)
@@ -203,7 +200,6 @@ def _setup_QASMParser():
 
 
     modifiers = Group(ZeroOrMore(oneOf(callMods)))
-    attributes  = Each( map(Optional, map(Keyword, procAttr)) )("attributes")
 
     comment = Literal(commentSyntax).suppress() + restOfLine("comment")
     comment.addParseAction(lambda s,l,t : _setVersion(t, (0,0,0)))
@@ -230,8 +226,9 @@ def _setup_QASMParser():
 
     _Op("let", validName("var") + Literal("=").suppress() + Group(mathExp)("val"), version="REQASM 1.0")
     _Op("include", quotedString("file").addParseAction(removeQuotes))
-    _Op("opaque", validName("name") + regListNoRef("qargs"), keyOverride = attributes + "opaque")
-    _Routine("gate", pargs = True, qargs = True, prefixes = attributes)
+    _Op("opaque", validName("name") + regListNoRef("qargs"), keyOverride =
+        Each(map(Optional, map(Keyword, procAttr)) )("attributes") + "opaque")
+    _Routine("gate", pargs = True, qargs = True, prefixes = procAttr)
     _Op("creg", regRef("arg"))
     _Op("qreg", regRef("arg"))
 
@@ -242,6 +239,8 @@ def _setup_QASMParser():
     _Op("output", regRef("value"), version = "REQASM 1.0")
     _Op("reset", regRef("qreg"))
 
+    _Op("exit", Empty(), version = "REQASM 1.0")
+    
     _Block("for", validName("var") + _in_ + interRef("range"), version = "REQASM 1.0")
     _Block("if", "(" + Group(boolExp)("cond") + ")", version = "REQASM 1.0")
     _Block("while", "(" + Group(boolExp)("cond") + ")", version = "OMEQASM 1.0")
@@ -267,12 +266,16 @@ def _setup_QASMParser():
     validLine = Forward()
     codeBlock = nestedExpr("{","}", Group(validLine), (quotedString | comment))
 
-    validLine << (  (
+    validLine <<= (  (
         (operations + Optional(comment)) ^
         (Or(blocksParsers) + Optional(comment) + codeBlock("block")) ^
                 comment))                              # Whole line comment
 
-    testLine = directiveBlock | ((~dirOpenSyntax + ~dirCloseSyntax + CharsNotIn("{;")) + lineEnd) ^ (CharsNotIn("{") + codeBlock) ^ comment
+    testLine = Forward()
+    dummyCodeBlock = nestedExpr("{","}", testLine, (quotedString | comment))
+    
+    testLine <<= directiveBlock | ((~dirOpenSyntax + ~dirCloseSyntax + CharsNotIn("{;")) + lineEnd) ^ (CharsNotIn("{") + dummyCodeBlock) ^ comment
+    
     testKeyword = dirSyntax.setParseAction(lambda s,l,t: _overrideKeyword(t, "directive")) | Word(alphas)("keyword")
 
     code = (Group(directiveBlock)) | Group(validLine)
