@@ -327,8 +327,6 @@ class CodeBlock:
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
 
-        print(token.dump())
-        print(token)
         if self.currentFile.version < token["reqVersion"]:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType, self.currentFile.versionNumber))
 
@@ -387,7 +385,7 @@ class CodeBlock:
             var = token["var"]
             start, end = self.parse_range(token["range"])
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.loop(var, block, start, end)
+            self.loop(var, block, start, end + 1) # Handle "<" ending one early
         elif keyword == "while":
             cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token.get("block", None))
