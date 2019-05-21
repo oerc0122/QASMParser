@@ -91,7 +91,7 @@ class ProgFile(CodeBlock):
                    print_code(self, gate, outputFile)
                
         if not lang.bareCode:
-            temp = Gate(self, funcName, "", "", NullBlock(self.currentFile), returnType = "int")
+            temp = Gate(self, funcName, NullBlock(self.currentFile), returnType = "int")
             temp._code = [InitEnv()]
             # Hoist qregs
             regs = [ x for x in codeToWrite if type(x).__name__ == "QuantumRegister" ]

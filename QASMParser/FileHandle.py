@@ -37,8 +37,10 @@ class QASMFile:
             self._error('Unsupported QASM version: {}.{}'.format(*self.version))
 
     def _error(self, message=""):
-        raise IOError(fileWarning.format(message=message,
+        print(fileWarning.format(message=message,
                                          file=self.name, line=self.nLine))
+        #quit()
+        raise IOError
 
     def __del__(self):
         try:
@@ -54,17 +56,24 @@ class QASMFile:
             print(" ".join(line.splitlines()))
             print(" "*(line.index(err.line) + err.column-1) + "^")
             problem = errorKeywordParser.parseString(err.line)
+            key = problem["keyword"]
             # if (len(errorKeywordParser.searchString(line)) > 1):
             #     print("Lines conflated, possible missing semi-colon")
             #     quit()
-
             try:
-                if problem["keyword"] in qops.keys():
-                    temp = qops[problem["keyword"]].parser.parseString(err.line)
-                elif problem["keyword"] in cops.keys():
-                    temp = cops[problem["keyword"]].parser.parseString(err.line)
+                if key in qops.keys():
+                    temp = qops[key].parser.parseString(err.line)
+                elif key in cops.keys():
+                    temp = cops[key].parser.parseString(err.line)
+                elif key in blocks.keys():
+                    temp = blocks[key].parser.parseString(err.line)
                 else:
-                    raise ParseException(instructionWarning.format(problem["keyword"], self.QASMType, self.versionNumber))
+                    raise ParseException(instructionWarning.format(key, self.QASMType, self.versionNumber))
+                if key in ["gate", "circuit"]:
+                    if reserved.searchString(err.line.replace(key,"")):
+                        raise ParseException("Reserved keyword '{}' used in gate declaration".format(
+                            reserved.searchString(err.line.replace(key,"")).pop().pop()
+                            ))
                 raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
             except ParseException as subErr:
                 print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))

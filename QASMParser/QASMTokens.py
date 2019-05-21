@@ -23,8 +23,9 @@ def parseVersion(versionIn):
 
 cops = {}
 qops = {}
-_blocks = {}
+blocks = {}
 _reservedKeys = []
+reserved = None
 
 def _overrideKeyword(toks, name):
     toks["keyword"]=name
@@ -39,6 +40,8 @@ def ungroup_non_groups(string,l,tokens):
 
 def _setup_QASMParser():
 
+    global reserved
+    
     class _Op:
 
         def __init__(self, name, argParser, version = "OPENQASM 2.0", qop = False, keyOverride = None):
@@ -63,9 +66,8 @@ def _setup_QASMParser():
 
     class _Routine(_Op):
         def __init__(self, name, pargs = False, spargs = False, gargs = False, qargs = False,
-                     returnable = False, prefixes = None, version = "OPENQASM 2.0" ):
-            global cops
-            global qops
+                     returnables = False, prefixes = None, version = "OPENQASM 2.0" ):
+            global blocks
             global _reservedKeys
             if name in qops or name in cops: raise IOError(f'{name} already defined')
             self.operation = name
@@ -80,16 +82,17 @@ def _setup_QASMParser():
             if gargs: req.append(Optional(gargParser)("gargs"))
             self.parser = self.parser + Each(req)
             if qargs: self.parser = self.parser + qargParser("qargs")
-            if returnable: self.parser = self.parser + returnParser
+            if returnables: self.parser = self.parser + returnParser
 
             self.version = parseVersion(version)
             self.parser.addParseAction(lambda s,l,t: _setVersion(t, self.version))
 
-            _blocks[name] = self
+            _reservedKeys.append(name)
+            blocks[name] = self
 
     class _Block(_Op):
         def __init__(self, name, detParser, version = "OPENQASM 2.0"):
-            global _blocks
+            global blocks
             global _reservedKeys
             self.operation = name
             self.parser = Keyword(name)("keyword") + detParser
@@ -98,7 +101,7 @@ def _setup_QASMParser():
             self.parser.addParseAction(lambda s,l,t: _setVersion(t, self.version))
 
             _reservedKeys.append(name)
-            _blocks[name] = self
+            blocks[name] = self
 
     sign = Word("+-", exact=1)
     number = Word(nums)
@@ -115,7 +118,7 @@ def _setup_QASMParser():
 
     _is_ = Keyword("to").suppress()
     _in_ = Keyword("in").suppress()
-    toClass = Literal("->").suppress()
+    _to_ = Literal("->").suppress()
 
 
     commentSyntax = "//"
@@ -194,10 +197,10 @@ def _setup_QASMParser():
     callMods = ["CTRL-", "INV-"]
 
     pargParser = nestedExpr("(",")", delimitedList(realExp.addParseAction(ungroup_non_groups)), None)
-    spargParser = ungroup(nestedExpr("[","]", delimitedList(realExp.addParseAction(ungroup_non_groups)), None))
+    spargParser = inL + delimitedList(validName) + inR
     gargParser = ungroup(nestedExpr("<",">", delimitedList(ungroup(validName)), None))
-    qargParser = Group(delimitedList( regNoRef ))
-
+    qargParser = delimitedList(regRef)
+    returnParser = _to_ + validName("byprod")
 
     modifiers = Group(ZeroOrMore(oneOf(callMods)))
 
@@ -206,7 +209,7 @@ def _setup_QASMParser():
 
     
     directiveName = Word(alphas)
-    directiveArgs = CharsNotIn(";") #Group(ZeroOrMore((Word( alphas ) | quotedString | mathExp)))
+    directiveArgs = CharsNotIn(";")
 
     _Op("directive", directiveName("directive") + Suppress(White()*(1,)) + directiveArgs("args"), version= "REQASM 1.0",
         keyOverride = (~dirOpenSyntax + ~dirCloseSyntax + dirSyntax))
@@ -222,40 +225,50 @@ def _setup_QASMParser():
                                 ignoreExpr = comment | quotedString).setWhitespaceChars("\n").setParseAction(splitArgs))
     directiveBlock.addParseAction(lambda s,l,t: _setVersion(t, (2,1,0)))
 
+    # Programming lines
     _Op("version", Empty(),version = None, keyOverride = Combine(oneOf(versions)("type") + White() + real("versionNumber"))("version") )
-
-    _Op("let", validName("var") + Literal("=").suppress() + Group(mathExp)("val"), version="REQASM 1.0")
     _Op("include", quotedString("file").addParseAction(removeQuotes))
+
+
+    # Gate-like structures
     _Op("opaque", validName("name") + regListNoRef("qargs"), keyOverride =
         Each(map(Optional, map(Keyword, procAttr)) )("attributes") + "opaque")
     _Routine("gate", pargs = True, qargs = True, prefixes = procAttr)
+    _Routine("circuit", pargs = True, qargs = True, spargs = True, returnables = True, prefixes = procAttr, version = "REQASM 1.0")
+    
+    # Variable-like structures
     _Op("creg", regRef("arg"))
     _Op("qreg", regRef("arg"))
-
-    _Op("measure", regRef("qreg") + toClass + regRef("creg"), qop = True)
-    _Op("barrier", regListNoRef("args"))
     _Op("defAlias", regMustRef("alias"), keyOverride = "alias", version = "REQASM 1.0" )
     _Op("alias", regRef("alias") + _is_ + regRef("target"), version = "REQASM 1.0")
+    _Op("let", validName("var") + Literal("=").suppress() + Group(mathExp)("val"), version="REQASM 1.0")
+
+    # Operations-like structures
+    _Op("measure", regRef("qreg") + _to_ + regRef("creg"), qop = True)
+    _Op("barrier", regListNoRef("args"))
     _Op("output", regRef("value"), version = "REQASM 1.0")
     _Op("reset", regRef("qreg"))
-
     _Op("exit", Empty(), version = "REQASM 1.0")
-    
-    _Block("for", validName("var") + _in_ + interRef("range"), version = "REQASM 1.0")
-    _Block("if", "(" + Group(boolExp)("cond") + ")", version = "REQASM 1.0")
-    _Block("while", "(" + Group(boolExp)("cond") + ")", version = "OMEQASM 1.0")
 
+    # Special gate call handler
     callParser =  Optional(pargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
     callGate = (modifiers("mods") + validName("gate")) + callParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call"))
     callGate.addParseAction(lambda s,l,t: _setVersion(t, (1,2,0)))
 
+
+    # Block structures
+    _Block("for", validName("var") + _in_ + interRef("range"), version = "REQASM 1.0")
+    _Block("if", "(" + Group(boolExp)("cond") + ")", version = "REQASM 1.0")
+    _Block("while", "(" + Group(boolExp)("cond") + ")", version = "OMEQASM 1.0")
+
     qopsParsers = list(map ( lambda qop: qop.parser, qops.values())) + [callGate]
-    blocksParsers = list(map ( lambda block: block.parser, _blocks.values()))
+    blocksParsers = list(map ( lambda block: block.parser, blocks.values()))
 
-    _Op("if", _blocks["if"].parser       + Group(Group(Group(Or(qopsParsers))))("block"), version="OPENQASM 2.0", keyOverride = Empty())
-    _Op("for", _blocks["for"].parser     + Group(Group(Group(Or(qopsParsers))))("block"), version="REQASM 1.0", keyOverride = Empty())
-    _Op("while", _blocks["while"].parser + Group(Group(Group(Or(qopsParsers))))("block"), version="OMEQASM 1.0", keyOverride = Empty())
+    _Op("if", blocks["if"].parser       + Group(Group(Group(Or(qopsParsers))))("block"), version="OPENQASM 2.0", keyOverride = Empty())
+    _Op("for", blocks["for"].parser     + Group(Group(Group(Or(qopsParsers))))("block"), version="REQASM 1.0", keyOverride = Empty())
+    _Op("while", blocks["while"].parser + Group(Group(Group(Or(qopsParsers))))("block"), version="OMEQASM 1.0", keyOverride = Empty())
 
+    # Set-up line parsers    
     reserved = Or(_reservedKeys) ^ e ^ pi
     validName << (~reserved) + Word(alphas,alphanums+"_")
 
@@ -264,7 +277,7 @@ def _setup_QASMParser():
     operations = ( (Or(copsParsers) ^ Or(qopsParsers)) | callGate ) + lineEnd.suppress()
 
     validLine = Forward()
-    codeBlock = nestedExpr("{","}", Group(validLine), (quotedString | comment))
+    codeBlock = nestedExpr("{","}", Suppress(White()) ^ Group(validLine), (quotedString | comment))
 
     validLine <<= (  (
         (operations + Optional(comment)) ^

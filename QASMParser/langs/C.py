@@ -3,6 +3,7 @@ from QASMParser.QASMTypes import *
 def set_lang():
     ClassicalRegister.to_lang = ClassicalRegister_to_c
     QuantumRegister.to_lang = QuantumRegister_to_c
+    DeferredClassicalRegister.to_lang = DeferredClassicalRegister_to_c
     Let.to_lang = Let_to_c
     Argument.to_lang = Argument_to_c
     CallGate.to_lang = CallGate_to_c
@@ -18,7 +19,8 @@ def set_lang():
     Reset.to_lang = Reset_to_c
     Output.to_lang = Output_to_c
     InitEnv.to_lang = init_env
-
+    Return.to_lang = Return_to_c
+    
 # Several details pertaining to the language in question
 hoistFuncs = True   # Move functions to front of program
 hoistVars  = False  # Move variables to front of program
@@ -50,7 +52,10 @@ def init_env(self):
 def Output_to_c(self):
     carg, bindex = self._cargs
     return f'printf("%d ", {carg.name}[{bindex}]);'
-    
+
+def Return_to_c(self):
+    return f'return {",".join(self._cargs)};'
+
 def Reset_to_c(self):
     qarg = self._qargs
     qargRef = self.resolve_arg(qarg)
@@ -58,6 +63,14 @@ def Reset_to_c(self):
     
 def ClassicalRegister_to_c(self):
     return f'int {self.name}[{self.size}];'+"\n"+f'for (int i = 0; i < {self.size}; i++) {self.name}[i] = 0;'
+
+def DeferredClassicalRegister_to_c(self):
+    if isinstance(self.size, MathsBlock):
+        size = Maths_to_c(self, self.size, False)
+    elif type(self.size) is list: size =  f'{{{",".join(self.size)}}}'
+    else:  size =  f'{self.size}'
+    
+    return f'int* {self.name} = malloc(sizeof(int)*{size});'+"\n"+f'for (int i = 0; i < {size}; i++) {self.name}[i] = 0;'
 
 def QuantumRegister_to_c(self):
     return f"Qureg {self.name} = createQureg({self.size}, Env);"
