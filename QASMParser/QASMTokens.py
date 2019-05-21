@@ -231,8 +231,7 @@ def _setup_QASMParser():
 
 
     # Gate-like structures
-    _Op("opaque", validName("name") + regListNoRef("qargs"), keyOverride =
-        Each(map(Optional, map(Keyword, procAttr)) )("attributes") + "opaque")
+    _Op("opaque", validName("name") + qargParser("qargs"), keyOverride = Each(map(Optional, map(Keyword, procAttr)) )("attributes") + "opaque")
     _Routine("gate", pargs = True, qargs = True, prefixes = procAttr)
     _Routine("circuit", pargs = True, qargs = True, spargs = True, returnables = True, prefixes = procAttr, version = "REQASM 1.0")
     

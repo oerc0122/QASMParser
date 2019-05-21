@@ -34,30 +34,33 @@ class Operation:
                 start, end = parg[1]
                 parg_init = parg[0].start
 
-                if isinstance(parg_init, int):
-                    if isinstance(start, int): start -= parg_init
-                    if isinstance(end, int): end -= parg_init
+                # if isinstance(parg_init, int):
+                #     if isinstance(start, int): start -= parg_init
+                #     if isinstance(end, int): end -= parg_init
                         
                 if start == end :
                     parg[1] = start
                 else:
                     loopVar = parg[0].name + "_loop"
-                    if isinstance(parg_init, str):
-                        parg[1] = f"{parg_init} + {loopVar}"
-                    else:
-                        parg[1] = loopVar
-
-                    start = self.resolve_arg( (parg[0], start) )
+                    parg[1] = loopVar
                     if isinstance(end,int):
-                        end = self.resolve_arg( (parg[0], end + 1) )
+                        end += 1
                     else:
-                        end = self.resolve_arg( (parg[0], end + "+1") )
+                        end += "+1"
+                    # start = self.resolve_arg( (parg[0], start) )
+                    # if isinstance(end,int):
+                    #     end = self.resolve_arg( (parg[0], end + 1) )
+                    # else:
+                    #     end = self.resolve_arg( (parg[0], end + "+1") )
                         
                     self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
         if type(arg[0]) is Argument:
-            return str(arg[1])
+            if arg[0].start and arg[1]:
+                return f"{arg[0].start} + {arg[1]}"
+            else:
+                return str(arg[0].start)
         elif issubclass(type(arg[0]),Register):
             start = arg[1]
             offset = arg[0].start
@@ -494,12 +497,12 @@ class CodeBlock:
             self.parse_line(instruction, instruction.original)
 
     def parse_range(self, rangeSpec, arg = None, indexOnly = False):
+
         if rangeSpec is None:
-            
             if arg:
-                if isinstance(arg.size, int):
-                    if arg.size is None: interval = ( None, None )
-                    elif indexOnly: interval = ( arg.size, arg.size )
+                if arg.size is None: interval = ( None, None )
+                elif isinstance(arg.size, int):
+                    if indexOnly: interval = ( arg.size, arg.size )
                     else: interval = ( 0, arg.size-1 )
                 elif isinstance(arg.size, str):
                     if indexOnly: interval = (arg.size, arg.size)
@@ -862,7 +865,6 @@ class Opaque(Gate):
         self.parentFile = parent.currentFile
         self.returnType = returnType
         self.set_block(NullBlock(self.parentFile))
-
         self.parse_gate_args(qargs, "QuantumArgument")
         self.parse_gate_args(cargs, "ClassicalArgument")
 

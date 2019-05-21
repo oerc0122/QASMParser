@@ -70,8 +70,8 @@ measure b[3] -> ans[3];
 
 measure cout[0] -> ans[4];
 
-creg loopVar[4];
-measure b -> loopVar;
+creg loop_de[4];
+measure b -> loop_de;
 
 if ((ans[1] == 1) and (ans[0] == 2))
 {
