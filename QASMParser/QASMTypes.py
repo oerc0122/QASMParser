@@ -348,11 +348,10 @@ class CodeBlock:
         else:
             self._error("Unrecognised directive: {}".format(directive))
 
-    def parse_line(self, token, line):
+    def parse_line(self, token):
         non_code = ["alias","exit","comment","barrier","directive"]
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
-
         if self.currentFile.version < token["reqVersion"]:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType, self.currentFile.versionNumber))
 
@@ -472,20 +471,19 @@ class CodeBlock:
 
 
         lastLine = self._code[-1]
-        if line:
-            if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = line.strip()
-            elif keyword in non_code: lastLine.original += "\n"+line.strip()
+        if hasattr(token,"original") and token.original:
+            original = token.original
+            if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = original.strip()
+            elif keyword in non_code: lastLine.original += "\n"+original.strip()
         if keyword is not None and comment is not "": lastLine.inlineComment = Comment(comment)
         
     def parse_args(self, args_in, type_):
         if not args_in: return []
-
         args = []
         if type_ in ["ClassicalRegister", "QuantumRegister"]:
             for arg in args_in:
                 args.append(self._resolve(arg["var"], type_, arg.get("ref",None)))
         elif type_ in ["Constant"]:
-            args_in = args_in[0]
             for arg in args_in:
                 args.append(self._resolve(arg, type_))
         else:
@@ -494,7 +492,7 @@ class CodeBlock:
         return args
     def parse_instructions(self):
         for instruction in self.instructions:
-            self.parse_line(instruction, instruction.original)
+            self.parse_line(instruction)
 
     def parse_range(self, rangeSpec, arg = None, indexOnly = False):
 
@@ -802,26 +800,25 @@ class Gate(Referencable, CodeBlock):
 
         if recursive and self.entry.depth > 0: self._error(noExitWarning.format(self.name))
 
-    def parse_gate_args(self, args_in, type_):
-        if not args_in: return []
+    def parse_gate_args(self, args, type_):
+        if not args: return []
         if type_ in ["ClassicalArgument"]:
-            args = args_in[0]
             for arg in args:
                 self._objs[arg] = Constant( (arg, "float") , (None, None) )
                 self._cargs.append(self._objs[arg])
         elif type_ in ["SpecialArgument"]:
-            for arg in args_in:
+            for arg in args:
                 self._objs[arg] = Constant( (arg, "int") , (None, None) )
                 self._cargs.append(self._objs[arg])
         elif type_ in ["QuantumArgument"]:
-            for argTok in args_in:
+            for argTok in args:
                 arg = argTok["var"]
                 size = argTok.get("ref",None)
                 if size is not None: size = self.parse_range(size, indexOnly = True)[0]
                 self._objs[arg] = Argument(arg, size)
                 self._qargs.append(self._objs[arg])
         elif type_ in ["Gates"]:
-            for arg in args_in:
+            for arg in args:
                 self.gate(arg, NullBlock(block), unitary = self.unitary)
 
     def new_variable(self, argument):

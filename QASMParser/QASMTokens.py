@@ -196,7 +196,8 @@ def _setup_QASMParser():
     procAttr = ["unitary","recursive"]
     callMods = ["CTRL-", "INV-"]
 
-    pargParser = nestedExpr("(",")", delimitedList(realExp.addParseAction(ungroup_non_groups)), None)
+    pargParser = brL + delimitedList(validName)("pargs") + brR
+    callPargParser = brL + delimitedList(realExp)("pargs") + brR
     spargParser = inL + delimitedList(validName) + inR
     gargParser = ungroup(nestedExpr("<",">", delimitedList(ungroup(validName)), None))
     qargParser = delimitedList(regRef)
@@ -250,7 +251,7 @@ def _setup_QASMParser():
     _Op("exit", Empty(), version = "REQASM 1.0")
 
     # Special gate call handler
-    callParser =  Optional(pargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
+    callParser =  Optional(callPargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
     callGate = (modifiers("mods") + validName("gate")) + callParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call"))
     callGate.addParseAction(lambda s,l,t: _setVersion(t, (1,2,0)))
 
@@ -276,11 +277,11 @@ def _setup_QASMParser():
     operations = ( (Or(copsParsers) ^ Or(qopsParsers)) | callGate ) + lineEnd.suppress()
 
     validLine = Forward()
-    codeBlock = nestedExpr("{","}", Suppress(White()) ^ Group(validLine), (quotedString | comment))
+    codeBlock = nestedExpr("{","}", Suppress(White()) ^ Group(validLine), (quotedString))
 
     validLine <<= (  (
         (operations + Optional(comment)) ^
-        (Or(blocksParsers) + Optional(comment) + codeBlock("block")) ^
+        (Or(blocksParsers) + codeBlock("block")) ^
                 comment))                              # Whole line comment
 
     testLine = Forward()

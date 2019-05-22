@@ -14,8 +14,8 @@ class ProgFile(CodeBlock):
         CodeBlock.__init__(self, QASMFile(filename), parent = None, copyFuncs = False, copyObjs = False)
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
-        for constants in lang_constants:
-            self._objs[constants] = Constant( (Constant, "float"), ( None, None ))
+        for constant in lang_constants:
+            self._objs[constant] = Constant( ( constant, "float"), ( None, None ))
         self.parse_instructions()
         
     def to_lang(self, filename = None, module = False, langOut = "C", verbose = False):

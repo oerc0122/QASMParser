@@ -76,9 +76,9 @@ class QuESTLibGate(Gate):
                 outCargs += [tempVar]
         return preCode, outCargs
 
-QuESTLibGate(name = "x",   cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex"), internalName = "pauliX", unitary = True)
-QuESTLibGate(name = "cx",  cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex", "nextIndex"), internalName = "controlledNot", unitary = True)
-QuESTLibGate(name = "ccx", cargs = None, qargs = "a,b,c", argOrder = ("nextQureg", "nIndex2", "nextIndex", "not"), internalName = "multiControlledUnitary", unitary = True)
+# QuESTLibGate(name = "x",   cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex"), internalName = "pauliX", unitary = True)
+QuESTLibGate(name = "CX",  cargs = None, qargs = "a", argOrder = ("nextQureg", "nextIndex", "nextIndex"), internalName = "controlledNot", unitary = True)
+# QuESTLibGate(name = "ccx", cargs = None, qargs = "a,b,c", argOrder = ("nextQureg", "nIndex2", "nextIndex", "not"), internalName = "multiControlledUnitary", unitary = True)
 QuESTLibGate(name = "rotateX", cargs = "phi", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateX", unitary = True)
 QuESTLibGate(name = "rotateY", cargs = "theta", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateY", unitary = True)
 QuESTLibGate(name = "rotateZ", cargs = "lambda", qargs = "a", argOrder = ("nextQureg", "nextIndex", "cargs"), internalName = "rotateZ", unitary = True)

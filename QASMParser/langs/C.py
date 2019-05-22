@@ -41,7 +41,13 @@ typesTranslation = {
     None:"void"
     }
 
-
+def resolve_maths(self, maths):
+    if isinstance(maths, MathsBlock):
+        value = Maths_to_c(self, maths, False)
+    elif type(maths) is list: value =  f'{{{",".join(maths)}}}'
+    else:  value =  f'{maths}'
+    return value
+    
 def c_include(filename):
     return f'#include "{filename}"'
 header = [c_include("QuEST.h"), c_include("stdio.h"), c_include("reqasm.h")]
@@ -54,7 +60,7 @@ def Output_to_c(self):
     return f'printf("%d ", {carg.name}[{bindex}]);'
 
 def Return_to_c(self):
-    return f'return {",".join(self._cargs)};'
+    return f'return {self._cargs[0]};'
 
 def Reset_to_c(self):
     qarg = self._qargs
@@ -117,6 +123,8 @@ def Maths_to_c(parent, maths, logical):
             outStr += str(elem)
         elif isinstance(elem, MathsBlock):
             outStr += Maths_to_c(parent, elem, logical)
+        elif isinstance(elem, Constant):
+            outStr += elem.name
         else:
             raise NotImplementedError(elem)
         outStr += " "
@@ -132,10 +140,7 @@ def Let_to_c(self):
     # Simple declaration
     if var.val is None: return f"{assignee};"
 
-    if isinstance(var.val, MathsBlock):
-        value = Maths_to_c(self, var.val, False)
-    elif type(var.val) is list: value =  f'{{{",".join(var.val)}}}'
-    else:  value =  f'{var.val}'
+    value = resolve_maths(self, var.val)
     
     if var.cast: value = f"({var.cast}) {value}"
 
@@ -149,12 +154,10 @@ def CallGate_to_c(self):
     if self._qargs:
         printArgs += "qreg, "
         printArgs += ", ".join([self.resolve_arg(qarg) for qarg in self._qargs])
-    for carg in self._cargs:
-        if carg is None: continue
-        if printArgs:
-            printArgs += ", "+str(carg)
-        else:
-            printArgs = str(carg)
+    if self._cargs:
+        if self._qargs:
+            printArgs += ", "
+        printArgs += ", ".join([resolve_maths(self, carg) for carg in self._cargs])
     printGate = self.name
     preString = []
     outString = ""    

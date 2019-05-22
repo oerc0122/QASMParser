@@ -4,7 +4,7 @@ include "qelib1.inc";
 
 *** ClassLang "C";
 
-unitary gate majority a,b,c
+gate majority a,b,c
 { 
   cx c,b; 
   cx c,a; 
@@ -20,9 +20,8 @@ rotateZ(qreg, a_index, 15.1);
 rotateY(qreg, a_index, 91.);
 *** end 
 
-gate unmaj(i) a,b,c 
+gate unmaj a,b,c 
 {
-  let j = i - 1;
   ccx a,b,c; 
   cx c,a; 
   cx a,b;
