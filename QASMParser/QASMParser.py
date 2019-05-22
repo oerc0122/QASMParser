@@ -18,7 +18,7 @@ class ProgFile(CodeBlock):
             self._objs[constant] = Constant( ( constant, "float"), ( None, None ))
         self.parse_instructions()
         
-    def to_lang(self, filename = None, module = False, langOut = "C", verbose = False):
+    def to_lang(self, filename = None, module = False, function = False, langOut = "C", verbose = False):
         try:
             lang = import_module(f"QASMParser.langs.{langOut}")
             lang.set_lang()
@@ -84,23 +84,28 @@ class ProgFile(CodeBlock):
                         writeln(line)
                 elif type(lang.header) is str:
                     writeln(lang.header)
-            if lang.hoistFuncs:
-               codeToWrite = sorted(self._code, key = lambda x: issubclass(type(x), Gate) )
-               while issubclass(type(codeToWrite[-1]), Gate):
-                   gate = [codeToWrite.pop()]
-                   print_code(self, gate, outputFile)
-               
-        if not lang.bareCode:
-            temp = Gate(self, funcName, NullBlock(self.currentFile), returnType = "int")
-            temp._code = [InitEnv()]
-            # Hoist qregs
-            regs = [ x for x in codeToWrite if type(x).__name__ == "QuantumRegister" ]
-            for reg in regs:
-                temp._code += [Comment(f'{reg.name}[{reg.start}:{reg.end-1}]')]
-            codeToWrite = [ x for x in codeToWrite if type(x).__name__ != "QuantumRegister" ]
-            temp._code += [QuantumRegister("qreg", QuantumRegister.numQubits)]
-            temp._code += codeToWrite
-            codeToWrite = [temp]
+                    
+        if lang.hoistFuncs:
+            codeToWrite = sorted(self._code, key = lambda x: issubclass(type(x), Gate) )
+            gate = []
+            while issubclass(type(codeToWrite[-1]), Gate):
+                gate.append(codeToWrite.pop())
+            print_code(self, reversed(gate), outputFile)
+
+                
+        if any( [ not isinstance(line, Comment) for line in codeToWrite ] ):
+            if not lang.bareCode:
+                temp = Gate(self, funcName, NullBlock(self.currentFile), returnType = "int")
+                temp._code = [InitEnv()]
+                # Hoist qregs
+                regs = [ x for x in codeToWrite if type(x).__name__ == "QuantumRegister" ]
+                for reg in regs:
+                    temp._code += [Comment(f'{reg.name}[{reg.start}:{reg.end-1}]')]
+                codeToWrite = [ x for x in codeToWrite if type(x).__name__ != "QuantumRegister" ]
+                temp._code += [QuantumRegister("qreg", QuantumRegister.numQubits)]
+                temp._code += codeToWrite
+                codeToWrite = [temp]
+
         print_code(self, codeToWrite, outputFile)
             
         if filename: outputFile.close()
