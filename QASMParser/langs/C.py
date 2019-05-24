@@ -21,6 +21,8 @@ def set_lang():
     InitEnv.to_lang = init_env
     Return.to_lang = Return_to_c
     Include.to_lang = Include_to_c
+    Cycle.to_lang = Cycle_to_c
+    Escape.to_lang = Escape_to_c
 
 # Several details pertaining to the language in question
 hoistFuncs = True    # Move functions to front of program
@@ -67,6 +69,15 @@ def Output_to_c(self):
 
 def Return_to_c(self):
     return f'return {self._cargs[0]};'
+
+def Cycle_to_c(self):
+    return "continue;"
+
+def Escape_to_c(self):
+    return "break;"
+
+def End_to_c(self):
+    return "return;"
 
 def Reset_to_c(self):
     qarg = self._qargs

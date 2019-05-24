@@ -95,7 +95,6 @@ class CodeBlock:
                 var = self._objs[var]
             elif self._check_def(var, create=False, type_ = "Alias"):
                 var = self._objs[var]
-                print(var, var.targets)
                 
             else:
                 self._is_def(var, create=False, type_ = type_)
@@ -134,7 +133,7 @@ class CodeBlock:
                 return self.parse_maths(var)
             else:
                 self._is_def(var, create=False, type_ = type_)
-                return self._objs[var].name
+                return self._objs[var] #.name
 
         elif type_ == "Maths":
 
@@ -315,16 +314,16 @@ class CodeBlock:
         self._code += [loop]
 
     def cycle(self, var):
-        var = self._resolve(var, create = False, type_ = "Constant")
+        var = self._resolve(var, type_ = "Constant")
         if not var.loopVar:
             self._error("Cannot cycle non-loop vars")
-        self._code += Cycle(var)
+        self._code += [Cycle(var)]
         
     def escape(self, var):
-        var = self._resolve(var, create = False, type_ = "Constant")
+        var = self._resolve(var, type_ = "Constant")
         if not var.loopVar:
             self._error("Cannot escape non-loop vars")
-        self._code += Escape(var)
+        self._code += [Escape(var)]
         
     def new_while(self, cond, block):
         self._code += [While(self, cond, block)]
@@ -616,6 +615,7 @@ class Constant(Referencable):
         self.var_type = var[1]
         self.val  = val[0]
         self.cast = val[1]
+        self.loopVar = False
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
@@ -905,7 +905,7 @@ class Loop(CodeBlock):
     def __init__(self, parent, block, var, start, end, step = 1):
         CodeBlock.__init__(self,block, parent=parent)
         self._objs[var] = Constant( (var, "int") , (var, None) )
-        self._objs[var].loopvar = True
+        self._objs[var].loopVar = True
         self.depth = 1
         self.var = var
         self.start = start
@@ -945,26 +945,26 @@ class Include:
         self.filename = filename
         self.code = code
 
-    def to_lang():
+    def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class Cycle:
     def __init__(self, var):
         self.var = var
 
-    def to_lang():
+    def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class Escape:
     def __init__(self, var):
         self.var = var
 
-    def to_lang():
+    def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class TheEnd:
     def __init__(self, process):
         self.process = process
 
-    def to_lang():
+    def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
