@@ -30,10 +30,6 @@ class Operation:
 
     def handle_loops(self, pargs, slice = None):
         for parg in pargs:
-            if isinstance(parg[0], Alias):
-                parg[1] = 1
-                return
-            
             if isinstance(parg[1], tuple):
                 start, end = parg[1]
                 parg_init = parg[0].start
@@ -56,9 +52,6 @@ class Operation:
             else:
                 return str(arg[0].start)
         elif issubclass(type(arg[0]),Register):
-
-            if isinstance(arg[0], Alias):
-                return "Hello"
             
             start = arg[1]
             offset = arg[0].start
@@ -102,6 +95,8 @@ class CodeBlock:
                 var = self._objs[var]
             elif self._check_def(var, create=False, type_ = "Alias"):
                 var = self._objs[var]
+                print(var, var.targets)
+                
             else:
                 self._is_def(var, create=False, type_ = type_)
 
@@ -120,7 +115,7 @@ class CodeBlock:
 
             self._is_def(var, create=False, type_ = type_)
             var = self._objs[var]
-
+            
             index = self.parse_range(index, var)
             return [var, index]
 
@@ -230,12 +225,15 @@ class CodeBlock:
 
     def alias(self, aliasName, argIndex, referee, refIndex):
         referee, refInter = self._resolve(referee, type_="QuantumRegister", index = refIndex)
+        refInter = refInter[0], refInter[1]
+        refSize = 1 + refInter[1] - refInter[0]
+
         if self._check_def(aliasName, create=True, type_ = "Alias"):
-            self.new_alias(aliasName, 1 + refInter[1] - refInter[0])
+            self.new_alias(aliasName, refSize)
 
         alias, aliasInter = self._resolve(aliasName, type_="Alias", index=argIndex)
-
-        if aliasInter[1] - aliasInter[0] != refInter[1] - refInter[0]:
+        aliasSize = 1 + aliasInter[1] - aliasInter[0]
+        if aliasSize != refSize:
             self._error(f"Mismatched indices {aliasName}: Requested {refInter[1] - refInter[0]}, received {aliasInter[1] - aliasInter[0]}")
 
         alias.set_target(aliasInter, (referee, refInter) )
@@ -316,6 +314,18 @@ class CodeBlock:
         loop = Loop(self,block, var, start, end)
         self._code += [loop]
 
+    def cycle(self, var):
+        var = self._resolve(var, create = False, type_ = "Constant")
+        if not var.loopVar:
+            self._error("Cannot cycle non-loop vars")
+        self._code += Cycle(var)
+        
+    def escape(self, var):
+        var = self._resolve(var, create = False, type_ = "Constant")
+        if not var.loopVar:
+            self._error("Cannot escape non-loop vars")
+        self._code += Escape(var)
+        
     def new_while(self, cond, block):
         self._code += [While(self, cond, block)]
 
@@ -429,9 +439,19 @@ class CodeBlock:
             cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token.get("block", None))
             self.new_while(block, cond)
+        elif keyword == "next":
+            var = token["loopVar"]
+            self.cycle(var)
+        elif keyword == "escape":
+            var = token["loopVar"]
+            self.escape(var)
         elif keyword == "exit":
             self.leave()
 
+        elif keyword == "end":
+            var = token["process"]
+            self.end(var)
+            
         # Gate declaration routines
         elif keyword == "gate":
             funcName = token["gateName"]
@@ -649,19 +669,25 @@ class Alias(Register):
         self.blocks = []
         currBlock = []
         prev_target, prev_index = self.targets[0]
+        prev_index -= 1
         for target, index in self.targets:
             if target != prev_target or index != prev_index + 1:
                 self.blocks.append(currBlock)
                 currBlock = []
             currBlock.append( (target, index) )
+            prev_target, prev_index = target, index
         self.blocks.append(currBlock)
+        if len(self.blocks) > 1: raise NotImplementedError("Cannot currently handle arbitrary aliasing")
         self.all_set = all(target is not (None, None) for target in self.targets)
 
     def set_target(self, indices, target):
         # Split tuple
         target, interval = target
-        for index in range(indices[0],indices[1]):
+        for index in range(indices[0],indices[1]+1):
             self.targets[index] = (target, interval[0] + index)
+        self.start = self.targets[0][0].start + interval[0]
+        self.end   = self.start + interval[1] - interval[0]
+        print(self.start, self.end)
         self.contiguous()
 
 class Argument(Referencable):
@@ -879,6 +905,7 @@ class Loop(CodeBlock):
     def __init__(self, parent, block, var, start, end, step = 1):
         CodeBlock.__init__(self,block, parent=parent)
         self._objs[var] = Constant( (var, "int") , (var, None) )
+        self._objs[var].loopvar = True
         self.depth = 1
         self.var = var
         self.start = start
@@ -917,6 +944,27 @@ class Include:
         self.parent = parent
         self.filename = filename
         self.code = code
+
+    def to_lang():
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class Cycle:
+    def __init__(self, var):
+        self.var = var
+
+    def to_lang():
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class Escape:
+    def __init__(self, var):
+        self.var = var
+
+    def to_lang():
+        raise NotImplementedError(langWarning.format(type(self).__name__))
+
+class TheEnd:
+    def __init__(self, process):
+        self.process = process
 
     def to_lang():
         raise NotImplementedError(langWarning.format(type(self).__name__))

@@ -250,6 +250,10 @@ def _setup_QASMParser():
     _Op("reset", regRef("qreg"))
     _Op("exit", Empty(), version = "REQASM 1.0")
 
+    _Op("next",   validName("loopVar"), qop = True, version = "REQASM 1.0")
+    _Op("escape", validName("loopVar"), qop = True, version = "REQASM 1.0")
+    _Op("end",    validName("process"), qop = True, version = "REQASM 1.0")
+    
     # Special gate call handler
     callParser =  Optional(callPargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
     callGate = (modifiers("mods") + validName("gate")) + callParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call"))
