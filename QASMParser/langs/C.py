@@ -20,14 +20,16 @@ def set_lang():
     Output.to_lang = Output_to_c
     InitEnv.to_lang = init_env
     Return.to_lang = Return_to_c
-    
+    Include.to_lang = Include_to_c
+
 # Several details pertaining to the language in question
-hoistFuncs = True   # Move functions to front of program
-hoistVars  = False  # Move variables to front of program
-bareCode   = False  # Can code be bare or does it need to be in function
-blockOpen = "{"     # Block delimiters
-blockClose = "}"    #  ""      ""
-indent = "  "       # Standard indent depth
+hoistFuncs = True    # Move functions to front of program
+hoistIncludes = True # Move includes to  front of program
+hoistVars  = False   # Move variables to front of program
+bareCode   = False   # Can code be bare or does it need to be in function
+blockOpen = "{"      # Block delimiters
+blockClose = "}"     #  ""      ""
+indent = "  "        # Standard indent depth
 
 typesTranslation = {
     "int":"int",
@@ -48,9 +50,13 @@ def resolve_maths(self, maths):
     else:  value =  f'{maths}'
     return value
     
-def c_include(filename):
+def Include_to_c(self):
+    return f'#include "{self.filename}"'
+
+def inc_c(filename):
     return f'#include "{filename}"'
-header = [c_include("QuEST.h"), c_include("stdio.h"), c_include("reqasm.h")]
+
+header = [inc_c("QuEST.h"), inc_c("stdio.h"), inc_c("reqasm.h")]
 
 def init_env(self):
     return f'QuESTEnv Env = createQuESTEnv();'

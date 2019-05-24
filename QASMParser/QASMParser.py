@@ -18,7 +18,7 @@ class ProgFile(CodeBlock):
             self._objs[constant] = Constant( ( constant, "float"), ( None, None ))
         self.parse_instructions()
         
-    def to_lang(self, filename = None, module = False, function = False, langOut = "C", verbose = False):
+    def to_lang(self, filename = None, module = False, function = False, includes = {}, langOut = "C", verbose = False):
         try:
             lang = import_module(f"QASMParser.langs.{langOut}")
             lang.set_lang()
@@ -34,6 +34,7 @@ class ProgFile(CodeBlock):
         def print_code(self, code, outputFile):
             self.depth += 1
             for line in code:
+                
                 if verbose and hasattr(line,'original') and type(line) is not Comment: # Verbose -- Print original
                     writeln(Comment(line.original).to_lang() + "\n")
 
@@ -66,7 +67,7 @@ class ProgFile(CodeBlock):
         if filename: outputFile = open(filename, 'w')
         else:        outputFile = sys.stdout
 
-        codeToWrite = copy.copy(self._code)
+        codeToWrite = self._code[:]
         self.depth = -1
        
         for line in self.currentFile.header:
@@ -86,13 +87,27 @@ class ProgFile(CodeBlock):
                     writeln(lang.header)
                     
         if lang.hoistFuncs:
-            codeToWrite = sorted(self._code, key = lambda x: issubclass(type(x), Gate) )
+            codeToWrite = sorted(codeToWrite, key = lambda x: issubclass(type(x), Gate) )
             gate = []
             while issubclass(type(codeToWrite[-1]), Gate):
                 gate.append(codeToWrite.pop())
-            print_code(self, reversed(gate), outputFile)
+                print_code(self, gate, outputFile)
 
-                
+
+        incs = [ x for x in codeToWrite if isinstance(x, Include) ]
+        for include in incs:
+            target = codeToWrite.index(include)
+            if include.filename in includes:
+                codeToWrite[target].filename = includes[include.filename]
+            else:
+                codeToWrite[target:target+1] = include.code
+
+        if lang.hoistIncludes:
+            codeToWrite = sorted(codeToWrite, key = lambda x: isinstance(x, Include) )
+            while isinstance(codeToWrite[-1], Include):
+                print_code(self,[codeToWrite.pop()], outputFile)
+
+            
         if any( [ not isinstance(line, Comment) for line in codeToWrite ] ):
             if not lang.bareCode:
                 temp = Gate(self, funcName, NullBlock(self.currentFile), returnType = "int")
@@ -122,17 +137,14 @@ class ProgFile(CodeBlock):
 
     def include(self, filename):
         other = ProgFile(filename)
-        if isinstance(other, ProgFile):
-            self._code += other._code
-            for obj in other._objs:
-                if obj in Gate.internalGates: continue
-                if obj in lang_constants: continue
-                if obj in self._objs:
-                    self._error(includeWarning.format(
-                        name = obj, type = self._objs[obj].type_, other = other.filename, me = self.filename)
-                    )
-                else:
-                    self._objs[obj] = other._objs[obj]
-                    self._objs[obj].included = True
-        else:
-            raise TypeError(f'Cannot combine {type(self).__name__} with {type(other).__name__}')
+        self._code += [Include(self, filename, other._code)]
+        for obj in other._objs:
+            if obj in Gate.internalGates: continue
+            if obj in lang_constants: continue
+            if obj in self._objs:
+                self._error(includeWarning.format(
+                    name = obj, type = self._objs[obj].type_, other = other.filename, me = self.filename)
+                )
+            else:
+                self._objs[obj] = other._objs[obj]
+                self._objs[obj].included = True

@@ -30,14 +30,14 @@ class Operation:
 
     def handle_loops(self, pargs, slice = None):
         for parg in pargs:
+            if isinstance(parg[0], Alias):
+                parg[1] = 1
+                return
+            
             if isinstance(parg[1], tuple):
                 start, end = parg[1]
                 parg_init = parg[0].start
 
-                # if isinstance(parg_init, int):
-                #     if isinstance(start, int): start -= parg_init
-                #     if isinstance(end, int): end -= parg_init
-                        
                 if start == end :
                     parg[1] = start
                 else:
@@ -47,12 +47,6 @@ class Operation:
                         end += 1
                     else:
                         end += "+1"
-                    # start = self.resolve_arg( (parg[0], start) )
-                    # if isinstance(end,int):
-                    #     end = self.resolve_arg( (parg[0], end + 1) )
-                    # else:
-                    #     end = self.resolve_arg( (parg[0], end + "+1") )
-                        
                     self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
@@ -62,6 +56,10 @@ class Operation:
             else:
                 return str(arg[0].start)
         elif issubclass(type(arg[0]),Register):
+
+            if isinstance(arg[0], Alias):
+                return "Hello"
+            
             start = arg[1]
             offset = arg[0].start
             if isinstance(start, int):
@@ -106,13 +104,13 @@ class CodeBlock:
                 var = self._objs[var]
             else:
                 self._is_def(var, create=False, type_ = type_)
-                
+
             if index or index is None: # If index or implicit loop
 
                 index = self.parse_range(index, var)
 
                 return [var, index]
-            
+
             elif isinstance(var,Argument):
 
                 return [var, var.name + "_index"]
@@ -476,7 +474,7 @@ class CodeBlock:
             if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = original.strip()
             elif keyword in non_code: lastLine.original += "\n"+original.strip()
         if keyword is not None and comment is not "": lastLine.inlineComment = Comment(comment)
-        
+
     def parse_args(self, args_in, type_):
         if not args_in: return []
         args = []
@@ -505,7 +503,7 @@ class CodeBlock:
                 elif isinstance(arg.size, str):
                     if indexOnly: interval = (arg.size, arg.size)
                     else: interval = ( 0, arg.size )
-                
+
             else:
                 self._error(loopSpecWarning.format("start or end"))
 
@@ -638,7 +636,7 @@ class DeferredClassicalRegister(Register):
         self.type_ = "ClassicalRegister"
         self.start = 0
         self.end = size
-        
+
 class Alias(Register):
     def __init__(self, name, size):
         Register.__init__(self, name, size)
@@ -674,8 +672,8 @@ class Argument(Referencable):
         self.type_ = "QuantumRegister"
         self.start = name + "_index"
         self.end = size
-        
-        
+
+
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
@@ -782,7 +780,7 @@ class Gate(Referencable, CodeBlock):
             self._code = []
             self.entry = EntryExit(self.name)
 
-            
+
         self.parse_gate_args(cargs,  "ClassicalArgument")
         self.parse_gate_args(spargs, "SpecialArgument")
         self.parse_gate_args(qargs,  "QuantumArgument")
@@ -834,8 +832,8 @@ class Gate(Referencable, CodeBlock):
         CodeBlock.call_gate(self,funcName, cargs, qargs, gargs, spargs)
 
     def measurement(self, *args, **kwargs):
-        self._error("Cannot perform measure in gate") 
-        
+        self._error("Cannot perform measure in gate")
+
 class Circuit(Gate):
     def __init__(self, *args, **kwargs):
         Gate.__init__(self, *args, **kwargs)
@@ -844,7 +842,7 @@ class Circuit(Gate):
 
     def new_variable(self, argName, size, classical):
         self._is_def(argName, create=True)
-        
+
         if classical:
             variable = DeferredClassicalRegister(argName, self._resolve(size, "Constant"))
             self._objs[argName] = variable
@@ -913,3 +911,12 @@ class Verbatim:
 
     def to_lang(self):
         return self.line
+
+class Include:
+    def __init__(self, parent, filename, code):
+        self.parent = parent
+        self.filename = filename
+        self.code = code
+
+    def to_lang():
+        raise NotImplementedError(langWarning.format(type(self).__name__))
