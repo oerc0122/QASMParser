@@ -111,7 +111,7 @@ def Maths_to_c(parent, maths, logical):
              "arccos":"acos", "arcsin":"asin","arctan":"atan",
              }
     # Ops which will be more complicated
-    compSubOp = ["^","div"]
+    compSubOp = ["^","div","in"]
     outStr = " "
 
     # if maths.topLevel and maths.logical is not logical:
@@ -126,7 +126,7 @@ def Maths_to_c(parent, maths, logical):
                     raise NotImplementedError("lists in frame")
                 outStr += f"{elem[0].name}[{parent.resolve_arg(elem)}]"
             elif elem[1] is None:
-                outStr += f"{elem[0].name}"
+                outStr += f"decOf({elem[0].name}, {elem[0].size})"
         elif isinstance(elem, str):
             if elem not in MathsBlock.special:
                 outStr += elem
@@ -142,6 +142,11 @@ def Maths_to_c(parent, maths, logical):
             outStr += Maths_to_c(parent, elem, logical)
         elif isinstance(elem, Constant):
             outStr += elem.name
+        elif isinstance(elem, In):
+            print(elem.var)
+            arg = Maths_to_c(parent, elem.var, logical)
+            print(arg)
+            outStr += f"{arg} > {elem.inter[0]} && {arg} < {elem.inter[1]}"
         else:
             raise NotImplementedError(elem)
         outStr += " "

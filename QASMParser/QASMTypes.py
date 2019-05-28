@@ -405,11 +405,11 @@ class CodeBlock:
         # Variable-like routines
         elif keyword == "creg": # Registers NEED index, not range, must dereference ref.
             argName = token["arg"]["var"]
-            size = token["arg"]["ref"].get("index",1)
+            size = token["arg"].get("ref",{}).get("index",1)
             self.new_variable(argName, size, True)
         elif keyword == "qreg":
             argName = token["arg"]["var"]
-            size = int(token["arg"]["ref"].get("index",1))
+            size = token["arg"].get("ref",{}).get("index",1)
             self.new_variable(argName, size, False)
         elif keyword == "let":
             var = token["var"]
@@ -557,24 +557,32 @@ class CodeBlock:
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
+# Maths Parsing 
+    
 class MathsBlock:
 
     arithOp = ["-","+","^","*","/","div"]
-    boolOp = ["!","not","and","or","xor","<","<=","==","!=",">=",">"]
+    boolOp = ["!","not","and","or","xor","in","<","<=","==","!=",">=",">"]
     bitFunc = ["orof","xorof","andof"]
     intFunc = ["abs","rempow","countof"]
     realFunc = ["arcsin", "arccos", "arctan", "sin", "cos", "tan", "exp", "ln", "sqrt"]
     special = arithOp + boolOp + intFunc + realFunc
 
+
     def __init__(self, parent, maths, topLevel=False, operator = None):
+
         self.parent = parent
         self.maths = []
         self.logical = False
         self.topLevel = topLevel
         while(maths):
             elem = maths.pop(0)
+
             if isinstance(elem, ParseResults):
-                if len(elem) < 3 and "var" in elem:
+                if "in" in elem.asList():
+                    in_ = In( MathsBlock(self.parent, elem[0]) , elem[2] )
+                    self.maths.append( in_ )
+                elif len(elem) < 3 and "var" in elem:
                     self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))
                 elif len(elem) == 1:
                     self.maths.append(elem[0])
@@ -603,6 +611,12 @@ class MathsBlock:
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
+class In:
+    def __init__(self, var, inter):
+        self.var = var
+        self.inter = sorted(inter)
+
+    
 class ExternalLang:
     pass
 
@@ -687,7 +701,6 @@ class Alias(Register):
             self.targets[index] = (target, interval[0] + index)
         self.start = self.targets[0][0].start + interval[0]
         self.end   = self.start + interval[1] - interval[0]
-        print(self.start, self.end)
         self.contiguous()
 
 class Argument(Referencable):

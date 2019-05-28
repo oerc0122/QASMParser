@@ -87,6 +87,11 @@ _Bool andOf(int* a, int nBits) {
   return andOfBits(temp);
 }
 
+int decOf(int* a, int nBits) {
+  bitstr temp = toBitstr(a, nBits);
+  return decOfBits(temp);
+}
+
 int fllog(int a, int c) {
   if (a < 1 || c < 2) {
     perror("Bad values passed to fllog");

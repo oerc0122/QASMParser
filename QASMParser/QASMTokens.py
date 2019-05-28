@@ -48,7 +48,7 @@ def _setup_QASMParser():
             global cops
             global qops
             global _reservedKeys
-            if name in qops or name in cops: raise IOError(f'{name} already defined')
+            if name in qops or name in cops: raise IOError(f"{name} already defined")
             self.operation = name
             if keyOverride is not None:
                 self.parser = (keyOverride + argParser).addParseAction(lambda s,l,t: _overrideKeyword(t, name))
@@ -69,7 +69,7 @@ def _setup_QASMParser():
                      returnables = False, prefixes = None, version = "OPENQASM 2.0" ):
             global blocks
             global _reservedKeys
-            if name in qops or name in cops: raise IOError(f'{name} already defined')
+            if name in qops or name in cops: raise IOError(f"{name} already defined")
             self.operation = name
 
             self.parser = Keyword(name)("keyword") + validName("gateName")
@@ -117,7 +117,7 @@ def _setup_QASMParser():
     lineEnd = Literal(";")
 
     _is_ = Keyword("to").suppress()
-    _in_ = Keyword("in").suppress()
+    _in_ = Keyword("in")
     _to_ = Literal("->").suppress()
 
 
@@ -140,21 +140,23 @@ def _setup_QASMParser():
     intExp = Forward()
     realExp = Forward()
 
-    index = intExp.setResultsName('index')
-    interval = Optional(intExp.setResultsName('start'), default=None) + inS + Optional(intExp.setResultsName('end'), default=None)
+    index = intExp.setResultsName("index")
+    interval = Optional(intExp.setResultsName("start"), default=None) + inS + Optional(intExp.setResultsName("end"), default=None)
     indexRef = Group(inL + index + inR)
     interRef = Group(inL + interval + inR)
-    ref = inL + Group(delimitedList(index ^ interval))('ref') + inR
+    ref = inL + Group(delimitedList(index ^ interval)) + inR
     regNoRef = validName("var")
-    regRef   = Group(validName("var") + Optional(ref))
-    regMustRef = Group(validName("var") + ref)
+    regRef   = Group(validName("var") + Optional(ref)("ref"))
+    regMustRef = Group(validName("var") + ref("ref"))
     regListNoRef = Group(delimitedList( regNoRef ))
     regListRef = Group(delimitedList( regRef ))
     regListMustRef = Group(delimitedList( regMustRef ))
 
+    intInRange = Group(intExp + _in_ + interRef)
+    
     intVar = integer | regRef
     realVar = real | integer | pi | e | regRef
-    boolVar = boolean | realExp | intExp
+    boolVar = boolean | intInRange | realExp | intExp
     intFuncVar =  intFunc  + brL + Group(Optional(delimitedList(intVar) ))("args") + brR
     realFuncVar = realFunc + brL + Group(Optional(delimitedList(realVar)))("args") + brR
     boolFuncVar = boolFunc + brL + Group(Optional(delimitedList(boolVar)))("args") + brR
@@ -207,7 +209,6 @@ def _setup_QASMParser():
 
     comment = Literal(commentSyntax).suppress() + restOfLine("comment")
     comment.addParseAction(lambda s,l,t : _setVersion(t, (0,0,0)))
-
     
     directiveName = Word(alphas)
     directiveArgs = CharsNotIn(";")
@@ -246,7 +247,7 @@ def _setup_QASMParser():
     # Operations-like structures
     _Op("measure", regRef("qreg") + _to_ + regRef("creg"), qop = True)
     _Op("barrier", regListNoRef("args"))
-    _Op("output", regRef("value"), version = "REQASM 1.0")
+    _Op("output", regRef("value"), qop = True, version = "REQASM 1.0")
     _Op("reset", regRef("qreg"))
     _Op("exit", Empty(), version = "REQASM 1.0")
 
