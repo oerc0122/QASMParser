@@ -123,8 +123,10 @@ def Maths_to_c(parent, maths, logical):
                 if start == end :
                     elem[1] = start
                 else:
-                    raise NotImplementedError("lists in frame")
-                outStr += f"{elem[0].name}[{parent.resolve_arg(elem)}]"
+                    if start:
+                        outStr += f"decOf({elem[0].name}[{start}], {end-start})"
+                    else:
+                        outStr += f"decOf({elem[0].name}, {end-start})"
             elif elem[1] is None:
                 outStr += f"decOf({elem[0].name}, {elem[0].size})"
         elif isinstance(elem, str):
@@ -143,9 +145,7 @@ def Maths_to_c(parent, maths, logical):
         elif isinstance(elem, Constant):
             outStr += elem.name
         elif isinstance(elem, In):
-            print(elem.var)
             arg = Maths_to_c(parent, elem.var, logical)
-            print(arg)
             outStr += f"{arg} > {elem.inter[0]} && {arg} < {elem.inter[1]}"
         else:
             raise NotImplementedError(elem)

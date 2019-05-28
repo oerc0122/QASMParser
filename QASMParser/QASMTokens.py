@@ -117,7 +117,7 @@ def _setup_QASMParser():
     lineEnd = Literal(";")
 
     _is_ = Keyword("to").suppress()
-    _in_ = Keyword("in").suppress()
+    _in_ = Keyword("in")
     _to_ = Literal("->").suppress()
 
 
@@ -144,15 +144,15 @@ def _setup_QASMParser():
     interval = Optional(intExp.setResultsName("start"), default=None) + inS + Optional(intExp.setResultsName("end"), default=None)
     indexRef = Group(inL + index + inR)
     interRef = Group(inL + interval + inR)
-    ref = inL + Group(delimitedList(index ^ interval)) + inR
+    ref = inL + Group(delimitedList(index ^ interval))("ref") + inR
     regNoRef = validName("var")
-    regRef   = Group(validName("var") + Optional(ref)("ref"))
-    regMustRef = Group(validName("var") + ref("ref"))
+    regRef   = Group(validName("var") + Optional(ref))
+    regMustRef = Group(validName("var") + ref)
     regListNoRef = Group(delimitedList( regNoRef ))
     regListRef = Group(delimitedList( regRef ))
     regListMustRef = Group(delimitedList( regMustRef ))
 
-    intInRange = Group(intExp + _in_ + interRef)
+    intInRange = Group(intExp + _in_ + interRef)("in")
     
     intVar = integer | regRef
     realVar = real | integer | pi | e | regRef
