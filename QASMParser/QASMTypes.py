@@ -580,7 +580,7 @@ class MathsBlock:
 
             if isinstance(elem, ParseResults):
                 if "in" in elem.asList():
-                    in_ = In( MathsBlock(self.parent, elem[0]) , elem[2] )
+                    in_ = In( MathsBlock(self.parent, elem[0]) , elem[1] )
                     self.maths.append( in_ )
                 elif len(elem) < 3 and "var" in elem:
                     self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))

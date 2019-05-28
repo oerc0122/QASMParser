@@ -117,7 +117,7 @@ def _setup_QASMParser():
     lineEnd = Literal(";")
 
     _is_ = Keyword("to").suppress()
-    _in_ = Keyword("in")
+    _in_ = Keyword("in").suppress()
     _to_ = Literal("->").suppress()
 
 
