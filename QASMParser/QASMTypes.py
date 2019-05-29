@@ -487,7 +487,7 @@ class CodeBlock:
 
         elif keyword == "opaque":
             funcName = token.get("name")
-            cargs = token.get("cargs", [])
+            cargs = token.get("pargs", [])
             qargs = token.get("qargs", [])
             self.gate(funcName, None, cargs, qargs, type_ = "opaque")
 
