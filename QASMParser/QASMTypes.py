@@ -46,7 +46,6 @@ class Operation:
                     self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
-        print(arg)
         if type(arg[0]) is Argument:
             if arg[0].start and arg[1]:
                 return f"{arg[0].start} + {arg[1]}"
@@ -183,6 +182,9 @@ class CodeBlock:
                         return [var, index]
                     else:
                         return [var, None]
+                elif isinstance(var, QuantumRegister):
+                    self._error("Cannot use quantum register {} in maths expression".format(var.name))
+                    
                 else:
                     self._error("Undetermined type in maths parsing")
 
@@ -573,7 +575,6 @@ class MathsBlock:
         if isinstance(elem, Binary):
             new_args = []
             for op, operand in elem.args:
-                print(op, operand)
                 if issubclass(type(operand), MathOp):
                     operand = MathsBlock(parent, operand)
                     new_args.append( (op, operand) )

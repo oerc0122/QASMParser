@@ -48,6 +48,8 @@ x a[0]; // a = 0001
 x b;    // b = 1111
 
 let QWE = sqrt(8.);
+let Barf = a[0] and T;
+let Twip = fllog(2,51);
 barrier a, b;
 
 // add a to b, storing result in b

@@ -137,8 +137,6 @@ def Maths_to_c(parent, maths, logical):
     compSubOp = ["^","div"]
     outStr = ""
 
-    print(maths.maths)
-    
     if isinstance(maths.maths, Binary):
         for op, operand in maths.maths.args:
             if op == "nop":
