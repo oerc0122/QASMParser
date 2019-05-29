@@ -129,7 +129,7 @@ class CodeBlock:
             elif isinstance(var,str) and re.fullmatch(isReal, var):
                 var = float(var)
                 return var
-            elif isinstance(var, ParseResults):
+            elif issubclass(type(var), MathOp):
                 return self.parse_maths(var)
             else:
                 self._is_def(var, create=False, type_ = type_)
@@ -137,6 +137,12 @@ class CodeBlock:
 
         elif type_ == "Maths":
 
+            if isinstance(var, list):
+                if len(var) == 1:
+                    var = var.pop()
+                else:
+                    raise NotImplementedError("cannot handle list args")
+                    
             if var is None:
                 return None
             elif isinstance(var, int) or isinstance(var, float):
@@ -145,8 +151,13 @@ class CodeBlock:
                 return int(var)
             elif isinstance(var,str) and re.fullmatch(isReal, var):
                 return float(var)
-            elif isinstance(var, ParseResults):
+            elif issubclass(type(var), MathOp):
                 return self.parse_maths(var)
+            elif isinstance(var, ParseResults):
+                if var.get("var", None) is not None:
+                    return self._resolve(var.get("var"), type_="Maths", index = var.get("ref")) 
+                elif var.get("start") or var.get("end"):
+                    return self.parse_range(var)
             else:
                 self._is_def(var, create=False, type_ = None)
                 var = self._objs[var]
@@ -403,7 +414,7 @@ class CodeBlock:
             pass
 
         # Variable-like routines
-        elif keyword == "creg": # Registers NEED index, not range, must dereference ref.
+        elif keyword == "creg": # Registers default to size 1 if blank
             argName = token["arg"]["var"]
             size = token["arg"].get("ref",{}).get("index",1)
             self.new_variable(argName, size, True)
@@ -414,7 +425,7 @@ class CodeBlock:
         elif keyword == "let":
             var = token["var"]
             val = token["val"]
-            type_ = token["val"]["type"]
+            type_ = token["type"]
             self.let( (var, type_), (val, None) )
         elif keyword == "defAlias":
             name = token["alias"]["var"]
@@ -561,60 +572,37 @@ class CodeBlock:
     
 class MathsBlock:
 
-    arithOp = ["-","+","^","*","/","div"]
-    boolOp = ["!","not","and","or","xor","in","<","<=","==","!=",">=",">"]
-    bitFunc = ["orof","xorof","andof"]
-    intFunc = ["abs","rempow","countof"]
-    realFunc = ["arcsin", "arccos", "arctan", "sin", "cos", "tan", "exp", "ln", "sqrt"]
-    special = arithOp + boolOp + intFunc + realFunc
+    def __init__(self, parent, maths, topLevel=False):
 
-
-    def __init__(self, parent, maths, topLevel=False, operator = None):
-
-        self.parent = parent
-        self.maths = []
-        self.logical = False
         self.topLevel = topLevel
-        while(maths):
-            elem = maths.pop(0)
-            if isinstance(elem, ParseResults):
-                if "in" in elem.asList():
-                    in_ = In( MathsBlock(self.parent, elem[0]) , elem[2] )
-                    self.maths.append( in_ )
-                elif len(elem) < 3 and "var" in elem:
-                    self.maths.append(parent._resolve(elem["var"], "Maths", elem.get("ref",None)))
-                elif len(elem) == 1:
-                    self.maths.append(elem[0])
+        elem = maths
+        self.logical = False
+        if isinstance(elem, Binary):
+            new_args = []
+            for op, operand in elem.args:
+                if issubclass(type(operand), MathOp):
+                    operand = MathsBlock(parent, operand)
+                    new_args.append( (op, operand) )
                 else:
-                    self.maths.append(MathsBlock(self.parent, elem))
-
-            elif isinstance(elem, str):
-                if elem in MathsBlock.arithOp:
-                    self.maths.append(elem)
-                elif elem in MathsBlock.boolOp:
-                    self.logical = True
-                    self.maths.append(elem)
-                elif elem in MathsBlock.intFunc:
-                    self.maths.append(elem)
-                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], operator = elem))
-                elif elem in MathsBlock.realFunc:
-                    self.maths.append(elem)
-                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], operator = elem))
-                elif elem in MathsBlock.bitFunc:
-                    self.logical = True
-                    self.maths.append(elem)
-                    self.maths.append(MathsBlock(self.parent, [maths.pop(0)], operator = elem))
+                    operand = parent._resolve(operand, type_="Maths")
+                    new_args.append( (op, operand) )
+            elem.args = new_args
+        elif isinstance(elem, Function):
+            new_args = []
+            for arg in elem.args:
+                if issubclass(type(arg), MathOp):
+                    arg = MathsBlock(parent, arg)
+                    new_args.append( arg )
                 else:
-                    self.maths.append(parent._resolve(elem, "Maths"))
+                    arg = parent._resolve(arg, type_="Maths")
+                    new_args.append( arg )
+            elem.args = new_args
 
+        self.maths = elem
+                    
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
-
-class In:
-    def __init__(self, var, inter):
-        self.var = var
-        self.inter = sorted(inter)
-
+    
     
 class ExternalLang:
     pass

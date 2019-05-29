@@ -38,6 +38,32 @@ def ungroup_non_groups(string,l,tokens):
         if len(currToken) == 1:
             tokens[i] = currToken[0]
 
+# Maths classes
+
+class MathOp:
+    pass
+
+class Binary(MathOp):
+    def __init__(self, tokens):
+        tokens = tokens[0]
+        if len(tokens)%2 == 1: self.args = [("nop",tokens.pop(0))]
+        else: self.args = []
+        while tokens:
+            self.args.append( (tokens.pop(0), tokens.pop(0)) )
+    def __repr__(self):
+        
+        return f"{self.args}"
+            
+class Function(MathOp):
+    def __init__(self, tokens):
+        self.op = tokens[0]
+        self.args = tokens["args"]
+
+    def __repr__(self):
+        return f"{self.op} ({self.args})"
+
+
+            
 def _setup_QASMParser():
 
     global reserved
@@ -130,7 +156,7 @@ def _setup_QASMParser():
     dirOpenSyntax  = Keyword(dirOpenStr)
     dirCloseSyntax = Keyword(dirCloseStr)
 
-    intFunc = oneOf("abs rempow countof")
+    intFunc = oneOf("abs rempow countof fllog")
     realFunc = oneOf("abs rempow arcsin arccos arctan sin cos tan exp ln sqrt")
     boolFunc = oneOf("andof orof xorof")
 
@@ -139,7 +165,8 @@ def _setup_QASMParser():
 
     intExp = Forward()
     realExp = Forward()
-
+    boolExp = Forward()
+    
     index = intExp.setResultsName("index")
     interval = Optional(intExp.setResultsName("start"), default=None) + inS + Optional(intExp.setResultsName("end"), default=None)
     indexRef = Group(inL + index + inR)
@@ -151,45 +178,37 @@ def _setup_QASMParser():
     regListNoRef = Group(delimitedList( regNoRef ))
     regListRef = Group(delimitedList( regRef ))
     regListMustRef = Group(delimitedList( regMustRef ))
-
-    intInRange = Group(intExp + _in_ + interRef)("in")
     
-    intVar = integer | regRef
-    realVar = real | integer | pi | e | regRef
-    boolVar = boolean | intInRange | realExp | intExp
-    intFuncVar =  intFunc  + brL + Group(Optional(delimitedList(intVar) ))("args") + brR
-    realFuncVar = realFunc + brL + Group(Optional(delimitedList(realVar)))("args") + brR
-    boolFuncVar = boolFunc + brL + Group(Optional(delimitedList(boolVar)))("args") + brR
-
-    mathOp =  [
-        (oneOf("-")  , 1, opAssoc.RIGHT),
-        (oneOf("^")  , 2, opAssoc.LEFT),
-        (oneOf("* / div"), 2, opAssoc.LEFT),
-        (oneOf("+ -"), 2, opAssoc.LEFT)
-    ]
-    logOp = [
-        (oneOf("! not"), 1, opAssoc.RIGHT),
-        (oneOf("and or xor"), 2, opAssoc.LEFT),
-        (oneOf("< <= == != >= >"), 2, opAssoc.LEFT)
-    ]
-
-    intOp =  [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in mathOp]
-    realOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in mathOp]
-    boolOp = [(Group(op[0]).setResultsName("op"), op[1], op[2]) for op in logOp]
-
-    intExp << infixNotation(intFuncVar | intVar, intOp)
-
-    realExp << infixNotation(realFuncVar | realVar, realOp)
-
-    boolExp = infixNotation(boolFuncVar | boolVar, boolOp)
-
     def setMathType(toks, type_):
         toks["type"] = type_
 
-    mathExp = (intExp.setParseAction(lambda s,l,t: setMathType(t, "int")) ^
-               realExp.setParseAction(lambda s,l,t: setMathType(t, "float")) ^
-               boolExp.setParseAction(lambda s,l,t: setMathType(t, "bool"))
-               )
+    intVar = integer | regRef
+    realVar = real | integer | pi | e | regRef
+    boolVar = boolean | interRef | regRef | realExp | intExp
+    intFuncVar =  (intFunc  + brL + Group(Optional(delimitedList(intVar) ))("args") + brR).setParseAction(Function)
+    realFuncVar = ( (realFunc ^ intFunc) + brL + Group(Optional(delimitedList(realVar)))("args") + brR).setParseAction(Function)
+    boolFuncVar = (boolFunc + brL + Group(Optional(delimitedList(boolVar)))("args") + brR).setParseAction(Function)
+
+    mathOp =  [
+        (oneOf("- +"), 1, opAssoc.RIGHT, Binary),
+        (oneOf("^")  , 2, opAssoc.LEFT, Binary),
+        (oneOf("* / div"), 2, opAssoc.LEFT, Binary),
+        (oneOf("+ -"), 2, opAssoc.LEFT, Binary)
+    ]
+    logOp = [
+        (oneOf("! not"), 1, opAssoc.RIGHT, Binary),
+        (oneOf("and or xor"), 2, opAssoc.LEFT, Binary),
+        (oneOf("< <= == != >= >"), 2, opAssoc.LEFT, Binary),
+        (oneOf("in"), 2, opAssoc.LEFT, Binary)
+    ]
+
+    intExp << infixNotation(intFuncVar | intVar, mathOp).setParseAction(lambda s,l,t: setMathType(t, "int"))
+
+    realExp << infixNotation(realFuncVar | realVar, mathOp).setParseAction(lambda s,l,t: setMathType(t, "float"))
+
+    boolExp << infixNotation(boolFuncVar | boolVar, logOp).setParseAction(lambda s,l,t: setMathType(t, "bool"))
+
+    mathExp = intExp ^ realExp ^ boolExp
 
     op  = []
     qop = []
@@ -242,7 +261,7 @@ def _setup_QASMParser():
     _Op("qreg", regRef("arg"))
     _Op("defAlias", regMustRef("alias"), keyOverride = "alias", version = "REQASM 1.0" )
     _Op("alias", regRef("alias") + _is_ + regRef("target"), version = "REQASM 1.0")
-    _Op("let", validName("var") + Literal("=").suppress() + Group(mathExp)("val"), version="REQASM 1.0")
+    _Op("let", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM 1.0")
 
     # Operations-like structures
     _Op("measure", regRef("qreg") + _to_ + regRef("creg"), qop = True)
@@ -263,8 +282,8 @@ def _setup_QASMParser():
 
     # Block structures
     _Block("for", validName("var") + _in_ + interRef("range"), version = "REQASM 1.0")
-    _Block("if", "(" + Group(boolExp)("cond") + ")", version = "REQASM 1.0")
-    _Block("while", "(" + Group(boolExp)("cond") + ")", version = "OMEQASM 1.0")
+    _Block("if", "(" + boolExp("cond") + ")", version = "REQASM 1.0")
+    _Block("while", "(" + boolExp("cond") + ")", version = "OMEQASM 1.0")
 
     qopsParsers = list(map ( lambda qop: qop.parser, qops.values())) + [callGate]
     blocksParsers = list(map ( lambda block: block.parser, blocks.values()))
@@ -288,6 +307,7 @@ def _setup_QASMParser():
         (operations + Optional(comment)) ^
         (Or(blocksParsers) + codeBlock("block")) ^
                 comment))                              # Whole line comment
+
 
     testLine = Forward()
     dummyCodeBlock = nestedExpr("{","}", testLine, (quotedString | comment))

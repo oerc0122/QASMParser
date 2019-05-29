@@ -45,12 +45,35 @@ typesTranslation = {
     None:"void"
     }
 
-def resolve_maths(self, maths):
-    if isinstance(maths, MathsBlock):
-        value = Maths_to_c(self, maths, False)
-    elif type(maths) is list: value =  f'{{{",".join(maths)}}}'
-    else:  value =  f'{maths}'
+def resolve_maths(self, elem):
+    if isinstance(elem, MathsBlock):
+        value = Maths_to_c(self, elem, False)
+    elif type(elem) is list:
+        value =  f'{{{",".join(elem)}}}'
+    elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
+            if isinstance(elem[1], tuple):
+                start, end = elem[1]
+                if start == end :
+                    value = f"{elem[0].name}[{start}]"
+                else:
+                    size = end - start + 1
+                    if start:
+                        value = f"decOf({elem[0].name}[{start}], {size})"
+                    else:
+                        value = f"decOf({elem[0].name}, {size})"
+            elif elem[1] is None:
+                value = f"decOf({elem[0].name}, {elem[0].size})"
+    elif isinstance(elem, int) or isinstance(elem, float):
+        value = str(elem)
+    elif isinstance(elem, Constant):
+        value = elem.name
+    elif issubclass(type(elem), MathOp):
+        value = Maths_to_c(parent, elem, logical)
+    else:
+        raise NotImplementedError(elem)
+
     return value
+
     
 def Include_to_c(self):
     return f'#include "{self.filename}"'
@@ -108,50 +131,79 @@ def Maths_to_c(parent, maths, logical):
     identOp = ["-","+","*","/","%","<","<=","==","!=",">=",">","!","sin","cos","tan","sqrt","abs"]
     # Ops which require simple substitution
     subOp = {"and":"&&","or":"||","xor":"!=","mod":"%",
-             "arccos":"acos", "arcsin":"asin","arctan":"atan",
+             "arccos":"acos", "arcsin":"asin","arctan":"atan"
              }
     # Ops which will be more complicated
-    compSubOp = ["^","div","in"]
-    outStr = " "
+    compSubOp = ["^","div","in","fllog","rempow"]
+    outStr = ""
 
+    print(maths.maths)
+    
+    if isinstance(maths.maths, Binary):
+        for op, operand in maths.maths.args:
+            if op == "nop":
+                operand = resolve_maths(parent, operand)
+                outStr += f"{operand}"
+            elif op == "in":
+                if len(operand) == 2:
+                    outStr = f"({outStr} > {operand[0]} && {outStr} < {operand[1]})"
+                else:
+                    raise OSError
+            elif op in identOp:
+                operand = resolve_maths(parent, operand)
+                outStr += f" {op} {operand}"
+            elif op in subOp:
+                operand = resolve_maths(parent, operand)
+                outStr += f" {subOp[op]} {operand}"
+            else:
+                raise NotImplementedError(op)
+    elif isinstance(maths.maths, Function):
+        elem = maths.maths.op
+        args = []
+        for arg in maths.maths.args:
+            args.append(resolve_maths(parent, arg))
+        outStr += f"{elem}({', '.join(args)})"
+        
+    return outStr
     # if maths.topLevel and maths.logical is not logical:
     #     raise TypeError("Cannot pass logical expression to mathematical expression or vice-versa")
-    for elem in maths.maths:
-        if isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
-            if isinstance(elem[1], tuple):
-                start, end = elem[1]
-                if start == end :
-                    elem[1] = start
-                else:
-                    if start:
-                        outStr += f"decOf({elem[0].name}[{start}], {end-start})"
-                    else:
-                        outStr += f"decOf({elem[0].name}, {end-start})"
-            elif elem[1] is None:
-                outStr += f"decOf({elem[0].name}, {elem[0].size})"
-        elif isinstance(elem, str):
-            if elem not in MathsBlock.special:
-                outStr += elem
-            elif elem in identOp:
-                outStr += elem
-            elif elem in subOp:
-                outStr += subOp[elem]
-            else:
-                raise NotImplementedError(elem)
-        elif isinstance(elem, int) or isinstance(elem, float):
-            outStr += str(elem)
-        elif isinstance(elem, MathsBlock):
-            outStr += Maths_to_c(parent, elem, logical)
-        elif isinstance(elem, Constant):
-            outStr += elem.name
-        elif isinstance(elem, In):
-            arg = Maths_to_c(parent, elem.var, logical)
-            outStr += f"{arg} > {elem.inter[0]} && {arg} < {elem.inter[1]}"
-        else:
-            raise NotImplementedError(elem)
-        outStr += " "
-    if (maths.topLevel): return outStr
-    else: return "(" + outStr + ")"
+    # for elem in maths.maths:
+    #     if isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
+    #         if isinstance(elem[1], tuple):
+    #             start, end = elem[1]
+    #             if start == end :
+    #                 outStr = f"{elem[0].name}[{start}]"
+    #             else:
+    #                 size = end - start + 1
+    #                 if start:
+    #                     outStr += f"decOf({elem[0].name}[{start}], {size})"
+    #                 else:
+    #                     outStr += f"decOf({elem[0].name}, {size})"
+    #         elif elem[1] is None:
+    #             outStr += f"decOf({elem[0].name}, {elem[0].size})"
+    #     elif isinstance(elem, str):
+    #         if elem not in MathsBlock.special:
+    #             outStr += elem
+    #         elif elem in identOp:
+    #             outStr += elem
+    #         elif elem in subOp:
+    #             outStr += subOp[elem]
+    #         else:
+    #             raise NotImplementedError(elem)
+    #     elif isinstance(elem, int) or isinstance(elem, float):
+    #         outStr += str(elem)
+    #     elif isinstance(elem, MathsBlock):
+    #         outStr += Maths_to_c(parent, elem, logical)
+    #     elif isinstance(elem, Constant):
+    #         outStr += elem.name
+    #     elif isinstance(elem, In):
+    #         arg = Maths_to_c(parent, elem.var, logical)
+    #         outStr += f"{arg} > {elem.inter[0]} && {arg} < {elem.inter[1]}"
+    #     else:
+    #         raise NotImplementedError(elem)
+    #     outStr += " "
+    # if (maths.topLevel): return outStr
+    # else: return "(" + outStr + ")"
         
 def Let_to_c(self):
     var = self.const

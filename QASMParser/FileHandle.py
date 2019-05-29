@@ -57,9 +57,6 @@ class QASMFile:
             print(" "*(line.index(err.line) + err.column-1) + "^")
             problem = errorKeywordParser.parseString(err.line)
             key = problem["keyword"]
-            # if (len(errorKeywordParser.searchString(line)) > 1):
-            #     print("Lines conflated, possible missing semi-colon")
-            #     quit()
             try:
                 if key in qops.keys():
                     temp = qops[key].parser.parseString(err.line)
@@ -105,7 +102,10 @@ class QASMFile:
             if line is not None: currentLine += line
 
         if currentLine.strip(): # Catch remainder
-            self._error("Unexpected end of file, last parsed: \n'{}'".format(currentLine))
+            try:
+                QASMcodeParser.parseString(currentLine, parseAll=True)
+            except ParseException as err:
+                self._handler(err, currentLine)
 
     def readline(self):
         """ Reads a line from a file """
