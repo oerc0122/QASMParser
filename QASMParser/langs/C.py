@@ -134,7 +134,7 @@ def Maths_to_c(parent, maths, logical):
              "arccos":"acos", "arcsin":"asin","arctan":"atan"
              }
     # Ops which will be more complicated
-    compSubOp = ["^","div","in","fllog","rempow"]
+    compSubOp = ["^","div"]
     outStr = ""
 
     print(maths.maths)
@@ -149,6 +149,10 @@ def Maths_to_c(parent, maths, logical):
                     outStr = f"({outStr} > {operand[0]} && {outStr} < {operand[1]})"
                 else:
                     raise OSError
+            elif op == "^":
+                outStr = f"pow({outStr}, {operand})"
+            elif op == "div":
+                outStr = f"floor({outStr} / {operand})"
             elif op in identOp:
                 operand = resolve_maths(parent, operand)
                 outStr += f" {op} {operand}"
