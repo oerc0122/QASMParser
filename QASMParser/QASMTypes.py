@@ -46,6 +46,7 @@ class Operation:
                     self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
+        print(arg)
         if type(arg[0]) is Argument:
             if arg[0].start and arg[1]:
                 return f"{arg[0].start} + {arg[1]}"
@@ -58,7 +59,7 @@ class Operation:
             if isinstance(start, int):
                 return str(offset + start)
             elif isinstance(start, Constant):
-                return str(offset + arg[1].val)
+                return f"{offset} + {arg[1].val}"
             elif isinstance(start, str):
                 if (offset > 0): return f"{start} + {arg[0].start}"
                 else: return f"{start}"
@@ -119,6 +120,9 @@ class CodeBlock:
             return [var, index]
 
         elif type_ == "Constant":
+            if isinstance(var, ParseResults):
+                var = var.pop()
+
             if var is None:
                 return None
             elif isinstance(var, int) or isinstance(var, float):
@@ -279,18 +283,7 @@ class CodeBlock:
         qargs = self.parse_args(qargs, type_ = "QuantumRegister")
         gargs = self.parse_args(gargs, type_ = "Gate")
         spargs = self.parse_args(spargs, type_ = "Constant")
-
-        if funcName in Gate.internalGates:
-            gateRef = Gate.internalGates[funcName]
-            gate = CallGate(gateRef.internalName, cargs, qargs)
-            preCode, outCargs = gateRef.reorder_args(gate._qargs,gate._cargs)
-            gate._qargs = []
-            gate._cargs = outCargs
-            if preCode:
-                self._code += preCode
-            gate.finalise_loops()
-        else:
-            gate = CallGate(funcName, cargs, qargs)
+        gate = CallGate(funcName, cargs, qargs)
 
         self._code += [gate]
 
@@ -580,6 +573,7 @@ class MathsBlock:
         if isinstance(elem, Binary):
             new_args = []
             for op, operand in elem.args:
+                print(op, operand)
                 if issubclass(type(operand), MathOp):
                     operand = MathsBlock(parent, operand)
                     new_args.append( (op, operand) )

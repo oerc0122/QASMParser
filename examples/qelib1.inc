@@ -5,12 +5,6 @@ OPENQASM 2.0;
 
 // --- QE Hardware primitives ---
 
-gate U(theta, phi, lambda) a {
-     rotateZ(lambda) a;
-     rotateY(theta) a;
-     rotateZ(phi) a;
-}
-
 // 3-parameter 2-pulse single qubit gate
 gate u3(theta,phi,lambda) q { U(theta,phi,lambda) q; }
 // 2-parameter 1-pulse single qubit gate

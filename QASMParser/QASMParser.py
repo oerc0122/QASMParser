@@ -91,7 +91,7 @@ class ProgFile(CodeBlock):
             gate = []
             while issubclass(type(codeToWrite[-1]), Gate):
                 gate.append(codeToWrite.pop())
-            print_code(self, gate, outputFile)
+            print_code(self, reversed(gate), outputFile)
 
 
         incs = [ x for x in codeToWrite if isinstance(x, Include) ]

@@ -121,6 +121,22 @@ class QASMFile:
         self.version = parent.version
         self.QASMType = parent.QASMType
         self.nLine = parent.nLine
+
+class QASMString(QASMFile):
+    def __init__(self, block):
+        import io
+        self.parent = self
+        self.version = (2,2,0)
+        self.versionNumber = 2.0
+        self.QASMType = "REQASM"
+        self.name = "Internal"
+        self.File = io.StringIO(block)
+        self.currentFile = self
+        self.nLine = 0
+        self._objs = {}
+
+    def __del__(self):
+        pass
         
 class QASMBlock(QASMFile):
     def __init__(self, parent, block, startline = None):

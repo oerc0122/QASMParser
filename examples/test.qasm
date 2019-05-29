@@ -1,6 +1,7 @@
 // quantum ripple-carry adder from Cuccaro et al, quant-ph/0410184
 OMEQASM 2.0;
 include "qelib1.inc";
+include "QuEST.qasm";
 
 *** ClassLang "C";
 
@@ -102,3 +103,5 @@ while ( Q < 3 )
  let Q = Q + 1;
 }
 
+Hadamard q;
+ControlledRotateAroundAxis(90., 0., 1., 1.) a,b;

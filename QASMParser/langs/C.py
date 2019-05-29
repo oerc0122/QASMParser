@@ -48,8 +48,6 @@ typesTranslation = {
 def resolve_maths(self, elem):
     if isinstance(elem, MathsBlock):
         value = Maths_to_c(self, elem, False)
-    elif type(elem) is list:
-        value =  f'{{{",".join(elem)}}}'
     elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             if isinstance(elem[1], tuple):
                 start, end = elem[1]
@@ -63,7 +61,9 @@ def resolve_maths(self, elem):
                         value = f"decOf({elem[0].name}, {size})"
             elif elem[1] is None:
                 value = f"decOf({elem[0].name}, {elem[0].size})"
-    elif isinstance(elem, int) or isinstance(elem, float):
+    elif type(elem) is list:
+        value =  f'{{{",".join(elem)}}}'
+    elif isinstance(elem, int) or isinstance(elem, float) or isinstance(elem, str):
         value = str(elem)
     elif isinstance(elem, Constant):
         value = elem.name
