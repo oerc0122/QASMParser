@@ -226,7 +226,9 @@ def _setup_QASMParser():
 
     modifiers = Group(ZeroOrMore(oneOf(callMods)))
 
-    comment = Literal(commentSyntax).suppress() + restOfLine("comment")
+    commentLine = Literal(commentSyntax).suppress() + restOfLine("comment")
+    commentBlock = QuotedString(quoteChar = "/*", endQuoteChar = "*/", multiline = True)("comment")
+    comment = commentLine | commentBlock
     comment.addParseAction(lambda s,l,t : _setVersion(t, (0,0,0)))
     
     directiveName = Word(alphas)

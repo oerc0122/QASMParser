@@ -15,7 +15,7 @@ parser.add_argument('-o','--output', help="File to compile to")
 parser.add_argument('-l','--language', help="Output file language")
 parser.add_argument('-d','--debug', help="Output original QASM in translation", action="store_true")
 parser.add_argument('-c','--to-module', help = "Compile as module for inclusion into larger project", action="store_true")
-parser.add_argument("-I","--include", help = 'Include a pre-"compiled" source', action=StoreDictKeyPair, metavar="QASMFILE=CFILE,QASMFILE2=CFILE2...", default={})
+parser.add_argument("-I","--include", help = 'Include a pre-"compiled" source', action=StoreDictKeyPair, metavar="QASMFILE=CFILE,QASMFILE2=CFILE2,...", default={})
 
 def get_command_args():
     argList = parser.parse_args()
