@@ -235,5 +235,5 @@ def CreateGate_to_c(self):
     return outStr
 
 def Loop_to_c(self):
-    return  f"for (int {self.var} = {self.start}; {self.var} < {self.end}; {self.var} += {self.step}) "
+    return  f"for (int {self.var} = {self.start}; {self.var} <= {self.end}; {self.var} += {self.step}) "
 

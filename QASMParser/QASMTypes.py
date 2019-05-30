@@ -48,10 +48,6 @@ class Operation:
                 parg[1] = loopVar
 
         if loopVar:
-            if isinstance(end,int):
-                end += 1
-            else:
-                end += "+1"
             self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
@@ -456,7 +452,7 @@ class CodeBlock:
             var = token["var"]
             start, end = self.parse_range(token["range"])
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.loop(var, block, start, end + 1) # Handle "<" ending one early
+            self.loop(var, block, start, end) # Handle "<" ending one early
         elif keyword == "while":
             cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token.get("block", None))
