@@ -167,45 +167,6 @@ def Maths_to_c(parent, maths, logical):
         outStr += f"{elem}({', '.join(args)})"
         
     return outStr
-    # if maths.topLevel and maths.logical is not logical:
-    #     raise TypeError("Cannot pass logical expression to mathematical expression or vice-versa")
-    # for elem in maths.maths:
-    #     if isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
-    #         if isinstance(elem[1], tuple):
-    #             start, end = elem[1]
-    #             if start == end :
-    #                 outStr = f"{elem[0].name}[{start}]"
-    #             else:
-    #                 size = end - start + 1
-    #                 if start:
-    #                     outStr += f"decOf({elem[0].name}[{start}], {size})"
-    #                 else:
-    #                     outStr += f"decOf({elem[0].name}, {size})"
-    #         elif elem[1] is None:
-    #             outStr += f"decOf({elem[0].name}, {elem[0].size})"
-    #     elif isinstance(elem, str):
-    #         if elem not in MathsBlock.special:
-    #             outStr += elem
-    #         elif elem in identOp:
-    #             outStr += elem
-    #         elif elem in subOp:
-    #             outStr += subOp[elem]
-    #         else:
-    #             raise NotImplementedError(elem)
-    #     elif isinstance(elem, int) or isinstance(elem, float):
-    #         outStr += str(elem)
-    #     elif isinstance(elem, MathsBlock):
-    #         outStr += Maths_to_c(parent, elem, logical)
-    #     elif isinstance(elem, Constant):
-    #         outStr += elem.name
-    #     elif isinstance(elem, In):
-    #         arg = Maths_to_c(parent, elem.var, logical)
-    #         outStr += f"{arg} > {elem.inter[0]} && {arg} < {elem.inter[1]}"
-    #     else:
-    #         raise NotImplementedError(elem)
-    #     outStr += " "
-    # if (maths.topLevel): return outStr
-    # else: return "(" + outStr + ")"
         
 def Let_to_c(self):
     var = self.const

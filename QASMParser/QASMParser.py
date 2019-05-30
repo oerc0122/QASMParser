@@ -6,7 +6,7 @@ from .QASMTypes import *
 from .FileHandle import *
 from .QASMErrors import *
 
-lang_constants = ["e", "pi"]
+lang_constants = ["e", "pi", "T", "F"]
 
 class ProgFile(CodeBlock):
     def __init__(self, filename):
@@ -14,8 +14,10 @@ class ProgFile(CodeBlock):
         CodeBlock.__init__(self, QASMFile(filename), parent = None, copyFuncs = False, copyObjs = False)
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
-        for constant in lang_constants:
+        for constant in ["e","pi"]:
             self._objs[constant] = Constant( ( constant, "float"), ( None, None ))
+        for val, name in enumerate(["F", "T"]):
+            self._objs[name] = Constant( ( name, "bool") , ( val, None ) )
         self.parse_instructions()
         
     def to_lang(self, filename = None, module = False, function = False, includes = {}, langOut = "C", verbose = False):
@@ -36,7 +38,7 @@ class ProgFile(CodeBlock):
             for line in code:
                 
                 if verbose and hasattr(line,'original') and type(line) is not Comment: # Verbose -- Print original
-                    writeln(Comment(line.original).to_lang() + "\n")
+                    writeln(Comment(self, line.original).to_lang() + "\n")
 
                 if hasattr(line,"inlineComment"): # Inline comments
                     writeln(line.inlineComment.to_lang())
@@ -71,7 +73,7 @@ class ProgFile(CodeBlock):
         self.depth = -1
        
         for line in self.currentFile.header:
-            writeln(Comment(line).to_lang())
+            writeln(Comment(self, line).to_lang())
 
         # If our language needs to add things to the header
         if module:
@@ -86,14 +88,6 @@ class ProgFile(CodeBlock):
                 elif type(lang.header) is str:
                     writeln(lang.header)
                     
-        if lang.hoistFuncs:
-            codeToWrite = sorted(codeToWrite, key = lambda x: issubclass(type(x), Gate) )
-            gate = []
-            while issubclass(type(codeToWrite[-1]), Gate):
-                gate.append(codeToWrite.pop())
-            print_code(self, reversed(gate), outputFile)
-
-
         incs = [ x for x in codeToWrite if isinstance(x, Include) ]
         for include in incs:
             target = codeToWrite.index(include)
@@ -107,6 +101,12 @@ class ProgFile(CodeBlock):
             while isinstance(codeToWrite[-1], Include):
                 print_code(self,[codeToWrite.pop()], outputFile)
 
+        if lang.hoistFuncs:
+            codeToWrite = sorted(codeToWrite, key = lambda x: issubclass(type(x), Gate) )
+            gate = []
+            while issubclass(type(codeToWrite[-1]), Gate):
+                gate.append(codeToWrite.pop())
+            print_code(self, reversed(gate), outputFile)
             
         if any( [ not isinstance(line, Comment) for line in codeToWrite ] ):
             if not lang.bareCode:
@@ -115,7 +115,7 @@ class ProgFile(CodeBlock):
                 # Hoist qregs
                 regs = [ x for x in codeToWrite if type(x).__name__ == "QuantumRegister" ]
                 for reg in regs:
-                    temp._code += [Comment(f'{reg.name}[{reg.start}:{reg.end-1}]')]
+                    temp._code += [Comment(self, f'{reg.name}[{reg.start}:{reg.end-1}]')]
                 codeToWrite = [ x for x in codeToWrite if type(x).__name__ != "QuantumRegister" ]
                 temp._code += [QuantumRegister("qreg", QuantumRegister.numQubits)]
                 temp._code += codeToWrite

@@ -9,7 +9,8 @@ isReal = re.compile("[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 
 # Core types
 class Operation:
-    def __init__(self, qargs = None, cargs = None):
+    def __init__(self, parent, qargs = None, cargs = None):
+        self.parent = parent
         self._loops = None
         self._qargs = qargs
         self._cargs = cargs
@@ -29,21 +30,29 @@ class Operation:
             pass
 
     def handle_loops(self, pargs, slice = None):
-        for parg in pargs:
-            if isinstance(parg[1], tuple):
-                start, end = parg[1]
-                parg_init = parg[0].start
+        if all( ( isinstance( parg[1][0], int ) and isinstance( parg[1][1], int ) for parg in pargs) ):
+            ranges = [ parg[1][1] - parg[1][0] for parg in pargs]
+            if not all( ( size == ranges[0] for size in ranges ) ):
+                self.parent._error("Mismatched indices in implcit loop")
 
-                if start == end :
-                    parg[1] = start
-                else:
-                    loopVar = parg[0].name + "_loop"
-                    parg[1] = loopVar
-                    if isinstance(end,int):
-                        end += 1
-                    else:
-                        end += "+1"
-                    self.add_loop(loopVar, start, end)
+        parg_init = [ parg[0].start for parg in pargs ]
+
+        base = pargs[0]
+        start, end = base[1]
+        loopVar = False
+        for parg in pargs:
+            if start == end :
+                parg[1] = start
+            else:
+                loopVar = base[0].name + "_loop"
+                parg[1] = loopVar
+
+        if loopVar:
+            if isinstance(end,int):
+                end += 1
+            else:
+                end += "+1"
+            self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
         if type(arg[0]) is Argument:
@@ -221,7 +230,7 @@ class CodeBlock:
             self._error(indexWarning.format(Req=interval[1], Var = arg.name, Max = arg.size))
 
     def comment(self, comment):
-        self._code += [Comment(comment)]
+        self._code += [Comment(self,comment)]
 
     def new_variable(self, argName, size, classical):
         self._is_def(argName, create=True)
@@ -274,18 +283,26 @@ class CodeBlock:
         self._code += [gate]
 
     def let(self, var, val):
-        self._is_def(var, create=True)
-        val = (self._resolve(val[0], type_="Constant"), val[1])
-        letobj = Constant( var, val )
-        self._objs[letobj.name] = letobj
-        self._code += [Let( letobj )]
+        varName, varType = var
+        valName, valType = val
+        
+        val = (self._resolve( valName, type_="Constant"), valType)
+        if self._check_def(varName, create=True, type_="Constant"):
+            letobj = Constant( var, val )
+            self._objs[letobj.name] = letobj
+        else:
+            var = ( self._resolve( varName, type_="Constant").name, None )
+            letobj = Constant( var, val )
+            self._objs[letobj.name] = letobj
+            
+        self._code += [Let( self, letobj )]
     def call_gate(self, funcName, cargs, qargs, gargs=None, spargs=None):
         self._is_def(funcName, create=False, type_ = "Gate")
         cargs = self.parse_args(cargs, type_ = "Constant")
         qargs = self.parse_args(qargs, type_ = "QuantumRegister")
         gargs = self.parse_args(gargs, type_ = "Gate")
         spargs = self.parse_args(spargs, type_ = "Constant")
-        gate = CallGate(funcName, cargs, qargs)
+        gate = CallGate(self, funcName, cargs, qargs)
 
         self._code += [gate]
 
@@ -293,7 +310,7 @@ class CodeBlock:
         carg = self._resolve(carg, type_ = "ClassicalRegister", index=bindex)
         qarg = self._resolve(qarg, type_ = "QuantumRegister", index=qindex)
 
-        measure = Measure( qarg, carg )
+        measure = Measure( self, qarg, carg )
 
         self._code += [measure]
 
@@ -305,31 +322,31 @@ class CodeBlock:
 
     def reset(self, qarg, qindex):
         qarg = self._resolve(qarg, type_="QuantumRegister", index=qindex)
-        reset = Reset( qarg )
+        reset = Reset( self, qarg )
 
         self._code += [reset]
 
     def output(self, carg, bindex):
         carg = self._resolve(carg, type_="ClassicalRegister", index=bindex)
-        output = Output ( carg )
+        output = Output ( self, carg )
 
         self._code += [output]
 
     def loop(self, var, block, start, end):
-        loop = Loop(self,block, var, start, end)
+        loop = Loop(self, block, var, start, end)
         self._code += [loop]
 
     def cycle(self, var):
         var = self._resolve(var, type_ = "Constant")
         if not var.loopVar:
             self._error("Cannot cycle non-loop vars")
-        self._code += [Cycle(var)]
+        self._code += [Cycle( self, var )]
         
     def escape(self, var):
         var = self._resolve(var, type_ = "Constant")
         if not var.loopVar:
             self._error("Cannot escape non-loop vars")
-        self._code += [Escape(var)]
+        self._code += [Escape(self, var)]
         
     def new_while(self, cond, block):
         self._code += [While(self, cond, block)]
@@ -498,7 +515,7 @@ class CodeBlock:
             original = token.original
             if not hasattr(lastLine,"original") or keyword not in non_code: lastLine.original = original.strip()
             elif keyword in non_code: lastLine.original += "\n"+original.strip()
-        if keyword is not None and comment is not "": lastLine.inlineComment = Comment(comment)
+        if keyword is not None and comment is not "": lastLine.inlineComment = Comment(self, comment)
 
     def parse_args(self, args_in, type_):
         if not args_in: return []
@@ -597,7 +614,6 @@ class MathsBlock:
                     
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
-    
     
 class ExternalLang:
     pass
@@ -701,11 +717,12 @@ class Argument(Referencable):
 
 # Operation types
 class Return(Operation):
-    def __init__(self, carg):
-        Operation.__init__(self, cargs = carg)
+    def __init__(self, parent, carg):
+        Operation.__init__(self, parent, cargs = carg)
 
 class Comment:
-    def __init__(self, comment):
+    def __init__(self, parent, comment):
+        self.parent = parent
         self.name = comment
         self.comment = comment
 
@@ -713,7 +730,8 @@ class Comment:
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class Let(Operation):
-    def __init__(self, var, val = None):
+    def __init__(self, parent, var, val = None):
+        self.parent = parent
         if type(var) is Constant:
             self.const = var
         elif type(var) in [tuple, list]:
@@ -725,21 +743,19 @@ class Let(Operation):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class CallGate(Operation):
-    def __init__(self, gate, cargs, qargs):
+    def __init__(self, parent, gate, cargs, qargs):
         self.name = gate
 
-        Operation.__init__(self, qargs, cargs)
+        Operation.__init__(self, parent, qargs, cargs)
         self.handle_loops(self._qargs)
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class Measure(Operation):
-    def __init__(self, qarg, carg):
-        Operation.__init__(self, qarg, carg)
-        self.handle_loops([self._cargs])
-        if self._loops: self._qargs[1] = self._cargs[1]
-        self.handle_loops([self._qargs])
+    def __init__(self, parent, qarg, carg):
+        Operation.__init__(self, parent, qarg, carg)
+        self.handle_loops([self._cargs, self._qargs])
         carg = self._cargs[0]
         bindex = self._cargs[1]
         qarg = self._qargs[0]
@@ -754,13 +770,13 @@ class Measure(Operation):
         self.finalise_loops()
 
 class Reset(Operation):
-    def __init__(self, qarg):
-        Operation.__init__(self, qarg)
+    def __init__(self, parent, qarg):
+        Operation.__init__(self, parent, qarg)
         self.handle_loops([self._qargs])
 
 class Output(Operation):
-    def __init__(self, carg):
-        Operation.__init__(self, cargs = carg)
+    def __init__(self, parent, carg):
+        Operation.__init__(self, parent, cargs = carg)
         self.handle_loops([self._cargs])
 
 class EntryExit:

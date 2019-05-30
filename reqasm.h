@@ -9,8 +9,10 @@ typedef struct bitstr
   int  nBits;
 } bitstr;
 
-qreal pi = 3.141592653589;
-qreal e  = 2.718281828459;
+const qreal pi = 3.141592653589;
+const qreal e  = 2.718281828459;
+const _Bool T  = 1;
+const _Bool F  = 0;
 
 bitstr toBitstr(int *bits, int nBits);
 _Bool orOf(int *bits, int nBits);
