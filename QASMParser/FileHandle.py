@@ -39,8 +39,9 @@ class QASMFile:
     def _error(self, message=""):
         print(fileWarning.format(message=message,
                                          file=self.name, line=self.nLine))
-        #quit()
-        raise IOError
+        import traceback
+        traceback.print_stack()
+        quit()
 
     def __del__(self):
         try:
@@ -53,8 +54,12 @@ class QASMFile:
     def _handler(self,err, line):
             if not err.line:
                 self._error(unknownParseWarning)
-            print(" ".join(line.splitlines()))
-            print(" "*(line.index(err.line) + err.column-1) + "^")
+            if len(line) < 80:
+                print(" ".join(line.splitlines()))
+                print(" "*(line.index(err.line) + err.column-1) + "^")
+            else:
+                print(err.line)
+                print(" "*(err.column-1) + "^")
             problem = errorKeywordParser.parseString(err.line)
             key = problem["keyword"]
             try:
@@ -65,6 +70,7 @@ class QASMFile:
                 elif key in blocks.keys():
                     temp = blocks[key].parser.parseString(err.line)
                 else:
+                    print(key)
                     raise ParseException(instructionWarning.format(key, self.QASMType, self.versionNumber))
                 if key in ["gate", "circuit"]:
                     if reserved.searchString(err.line.replace(key,"")):
@@ -74,6 +80,8 @@ class QASMFile:
                 raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
             except ParseException as subErr:
                 print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))
+                import traceback
+                traceback.print_stack()
                 quit()
                 
     def read_instruction(self):

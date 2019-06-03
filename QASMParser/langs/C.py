@@ -87,11 +87,11 @@ def init_env(self):
     return f'QuESTEnv Env = createQuESTEnv();'
 
 def Output_to_c(self):
-    carg, bindex = self._cargs
-    return f'printf("%d ", {carg.name}[{bindex}]);'
+    parg, bindex = self._pargs
+    return f'printf("%d ", {parg.name}[{bindex}]);'
 
 def Return_to_c(self):
-    return f'return {self._cargs[0]};'
+    return f'return {self._pargs[0]};'
 
 def Cycle_to_c(self):
     return "continue;"
@@ -191,10 +191,10 @@ def CallGate_to_c(self):
     if self._qargs:
         printArgs += "qreg, "
         printArgs += ", ".join([self.resolve_arg(qarg) for qarg in self._qargs])
-    if self._cargs:
+    if self._pargs:
         if self._qargs:
             printArgs += ", "
-        printArgs += ", ".join([resolve_maths(self, carg) for carg in self._cargs])
+        printArgs += ", ".join([resolve_maths(self, parg) for parg in self._pargs])
     printGate = self.name
     preString = []
     outString = ""    
@@ -208,11 +208,11 @@ def Comment_to_c(self):
     else: return "//" + self.comment
 
 def Measure_to_c(self):
-    carg = self._cargs
+    parg = self._pargs
     qarg = self._qargs
     qargRef = self.resolve_arg(qarg)
-    cargRef = self.resolve_arg(carg)
-    return f"{carg[0].name}[{cargRef}] = measure(qreg, {qargRef});"
+    pargRef = self.resolve_arg(parg)
+    return f"{parg[0].name}[{pargRef}] = measure(qreg, {qargRef});"
 
 def IfBlock_to_c(self):
     outStr = Maths_to_c(self, self._cond, True)
@@ -226,8 +226,10 @@ def While_to_c(self):
 def CreateGate_to_c(self):
     printQargs = ""
     printPargs = ""
-    if self._qargs: printQargs = "Qureg qreg, " + ", ".join((f"int {qarg.name}_index" for qarg in self._qargs))
-    if self._cargs: printPargs = ", ".join((f"{carg.var_type} {carg.name}" for carg in self._cargs))
+    if self._qargs: printQargs = "Qureg qreg, " + ", ".join(
+            (f"int {qarg.name}_index" if qarg.size == 1 else f"int* {qarg.name}_index" for qarg in self._qargs )
+    )
+    if self._pargs: printPargs = ", ".join((f"{parg.var_type} {parg.name}" for parg in self._pargs))
         
     printArgs = ", ".join((printQargs, printPargs)).rstrip(", ")
     returnType = typesTranslation[self.returnType]
@@ -235,5 +237,9 @@ def CreateGate_to_c(self):
     return outStr
 
 def Loop_to_c(self):
-    return  f"for (int {self.var} = {self.start}; {self.var} <= {self.end}; {self.var} += {self.step}) "
+    start = resolve_maths(self, self.start)
+    end   = resolve_maths(self, self.end)
+    step  = resolve_maths(self, self.step)
+    
+    return  f"for (int {self.var} = {start}; {self.var} <= {end}; {self.var} += {step}) "
 

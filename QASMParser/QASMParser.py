@@ -12,6 +12,7 @@ class ProgFile(CodeBlock):
     def __init__(self, filename):
         self.filename = filename
         CodeBlock.__init__(self, QASMFile(filename), parent = None, copyFuncs = False, copyObjs = False)
+        self.parent = self
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
         for constant in ["e","pi"]:
@@ -104,7 +105,7 @@ class ProgFile(CodeBlock):
         if lang.hoistFuncs:
             codeToWrite = sorted(codeToWrite, key = lambda x: issubclass(type(x), Gate) )
             gate = []
-            while issubclass(type(codeToWrite[-1]), Gate):
+            while codeToWrite and issubclass(type(codeToWrite[-1]), Gate):
                 gate.append(codeToWrite.pop())
             print_code(self, reversed(gate), outputFile)
             

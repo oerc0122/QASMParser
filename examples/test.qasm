@@ -47,9 +47,9 @@ creg ans[5];
 x a[0]; // a = 0001
 x b;    // b = 1111
 
-let QWE = sqrt(8.);
-let Barf = ans[0] and T;
-let Twip = fllog(2,51);
+val QWE = sqrt(8.);
+val Barf = ans[0] and T;
+val Twip = fllog(2,51);
 barrier a, b;
 
 // add a to b, storing result in b
@@ -80,7 +80,7 @@ if ((ans[1] == 1) and (ans[0] == 2))
   *** classical printf("%i", 128);
 }
 
-let lambda = sqrt(1);
+val lambda = sqrt(1);
 U(0,0,lambda) a;
 if (ans[0] == 1) U a;
 
@@ -98,11 +98,11 @@ for Q in [1:3] {
 
 output ans;
 
-let Q = 3;
+val Q = 3;
 while ( Q < 3 )
 {
  output ans[2:3];
- let Q = Q + 1;
+ val Q = Q + 1;
 }
 
 Hadamard q;
