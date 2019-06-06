@@ -39,8 +39,8 @@ typesTranslation = {
     "qreg":"Qureg",
     "complex":"Complex",
     "ComplexMatrix2":"ComplexMatrix2",
-    "pointint":"int *",
-    "pointfloat":"float *",
+    "listint":"int",
+    "listfloat":"float",
     "str":"char",
     None:"void"
     }
@@ -73,7 +73,6 @@ def resolve_maths(self, elem):
         raise NotImplementedError(elem)
 
     return value
-
     
 def Include_to_c(self):
     return f'#include "{self.filename}"'
@@ -172,7 +171,9 @@ def Let_to_c(self):
     var = self.const
 
     assignee = var.name
-    if var.var_type: assignee = f"{var.var_type} {assignee}"
+    if var.var_type:
+        assignee = f"{typesTranslation[var.var_type]} {assignee}"
+        if var.var_type in ["listint", "listfloat"]: assignee += f"[{len(var.val)}]"
 
     # Simple declaration
     if var.val is None: return f"{assignee};"
@@ -188,24 +189,35 @@ def CBlock_to_c(self):
     
 def CallGate_to_c(self):
     printArgs = ""
+    outString = ""    
+
+    for index, temp in enumerate(self._prevars):
+        if temp:
+            temp.const.val = [ str(val + self._qargs[index][0].start) for val in temp.const.val ]
+            outString += temp.to_lang() + "\n"
+            temp.const.val = [ int(val) - self._qargs[index][0].start for val in temp.const.val ]
+    
     if self._qargs:
-        printArgs += "qreg, "
-        printArgs += ", ".join([self.resolve_arg(qarg) for qarg in self._qargs])
+        printArgs += "qreg"
+        for index, qarg in enumerate(self._qargs):
+            if self._prevars[index]:
+                printArgs += ", "+qarg[1]
+            else:
+                printArgs += ", "+self.resolve_arg(qarg)
     if self._pargs:
         if self._qargs:
             printArgs += ", "
         printArgs += ", ".join([resolve_maths(self, parg) for parg in self._pargs])
     printGate = self.name
     preString = []
-    outString = ""    
     for line in preString:
         outString += line + ";\n"
     outString += f"{printGate}({printArgs});"
     return outString
 
 def Comment_to_c(self):
-    if (len(self.comment.splitlines()) > 1): return "/*\n" + self.comment + "\n*/"
-    else: return "//" + self.comment
+    if (len(self.comment.splitlines()) > 1): return "/*\n" + self.comment.replace("*/","**") + "\n*/"
+    else: return "//" + self.comment.replace("/*","**").replace("*/","**")
 
 def Measure_to_c(self):
     parg = self._pargs

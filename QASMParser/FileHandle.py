@@ -70,7 +70,6 @@ class QASMFile:
                 elif key in blocks.keys():
                     temp = blocks[key].parser.parseString(err.line)
                 else:
-                    print(key)
                     raise ParseException(instructionWarning.format(key, self.QASMType, self.versionNumber))
                 if key in ["gate", "circuit"]:
                     if reserved.searchString(err.line.replace(key,"")):
