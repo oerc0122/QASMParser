@@ -39,43 +39,25 @@ class Operation:
     def handle_loops(self, pargs, slice = None):
         """ Handle loop rules according to modified REQASM rules """
 
-        loopable = False
-        if all( ( isinstance( parg[1][0], int ) and isinstance( parg[1][1], int ) for parg in pargs) ):
-            ranges = [ parg[1][1] - parg[1][0] for parg in pargs]
-            loopable = all( ( size == ranges[0] for size in ranges ) )
-
-        parg_init = [ parg[0].start for parg in pargs ]
+        baseStart, baseEnd = pargs[0][1]
+        loopable = baseStart != baseEnd
 
         if loopable:
-            base = pargs[0]
-            baseStart, baseEnd = base[1]
-            loopable = baseStart != baseEnd
-
-        if loopable:
-            loopVar = base[0].name + "_loop"
+            loopVar = pargs[0][0].name + "_loop"
             self.add_loop(loopVar, baseStart, baseEnd)
         else:
             loopVar = False
 
-        for parg in pargs:
-            pargStart, pargEnd = parg[1]
-            if loopable:
+        if loopVar:
+            for parg in pargs:
+                pargStart, pargEnd = parg[1]
                 if pargStart - baseStart:
                     parg[1] = loopVar + str(pargStart - baseStart)
                 else:
                     parg[1] = loopVar
-            else:
-                if pargStart == pargEnd:
-                    parg[1] = pargStart
-                    self._prevars.append(None)
-                else:
-                    tempName = "temp_" + str( parg[0].name )
-                    self._prevars.append(
-                        Let ( self.parent,
-                              ( tempName, "listint" ),
-                              ( list(range(pargStart, pargEnd + 1)), None) )
-                    )
-                    parg[1] = tempName
+        else:
+            for parg in pargs:
+                parg[1] = parg[1][0]
 
     def resolve_arg(self, arg):
         """ Return name, index or value for output into output language """
@@ -367,39 +349,6 @@ class CodeBlock:
         elif isinstance(interval[1],int) and interval[1] > arg.max:
             self._error(indexWarning.format(Req=interval[1], Var = arg.name, Min = arg.min, Max = arg.max))
 
-    def _check_args(self, gateName, pargs, qargs, gargs, spargs):
-        """ Check gate arguments are valid and of the right size. Raise error if not """
-
-        gate = self._resolve(gateName, type_="Gate")
-
-        # Check number of args matches
-        for name, args, expect in zip(["pargs", "gargs", "spargs"],
-                                      [pargs, gargs, spargs],
-                                      [gate._pargs, gate._gargs, gate._spargs]):
-            if len(args) != len(expect):
-                self._error(argWarning.format(f"call to {gateName}", f"{len(expect)} {name}", len(args)))
-
-        parsed_sparg = zip((sparg.name for sparg in gate._spargs), spargs)
-
-        new_spargs = dict(parsed_sparg)
-
-        new_qargs = []
-        for qarg in gate._qargs:
-            new_qargs.append([qarg, self._resolve_maths(qarg.size, additional_vars = new_spargs )])
-
-        nLoops = 0
-        # Implicit loops mean we handle qargs separately
-        for id_,qarg in enumerate(qargs):
-            nArg = qarg[1][1] - qarg[1][0] + 1
-            expect = int(new_qargs[id_][1])
-            if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
-            if not nLoops : nLoops = nArg // expect  # Assume all vars much have the same number of loops
-
-            if nArg % expect != 0:
-                self._error(argWarning.format(f"call to {gateName} in qarg {id_}", f"multiple of {expect}", f"{nArg}"))
-            elif nArg // expect != nLoops:
-                self._error(argWarning.format(f"call to {gateName} in qarg {id_}", f"{expect*nLoops}", f"{nArg}"))
-
     def comment(self, comment):
         """ Create a comment in scope of self and append it to the code """
         self._code += [Comment(self, comment)]
@@ -491,8 +440,6 @@ class CodeBlock:
         gargs = self.parse_args(gargs, type_ = "Gate")
         spargs = self.parse_args(spargs, type_ = "Constant")
 
-        self._check_args(gateName, pargs, qargs, gargs, spargs)
-
         if "INV" in modifiers.asList():
             orig = self._resolve(gateName, type_ = "Gate")
             if self._check_def("inv_"+gateName, create=True, type_ = "Gate"):
@@ -503,7 +450,7 @@ class CodeBlock:
                 self._code += [inv]
             gateName = "inv_"+gateName
 
-        gate = CallGate(self, gateName, pargs, qargs)
+        gate = CallGate(self, gateName, pargs, qargs, gargs, spargs)
 
         self._code += [gate]
 
@@ -820,7 +767,7 @@ class MathsBlock:
                 # Skip identities
                 if (op in "+-") and str(operand) == "0": continue
                 if (op in "*/%") and str(operand) == "1": continue
-                
+
                 if issubclass(type(operand), MathOp):
                     operand = MathsBlock(parent, operand)
                     new_args.append( (op, operand) )
@@ -1053,11 +1000,65 @@ class Let(Operation):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class CallGate(Operation):
-    def __init__(self, parent, gate, pargs, qargs):
+    def __init__(self, parent, gate, pargs, qargs, spargs, gargs):
         self.name = gate
-
         Operation.__init__(self, parent, qargs, pargs)
+        self.callee = self.parent._resolve(self.name, type_="Gate")
+        self._check_args(pargs, qargs, spargs, gargs)
         self.handle_loops(self._qargs)
+
+    def _check_args(self, pargs, qargs, gargs, spargs):
+        """ Check gate arguments are valid and of the right size. Raise error if not """
+
+        # Check number of args matches
+        for name, args, expect in zip(["pargs", "gargs", "spargs"],
+                                      [pargs, gargs, spargs],
+                                      [self.callee._pargs, self.callee._gargs, self.callee._spargs]):
+            if len(args) != len(expect):
+                self.parent._error(argWarning.format(f"call to {self.name}", f"{len(expect)} {name}", len(args)))
+
+        parsed_sparg = zip((sparg.name for sparg in self.callee._spargs), spargs)
+
+        new_spargs = dict(parsed_sparg)
+
+        new_qargs = []
+        for qarg in self.callee._qargs:
+            new_qargs.append([qarg, int(self.parent._resolve_maths(qarg.size, additional_vars = new_spargs ))])
+
+        self.resolved_qargs = new_qargs
+
+        nLoops = 0
+        # Implicit loops mean we handle qargs separately
+        for id_,qarg in enumerate(qargs):
+            nArg = qarg[1][1] - qarg[1][0] + 1
+            expect = new_qargs[id_][1]
+            if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
+            if not nLoops : nLoops = nArg // expect  # Assume all vars much have the same number of loops
+            if nArg % expect != 0:
+                self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_}",
+                                                     f"multiple of {expect}", f"{nArg}"))
+            elif nArg // expect != nLoops:
+                self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_}",
+                                                     f"{expect*nLoops}", f"{nArg}"))
+
+    def handle_loops(self, pargs):
+        if all( qarg[1] == 1 for qarg in self.resolved_qargs ):
+            Operation.handle_loops(self, pargs)
+        else:
+            for parg in pargs:
+                pargStart, pargEnd = parg[1]
+                if pargStart == pargEnd:
+                    parg[1] = pargStart
+                    self._prevars.append(None)
+                else:
+                    tempName = "temp_" + str( parg[0].name )
+                    print(pargStart, pargEnd)
+                    self._prevars.append(
+                        Let ( self.parent,
+                              ( tempName, "listint" ),
+                              ( list(range(pargStart, pargEnd + 1)), None) )
+                    )
+                    parg[1] = tempName
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
