@@ -67,8 +67,11 @@ class Operation:
             offset = arg[0].start
 
         elif isinstance(arg[0], Alias):
+
             start = arg[1]
-            offset = arg[0].targets[0][0].start
+            offset = arg[0]
+            # start = arg[1]
+            # offset = arg[0].targets[0][0].start
 
         elif issubclass(type(arg[0]),Register):
             start = arg[1]
@@ -79,9 +82,11 @@ class Operation:
 
         return self._arg_to_string(offset, start)
 
-
     def _arg_to_string(self, offset, start):
-        if isinstance(start, int):
+        if isinstance(offset, Alias):
+            return f"{offset.name}[{start}]"
+        
+        elif isinstance(start, int):
             return str(offset + start)
 
         elif isinstance(start, Constant):
@@ -97,7 +102,6 @@ class Operation:
 
         else:
             return start
-
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
@@ -373,7 +377,9 @@ class CodeBlock:
         """ Create a new alias in scope of self """
 
         self._is_def(argName, create=True)
-        self._objs[argName] = Alias(self, argName, size)
+        alias = Alias(self, argName, size)
+        self._objs[argName] = alias
+        self._code += [alias]
 
     def alias(self, aliasName, argIndex, referee, refIndex):
         """
@@ -393,8 +399,8 @@ class CodeBlock:
         if aliasSize != refSize:
             self._error(aliasIndexWarning.format(aliasName, refSize, aliasSize))
 
-        alias.set_target(aliasInter, referee, refInter )
-
+        self._code += [SetAlias( self, (alias, aliasInter),  (referee, refInter) )]
+        
     def gate(self, gateName, block,
              pargs = None, qargs = None, spargs = None, gargs = None, byprod = None,
              recursive = False, unitary=False, type_ = "gate"):
@@ -924,30 +930,12 @@ class Alias(Register):
     """
     Alias as specified in REQASM
     """
-
+    
     def __init__(self, parent, name, inter):
         Register.__init__(self, parent, name, inter)
         self.type_ = "Alias"
         self.targets = [(None, None)]*self.size
-
-    def contiguous(self):
-        """
-        Assigns the sets of contiguous references for this alias
-        Sets the all_set flag if all available slots are assigned
-        """
-        self.blocks = []
-        currBlock = []
-        prev_target, prev_index = self.targets[0]
-        prev_index -= 1
-        for target, index in self.targets:
-            if target != prev_target or index != prev_index + 1:
-                self.blocks.append(currBlock)
-                currBlock = []
-            currBlock.append( (target, index) )
-            prev_target, prev_index = target, index
-        self.blocks.append(currBlock)
-        if len(self.blocks) > 1: raise NotImplementedError("Cannot currently handle arbitrary aliasing")
-        self.all_set = all(target is not (None, None) for target in self.targets)
+        self.all_set = False
 
     def set_target(self, indices, target, interval):
         """ Aliases target to indices and re-establishes contiguity of blocks """
@@ -955,7 +943,7 @@ class Alias(Register):
         for index in range(indices[0],indices[1]+1):
             self.targets[index - self.start] = (target, interval[0] + index)
 
-        self.contiguous()
+        self.all_set = all(target is not (None, None) for target in self.targets)
 
 class Argument(Register):
     """
@@ -1076,6 +1064,13 @@ class CallGate(Operation):
                     
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
+
+
+class SetAlias(Operation):
+    def __init__(self, parent, alias, target):
+        Operation.__init__(self, parent, pargs = alias, qargs = target)
+        self.alias = alias[0]
+        self.alias.set_target(alias[1], target[0], target[1] )
 
 class Measure(Operation):
     def __init__(self, parent, qarg, parg):

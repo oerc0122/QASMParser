@@ -23,6 +23,8 @@ def set_lang():
     Include.to_lang = Include_to_c
     Cycle.to_lang = Cycle_to_c
     Escape.to_lang = Escape_to_c
+    Alias.to_lang = Alias_to_c
+    SetAlias.to_lang = SetAlias_to_c
     MathsBlock.to_lang = resolve_maths
 
 # Several details pertaining to the language in question
@@ -63,9 +65,6 @@ def resolve_maths(self, elem):
                         value = f"decOf({elem[0].name}, {size})"
             elif elem[1] is None:
                 value = f"decOf({elem[0].name}, {elem[0].size})"
-    elif type(elem) is list:
-        value = "{" + ",".join( ( str(item) for item in elem ) ) + "}"
-#        value =  f'{{{",".join(elem)}}}'
     elif isinstance(elem, int) or isinstance(elem, float) or isinstance(elem, str):
         value = str(elem)
     elif isinstance(elem, Constant):
@@ -105,6 +104,7 @@ def End_to_c(self):
     return "return;"
 
 def Reset_to_c(self):
+    print( self._qargs )
     qarg = self._qargs
     qargRef = self.resolve_arg(qarg)
     return f'collapseToOutcome(qreg, {qargRef}, 0);'
@@ -170,6 +170,19 @@ def Maths_to_c(parent, maths, logical):
 
     return outStr
 
+def Alias_to_c(self):
+    return f"int {self.name}[{self.size}];"
+    # return Let( None, (self.name, "listint"), ( self.targets, None ) ).to_lang()
+
+def SetAlias_to_c(self):
+    outStr = ""
+    indexRange = range( self._pargs[1][0], self._pargs[1][1] + 1 )
+    valRange = range( self._qargs[1][0], self._qargs[1][1] + 1 )
+    for index, val in zip( indexRange, valRange ):
+        target = self.resolve_arg( (self._qargs[0], val) )
+        outStr += f"{self.alias.name}[{index}] = {target};\n"
+    return outStr
+    
 def Let_to_c(self):
     var = self.const
 
