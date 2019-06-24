@@ -170,6 +170,8 @@ class CodeBlock:
 
             if var is None:
                 return None
+            elif isinstance(var, (list, tuple)):
+                return [ self._resolve(elem, type_ = "Constant") for elem in var ]
             elif isinstance(var, int) or isinstance(var, float):
                 return var
             elif isinstance(var,str) and re.fullmatch(isInt, var):
@@ -419,9 +421,9 @@ class CodeBlock:
     def let(self, var, val):
 
         varName, varType = var
-        valName, valType = val
-
-        val = (self._resolve( valName, type_="Constant"), valType)
+        value, valType = val
+        
+        val = (self._resolve( value, type_="Constant"), valType)
         if self._check_def(varName, create=True, type_="Constant"):
             letobj = Constant( self, var, val )
             self._objs[letobj.name] = letobj
@@ -1027,39 +1029,51 @@ class CallGate(Operation):
 
         self.resolved_qargs = new_qargs
 
-        nLoops = 0
+        self.nLoops = 0
         # Implicit loops mean we handle qargs separately
         for id_,qarg in enumerate(qargs):
             nArg = qarg[1][1] - qarg[1][0] + 1
             expect = new_qargs[id_][1]
             if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
-            if not nLoops : nLoops = nArg // expect  # Assume all vars much have the same number of loops
+            if not self.nLoops : self.nLoops = nArg // expect  # Assume all vars much have the same number of loops
             if nArg % expect != 0:
                 self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_}",
                                                      f"multiple of {expect}", f"{nArg}"))
-            elif nArg // expect != nLoops:
+            elif nArg // expect != self.nLoops:
                 self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_}",
                                                      f"{expect*nLoops}", f"{nArg}"))
 
     def handle_loops(self, pargs):
-        if all( qarg[1] == 1 for qarg in self.resolved_qargs ):
+        """ 
+        Handle loops for calling of gates:
+        If gate args all just qubits not registers:
+            Use regular handling
+        If gate takes qregs, but can be looped (based on args):
+            Loop in blocks
+        If gate takes qregs and is not looped:
+            Use prevars
+        """
+
+        # Gates need special loop handling for multi-args
+        if all( qarg[1] == 1 for qarg in self.resolved_qargs ): # Can use regular loop if everyone only takes 1 arg
             Operation.handle_loops(self, pargs)
-        else:
+        elif self.nLoops == 1:
             for parg in pargs:
                 pargStart, pargEnd = parg[1]
                 if pargStart == pargEnd:
                     parg[1] = pargStart
                     self._prevars.append(None)
                 else:
-                    tempName = "temp_" + str( parg[0].name )
-                    print(pargStart, pargEnd)
-                    self._prevars.append(
-                        Let ( self.parent,
-                              ( tempName, "listint" ),
-                              ( list(range(pargStart, pargEnd + 1)), None) )
-                    )
-                    parg[1] = tempName
-
+                    if isinstance(pargStart, int) and isinstance(pargEnd, int):
+                        tempName = "temp_" + str( parg[0].name )
+                        self.parent.let(
+                            ( tempName, "listint" ),
+                            ( list(range(pargStart, pargEnd + 1)), None)
+                        )
+                        parg[1] = tempName
+        else:
+            raise NotImplementedError("Cannot currently loop non-linear gates")
+                    
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 

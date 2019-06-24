@@ -64,7 +64,8 @@ def resolve_maths(self, elem):
             elif elem[1] is None:
                 value = f"decOf({elem[0].name}, {elem[0].size})"
     elif type(elem) is list:
-        value =  f'{{{",".join(elem)}}}'
+        value = "{" + ",".join( ( str(item) for item in elem ) ) + "}"
+#        value =  f'{{{",".join(elem)}}}'
     elif isinstance(elem, int) or isinstance(elem, float) or isinstance(elem, str):
         value = str(elem)
     elif isinstance(elem, Constant):
@@ -180,9 +181,15 @@ def Let_to_c(self):
     # Simple declaration
     if var.val is None: return f"{assignee};"
 
-    value = resolve_maths(self, var.val)
-
-    if var.cast: value = f"({var.cast}) {value}"
+    if isinstance(var.val, (list, tuple) ) :
+        if var.var_type: value = f"{assignee};\n"
+        else: value = ""
+        for index, val in enumerate(var.val):
+            value += f"{var.name}[{index}] = {val};\n"
+        return value
+    else:
+        value = resolve_maths(self, var.val)
+        if var.cast: value = f"({var.cast}) {value}"
 
     return f"{assignee} = {value};"
 
