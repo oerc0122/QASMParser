@@ -23,6 +23,7 @@ def set_lang():
     Include.to_lang = Include_to_c
     Cycle.to_lang = Cycle_to_c
     Escape.to_lang = Escape_to_c
+    MathsBlock.to_lang = resolve_maths
 
 # Several details pertaining to the language in question
 hoistFuncs = True    # Move functions to front of program
@@ -42,6 +43,7 @@ typesTranslation = {
     "listint":"int",
     "listfloat":"float",
     "str":"char",
+    "bool":"int",
     None:"void"
     }
 
@@ -73,7 +75,7 @@ def resolve_maths(self, elem):
         raise NotImplementedError(elem)
 
     return value
-    
+
 def Include_to_c(self):
     return f'#include "{self.filename}"'
 
@@ -105,7 +107,7 @@ def Reset_to_c(self):
     qarg = self._qargs
     qargRef = self.resolve_arg(qarg)
     return f'collapseToOutcome(qreg, {qargRef}, 0);'
-    
+
 def ClassicalRegister_to_c(self):
     return f'int {self.name}[{self.size}];'+"\n"+f'for (int i = 0; i < {self.size}; i++) {self.name}[i] = 0;'
 
@@ -114,7 +116,7 @@ def DeferredClassicalRegister_to_c(self):
         size = Maths_to_c(self, self.size, False)
     elif type(self.size) is list: size =  f'{{{",".join(self.size)}}}'
     else:  size =  f'{self.size}'
-    
+
     return f'int* {self.name} = malloc(sizeof(int)*{size});'+"\n"+f'for (int i = 0; i < {size}; i++) {self.name}[i] = 0;'
 
 def QuantumRegister_to_c(self):
@@ -164,9 +166,9 @@ def Maths_to_c(parent, maths, logical):
         for arg in maths.maths.args:
             args.append(resolve_maths(parent, arg))
         outStr += f"{elem}({', '.join(args)})"
-        
+
     return outStr
-        
+
 def Let_to_c(self):
     var = self.const
 
@@ -179,28 +181,28 @@ def Let_to_c(self):
     if var.val is None: return f"{assignee};"
 
     value = resolve_maths(self, var.val)
-    
+
     if var.cast: value = f"({var.cast}) {value}"
 
     return f"{assignee} = {value};"
 
 def CBlock_to_c(self):
     return "\n".join(self.block)
-    
+
 def CallGate_to_c(self):
     printArgs = ""
-    outString = ""    
+    outString = ""
 
     for index, temp in enumerate(self._prevars):
         if temp:
             temp.const.val = [ str(val + self._qargs[index][0].start) for val in temp.const.val ]
             outString += temp.to_lang() + "\n"
             temp.const.val = [ int(val) - self._qargs[index][0].start for val in temp.const.val ]
-    
+
     if self._qargs:
         printArgs += "qreg"
         for index, qarg in enumerate(self._qargs):
-            if self._prevars[index]:
+            if self._prevars and self._prevars[index]:
                 printArgs += ", "+qarg[1]
             else:
                 printArgs += ", "+self.resolve_arg(qarg)
@@ -233,7 +235,7 @@ def IfBlock_to_c(self):
 def While_to_c(self):
     outStr = Maths_to_c(self, self._cond, True)
     return f"while ({outStr}) "
-    
+
 
 def CreateGate_to_c(self):
     printQargs = ""
@@ -242,7 +244,7 @@ def CreateGate_to_c(self):
             (f"int {qarg.name}_index" if qarg.size == 1 else f"int* {qarg.name}_index" for qarg in self._qargs )
     )
     if self._pargs: printPargs = ", ".join((f"{parg.var_type} {parg.name}" for parg in self._pargs))
-        
+
     printArgs = ", ".join((printQargs, printPargs)).rstrip(", ")
     returnType = typesTranslation[self.returnType]
     outStr = f"{returnType} {self.name}({printArgs}) "
@@ -252,6 +254,5 @@ def Loop_to_c(self):
     start = resolve_maths(self, self.start)
     end   = resolve_maths(self, self.end)
     step  = resolve_maths(self, self.step)
-    
-    return  f"for (int {self.var} = {start}; {self.var} <= {end}; {self.var} += {step}) "
 
+    return  f"for (int {self.var} = {start}; {self.var} <= {end}; {self.var} += {step}) "

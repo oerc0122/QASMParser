@@ -7,8 +7,10 @@ import copy
 isInt  = re.compile("[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile("[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 
-# Core types
+# Base types
 class Operation:
+    """ Base class for callable function-like objects """
+
     def __init__(self, parent, qargs = None, pargs = None):
         self.parent = parent
         self._loops = None
@@ -16,8 +18,9 @@ class Operation:
         self._pargs = pargs
         self._prevars = []
 
-        
     def add_loop(self, index, start, end):
+        """ Wrap self in a loop """
+
         if self._loops:
             self._loops = NestLoop(self._loops, index, start, end)
         else:
@@ -25,6 +28,8 @@ class Operation:
             self._loops = self.innermost
 
     def finalise_loops(self):
+        """ Dealias references of self if self has changed to avoid infinite loops """
+
         if self._loops:
             self.innermost._code = [copy.copy(self)]
             self.innermost._code[0]._loops = []
@@ -32,26 +37,34 @@ class Operation:
             pass
 
     def handle_loops(self, pargs, slice = None):
+        """ Handle loop rules according to modified REQASM rules """
 
+        loopable = False
         if all( ( isinstance( parg[1][0], int ) and isinstance( parg[1][1], int ) for parg in pargs) ):
             ranges = [ parg[1][1] - parg[1][0] for parg in pargs]
             loopable = all( ( size == ranges[0] for size in ranges ) )
 
         parg_init = [ parg[0].start for parg in pargs ]
 
-        base = pargs[0]
-        start, end = base[1]
-        loopVar = False
+        if loopable:
+            base = pargs[0]
+            baseStart, baseEnd = base[1]
+            loopable = baseStart != baseEnd
+
+        if loopable:
+            loopVar = base[0].name + "_loop"
+            self.add_loop(loopVar, baseStart, baseEnd)
+        else:
+            loopVar = False
 
         for parg in pargs:
+            pargStart, pargEnd = parg[1]
             if loopable:
-                if start == end:
-                    parg[1] = start
+                if pargStart - baseStart:
+                    parg[1] = loopVar + str(pargStart - baseStart)
                 else:
-                    loopVar = base[0].name + "_loop"
                     parg[1] = loopVar
             else:
-                pargStart, pargEnd = parg[1]
                 if pargStart == pargEnd:
                     parg[1] = pargStart
                     self._prevars.append(None)
@@ -63,39 +76,60 @@ class Operation:
                               ( list(range(pargStart, pargEnd + 1)), None) )
                     )
                     parg[1] = tempName
-        if loopVar:
-            self.add_loop(loopVar, start, end)
 
     def resolve_arg(self, arg):
+        """ Return name, index or value for output into output language """
+
         if type(arg[0]) is Argument:
-            if arg[0].start and arg[1]:
-                return f"{arg[0].start} + {arg[1]}"
-            else:
-                return str(arg[0].start)
-        elif issubclass(type(arg[0]),Register):
-            
             start = arg[1]
             offset = arg[0].start
-            if isinstance(start, int):
-                return str(offset + start)
-            elif isinstance(start, Constant):
-                return f"{offset} + {arg[1].val}"
-            elif isinstance(start, str):
-                if (offset > 0): return f"{start} + {arg[0].start}"
-                else: return f"{start}"
-            else:
-                return arg[1]
+
+        elif isinstance(arg[0], Alias):
+            start = arg[1]
+            offset = arg[0].targets[0][0].start
+
+        elif issubclass(type(arg[0]),Register):
+            start = arg[1]
+            offset = arg[0].start
+
         else:
             raise TypeError(parseArgWarning.format("arg", type(arg[0]).__name__))
+
+        return self._arg_to_string(offset, start)
+
+
+    def _arg_to_string(self, offset, start):
+        if isinstance(start, int):
+            return str(offset + start)
+
+        elif isinstance(start, Constant):
+            if (offset > 0): return f"{offset} + {start.val}"
+            else: return f"{start.val}"
+
+        elif isinstance(start, str):
+            if (offset > 0): return f"{start} + {offset}"
+            else: return f"{start}"
+
+        elif isinstance(start, MathsBlock):
+            return MathsBlock.to_lang(self.parent, start + offset)
+
+        else:
+            return start
+
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class Referencable:
-    def __init__(self):
+    """ Base class for any element which will exist within scope """
+
+    def __init__(self, parent):
         self.type_ = type(self).__name__
+        self.parent = parent
 
 class CodeBlock:
+    """  Base class for an object which creates its own scope and contains code """
+
     def __init__(self, block, parent, copyObjs = True, copyFuncs = True):
         self._code = []
         self._qargs= []
@@ -109,14 +143,23 @@ class CodeBlock:
         self._error = self.currentFile._error
         QASMType = self.currentFile.QASMType
 
+    def _dump_line(self):
+        return self.currentFile.nLine
+
     def _resolve(self, var, type_, index = ""):
+        """
+        Resolve an argument and return its corresponding value or location based on current scope.
+        """
+
+        # If we've accidentally passed the object through (fix this more thoroughly)
+        if isinstance(var, (Constant)): var = getattr(var, 'name', var)
 
         if type_ in ["ClassicalRegister","QuantumRegister"]:
             if self._check_def(var, create=False, type_ = type_):
                 var = self._objs[var]
             elif self._check_def(var, create=False, type_ = "Alias"):
                 var = self._objs[var]
-                
+
             else:
                 self._is_def(var, create=False, type_ = type_)
 
@@ -135,7 +178,7 @@ class CodeBlock:
 
             self._is_def(var, create=False, type_ = type_)
             var = self._objs[var]
-            
+
             index = self.parse_range(index, var)
             return [var, index]
 
@@ -166,7 +209,7 @@ class CodeBlock:
                     var = var.pop()
                 else:
                     raise NotImplementedError("cannot handle list args")
-                    
+
             if var is None:
                 return None
             elif isinstance(var, int) or isinstance(var, float):
@@ -179,9 +222,11 @@ class CodeBlock:
                 return self.parse_maths(var)
             elif isinstance(var, ParseResults):
                 if var.get("var", None) is not None:
-                    return self._resolve(var.get("var"), type_="Maths", index = var.get("ref")) 
+                    return self._resolve(var.get("var"), type_="Maths", index = var.get("ref"))
                 elif var.get("start") or var.get("end"):
                     return self.parse_range(var)
+            elif isinstance(var, MathsBlock):
+                return var.maths
             else:
                 self._is_def(var, create=False, type_ = None)
                 var = self._objs[var]
@@ -205,22 +250,21 @@ class CodeBlock:
                         return [var, None]
                 elif isinstance(var, QuantumRegister):
                     self._error("Cannot use quantum register {} in maths expression".format(var.name))
-                    
+
                 else:
                     self._error("Undetermined type in maths parsing")
 
         elif type_ == "Gate":
             self._is_def(var, create=False, type_ = type_)
-            # Add argument checking?
             return self._objs[var]
 
         else:
             self._error("Unrecognised type {} in _resolve".format(type_))
 
-
-    
-            
     def _resolve_maths(self, elem, additional_vars = {}, topLevel = False):
+        """
+        Perform the set of maths operations to return the final value or an error if it cannot be evaluated
+        """
 
         # Ops which should be unchanged
         identOp = ["-","+","*","/","%","<","<=","==","!=",">=",">","!","sin","cos","tan","sqrt","abs","and","or"]
@@ -228,13 +272,13 @@ class CodeBlock:
         subOp = {"xor":"!=","mod":"%","^":"**","div":"//",
                  "arccos":"acos","arcsin":"asin","arctan":"atan"
                  }
-        
+
         outStr = ""
 
         tempDict = copy.copy(self._objs)
         for key, val in additional_vars.items():
             tempDict[key] = val
-            
+
         if isinstance(elem, MathsBlock):
             for maths in elem.maths:
                 outStr += self._resolve_maths(maths, additional_vars)
@@ -278,18 +322,29 @@ class CodeBlock:
 
         if topLevel:
             try:
-                return exec(str(outStr))
+                return eval(str(outStr))
             except:
                 self._error("Boop")
         else:
             return outStr
-    
+
     def _check_def(self, name, create:bool, type_ = None):
+        """
+        Check if object exists in local scope
+        Create == True: returns False if an object already exists
+        Create == False: returns False if object does not exist or is not of matching type
+        """
+
         if name not in self._objs: return create
         elif type_ is not None and self._objs[name].type_ is not type_: return False
         else: return not create
 
     def _is_def(self, name, create:bool, type_ = None):
+        """
+        Check if object exists in local scope
+        Create == True: returns an error if an object already exists
+        Create == False: returns an error if object does not exist or is not of matching type
+        """
 
         if create: # Check for duplicate naming
             if name in self._objs: self._error(dupWarning.format(Name=name, Type=self._objs[name].type_))
@@ -302,6 +357,8 @@ class CodeBlock:
                 self._error(wrongTypeWarning.format(type_,self._objs[name].type_))
 
     def _check_bounds(self,interval, arg = None):
+        """ Check for register over-run and raise error if present """
+
         if arg is None: return
         if not isinstance(arg.start, int) or not isinstance(arg.size, int) : return
 
@@ -311,68 +368,91 @@ class CodeBlock:
             self._error(indexWarning.format(Req=interval[1], Var = arg.name, Min = arg.min, Max = arg.max))
 
     def _check_args(self, gateName, pargs, qargs, gargs, spargs):
+        """ Check gate arguments are valid and of the right size. Raise error if not """
 
         gate = self._resolve(gateName, type_="Gate")
 
-        for name, args, expect in zip(["pargs", "gargs", "spargs", "qargs"],
-                                      [pargs, gargs, spargs, qargs],
-                                      [gate._pargs, gate._gargs, gate._spargs, gate._qargs]):
+        # Check number of args matches
+        for name, args, expect in zip(["pargs", "gargs", "spargs"],
+                                      [pargs, gargs, spargs],
+                                      [gate._pargs, gate._gargs, gate._spargs]):
             if len(args) != len(expect):
                 self._error(argWarning.format(f"call to {gateName}", f"{len(expect)} {name}", len(args)))
 
         parsed_sparg = zip((sparg.name for sparg in gate._spargs), spargs)
 
         new_spargs = dict(parsed_sparg)
-        
+
         new_qargs = []
         for qarg in gate._qargs:
             new_qargs.append([qarg, self._resolve_maths(qarg.size, additional_vars = new_spargs )])
 
-        for index, arg in enumerate(qargs):
-            elems= 1 + arg[1][1] - arg[1][0]
-            expectElems = int(new_qargs[index][1])
-            if elems != expectElems:
-                self._error(argWarning.format(f"call to {gateName}", f"{expectElems} qargs", elems))
-                
+        nLoops = 0
+        # Implicit loops mean we handle qargs separately
+        for id_,qarg in enumerate(qargs):
+            nArg = qarg[1][1] - qarg[1][0] + 1
+            expect = int(new_qargs[id_][1])
+            if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
+            if not nLoops : nLoops = nArg // expect  # Assume all vars much have the same number of loops
+
+            if nArg % expect != 0:
+                self._error(argWarning.format(f"call to {gateName} in qarg {id_}", f"multiple of {expect}", f"{nArg}"))
+            elif nArg // expect != nLoops:
+                self._error(argWarning.format(f"call to {gateName} in qarg {id_}", f"{expect*nLoops}", f"{nArg}"))
+
     def comment(self, comment):
-        self._code += [Comment(self,comment)]
+        """ Create a comment in scope of self and append it to the code """
+        self._code += [Comment(self, comment)]
 
     def new_variable(self, argName, size, classical):
+        """ Create a new register in scope of self and append it to the code """
+
         self._is_def(argName, create=True)
 
         if classical:
-            variable = ClassicalRegister(argName, size)
+            variable = ClassicalRegister(self, argName, size)
             self._objs[argName] = variable
         else:
-            variable = QuantumRegister(argName, size)
+            variable = QuantumRegister(self, argName, size)
             self._objs[argName] = variable
 
         self._code += [variable]
 
     def new_alias(self, argName, size):
+        """ Create a new alias in scope of self """
+
         self._is_def(argName, create=True)
-        self._objs[argName] = Alias(argName, size)
+        self._objs[argName] = Alias(self, argName, size)
 
     def alias(self, aliasName, argIndex, referee, refIndex):
+        """
+        If an alias called aliasName exists: assign values to this alias
+        If it does not exist:  Create it and if values assign it
+        """
+
         referee, refInter = self._resolve(referee, type_="QuantumRegister", index = refIndex)
         refInter = refInter[0], refInter[1]
         refSize = 1 + refInter[1] - refInter[0]
-        
+
         if self._check_def(aliasName, create=True, type_ = "Alias"):
             self.new_alias(aliasName, refSize)
 
         alias, aliasInter = self._resolve(aliasName, type_="Alias", index=argIndex)
         aliasSize = 1 + aliasInter[1] - aliasInter[0]
         if aliasSize != refSize:
-            self._error(f"Mismatched indices {aliasName}: Requested {refInter[1] - refInter[0]}, received {aliasInter[1] - aliasInter[0]}")
+            self._error(aliasIndexWarning.format(aliasName, refSize, aliasSize))
 
         alias.set_target(aliasInter, referee, refInter )
 
     def gate(self, gateName, block,
              pargs = None, qargs = None, spargs = None, gargs = None, byprod = None,
              recursive = False, unitary=False, type_ = "gate"):
+        """
+        Declare a new gate-like object in current scope and append it to the code
+        """
+
         self._is_def(gateName, create=True)
-        
+
         if type_ is "gate":
             gate = Gate(self, gateName, block, pargs, qargs, recursive = recursive, unitary = unitary)
         elif type_ is "opaque":
@@ -388,30 +468,31 @@ class CodeBlock:
         self._code += [gate]
 
     def let(self, var, val):
+
         varName, varType = var
         valName, valType = val
-        
+
         val = (self._resolve( valName, type_="Constant"), valType)
         if self._check_def(varName, create=True, type_="Constant"):
-            letobj = Constant( var, val )
+            letobj = Constant( self, var, val )
             self._objs[letobj.name] = letobj
         else:
             var = ( self._resolve( varName, type_="Constant").name, None )
-            letobj = Constant( var, val )
+            letobj = Constant( self, var, val )
             self._objs[letobj.name] = letobj
-            
+
         self._code += [Let( self, letobj )]
-        
+
     def call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers = []):
         self._is_def(gateName, create=False, type_ = "Gate")
-        
+
         pargs = self.parse_args(pargs, type_ = "Constant")
         qargs = self.parse_args(qargs, type_ = "QuantumRegister")
         gargs = self.parse_args(gargs, type_ = "Gate")
         spargs = self.parse_args(spargs, type_ = "Constant")
 
         self._check_args(gateName, pargs, qargs, gargs, spargs)
-        
+
         if "INV" in modifiers.asList():
             orig = self._resolve(gateName, type_ = "Gate")
             if self._check_def("inv_"+gateName, create=True, type_ = "Gate"):
@@ -461,13 +542,13 @@ class CodeBlock:
         if not var.loopVar:
             self._error("Cannot cycle non-loop vars")
         self._code += [Cycle( self, var )]
-        
+
     def escape(self, var):
         var = self._resolve(var, type_ = "Constant")
         if not var.loopVar:
             self._error("Cannot escape non-loop vars")
         self._code += [Escape(self, var)]
-        
+
     def new_while(self, cond, block):
         self._code += [While(self, cond, block)]
 
@@ -605,7 +686,7 @@ class CodeBlock:
         elif keyword == "end":
             var = token["process"]
             self.end(var)
-            
+
         # Gate declaration routines
         elif keyword == "gate":
             gateName = token["gateName"]
@@ -626,11 +707,11 @@ class CodeBlock:
             recursive = token.get("recursive", False)
             block = QASMBlock(self.currentFile, token.get("block", None))
             self.gate(gateName, block, pargs, qargs, spargs, byprod = byprod, unitary = unitary, recursive = recursive, type_ = "circuit")
-            
+
         elif keyword == "opaque":
-            
+
             gateInfo = {"block":None, "type_":"opaque"}
-            gateInfo['gateName']  = token.get("name") 
+            gateInfo['gateName']  = token.get("name")
             gateInfo['pargs']     = token.get("pargs", [])
             gateInfo['qargs']     = token.get("qargs", [])
             gateInfo['spargs']    = token.get("spargs", [])
@@ -722,9 +803,11 @@ class CodeBlock:
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
-# Maths Parsing 
-    
+
+# Maths Parsing
+
 class MathsBlock:
+    """ Block for handling maths as returned from the parser """
 
     def __init__(self, parent, maths, topLevel=False):
         self.parent = parent
@@ -734,6 +817,10 @@ class MathsBlock:
         if isinstance(elem, Binary):
             new_args = []
             for op, operand in elem.args:
+                # Skip identities
+                if (op in "+-") and str(operand) == "0": continue
+                if (op in "*/%") and str(operand) == "1": continue
+                
                 if issubclass(type(operand), MathOp):
                     operand = MathsBlock(parent, operand)
                     new_args.append( (op, operand) )
@@ -761,46 +848,71 @@ class MathsBlock:
         return MathsBlock(self.parent, Binary( [[ self.maths, "-", val ]] ))
 
     def __div__(self, val):
-        return MathsBlock(self.parent, Binary( [[ self.maths, "*", val ]] ))
+        return MathsBlock(self.parent, Binary( [[ self.maths, "/", val ]] ))
 
     def __mul__(self, val):
         return MathsBlock(self.parent, Binary( [[ self.maths, "*", val ]] ))
 
-        
+
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
-    
-class ExternalLang:
-    pass
+
 
 # Variable types
+
 class Constant(Referencable):
-    def __init__(self, var, val):
-        Referencable.__init__(self)
+    """ Class pertaining to a constant value or variable object """
+
+    def __init__(self, parent, var, val):
+        Referencable.__init__(self, parent)
         self.name = var[0]
         self.var_type = var[1]
         self.val  = val[0]
         self.cast = val[1]
         self.loopVar = False
+        self.parent = parent
+
+    def __add__(self, val):
+        return MathsBlock(self.parent, Binary( [[ self, "+", val ]] ))
+
+    def __sub__(self, val):
+        return MathsBlock(self.parent, Binary( [[ self, "-", val ]] ))
+
+    def __div__(self, val):
+        return MathsBlock(self.parent, Binary( [[ self, "/", val ]] ))
+
+    def __mul__(self, val):
+        return MathsBlock(self.parent, Binary( [[ self, "*", val ]] ))
+
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class Register(Referencable):
-    def __init__(self, name, size):
-        Referencable.__init__(self)
+    """
+    Base class pertaining to list-like objects:
+    - Classical registers (creg)
+    - Quantum registers   (qreg)
+    - Aliases             (alias)
+    """
+
+    def __init__(self, parent, name, size):
+        Referencable.__init__(self, parent)
         self.name = name
 
         self.size = self.render_size(size)
 
     def render_size(self, inter):
+        """
+        Take an input interval and assign corresponding min/max and sizes for consistency in checks
+        """
 
         if isinstance(inter, tuple):
             start, end = inter
 
             if isinstance(start, Constant): start = start.val
             if isinstance(end,   Constant): end   = end.val
-            
+
             if start == end:
                 size = end
                 start, end = 0, end
@@ -819,31 +931,40 @@ class Register(Referencable):
             self.start, self.end = self.min, self.max
 
         return size
-        
+
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class QuantumRegister(Register):
-
+    """
+    Quantum register as created by "qreg"
+    """
     numQubits = 0
 
-    def __init__(self, name, inter):
-        Register.__init__(self, name, inter)
+    def __init__(self, parent, name, inter):
+        Register.__init__(self, parent, name, inter)
 
         self.start += QuantumRegister.numQubits
         self.end   += QuantumRegister.numQubits
         QuantumRegister.numQubits += self.size
 
 class ClassicalRegister(Register):
-    def __init__(self, name, inter):
-        Register.__init__(self, name, inter)
+    """
+    Classical register as created by "creg"
+    """
+    def __init__(self, parent, name, inter):
+        Register.__init__(self, parent, name, inter)
 
         self.start = 0
         self.end = self.size
 
 class DeferredClassicalRegister(Register):
-    def __init__(self, name, size):
-        Referencable.__init__(self)
+    """
+    Classical register whose size is unknown until execution of the code,
+    e.g. size is a function variable
+    """
+    def __init__(self, parent, name, size):
+        Referencable.__init__(self, parent)
         self.name = name
         self.size = size
         self.type_ = "ClassicalRegister"
@@ -851,14 +972,20 @@ class DeferredClassicalRegister(Register):
         self.end = size
 
 class Alias(Register):
-    def __init__(self, name, inter):
-        Register.__init__(self, name, inter)
+    """
+    Alias as specified in REQASM
+    """
+
+    def __init__(self, parent, name, inter):
+        Register.__init__(self, parent, name, inter)
         self.type_ = "Alias"
-        self.start = inter[0]
-        self.end = inter[0] + self.size
         self.targets = [(None, None)]*self.size
 
     def contiguous(self):
+        """
+        Assigns the sets of contiguous references for this alias
+        Sets the all_set flag if all available slots are assigned
+        """
         self.blocks = []
         currBlock = []
         prev_target, prev_index = self.targets[0]
@@ -874,6 +1001,7 @@ class Alias(Register):
         self.all_set = all(target is not (None, None) for target in self.targets)
 
     def set_target(self, indices, target, interval):
+        """ Aliases target to indices and re-establishes contiguity of blocks """
 
         for index in range(indices[0],indices[1]+1):
             self.targets[index - self.start] = (target, interval[0] + index)
@@ -881,8 +1009,12 @@ class Alias(Register):
         self.contiguous()
 
 class Argument(Register):
-    def __init__(self, name, size = None):
-        Register.__init__(self,name,size)
+    """
+    Dummy register for arguments to gates permitted to have size under REQASM specifications
+    """
+
+    def __init__(self, parent, name, size = None):
+        Register.__init__(self, parent, name, size)
         self.name = name
         self.type_ = "QuantumRegister"
         self.start = name + "_index"
@@ -891,6 +1023,7 @@ class Argument(Register):
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
+
 
 # Operation types
 class Return(Operation):
@@ -912,7 +1045,7 @@ class Let(Operation):
         if type(var) is Constant:
             self.const = var
         elif type(var) in [tuple, list]:
-            self.const = Constant(var, val)
+            self.const = Constant(self.parent, var, val)
         else:
             raise TypeError("Bad assignment of let")
 
@@ -980,21 +1113,24 @@ class IfBlock(CodeBlock, Operation):
         self.parse_instructions()
 
 class Gate(Referencable, CodeBlock):
+    """
+    Type to handle general general gates and their extensions (circuit, procedure, etc.)
+    """
 
     internalGates = {}
 
     def __init__(self, parent, name, block, pargs = [], qargs = [], spargs = [], gargs = [], byprod = [], recursive = False, unitary = False, returnType = None):
 
-        Referencable.__init__(self)
+        Referencable.__init__(self, parent)
         self.name = name
         self._spargs = []
         self._gargs  = []
-        
+
         CodeBlock.__init__(self, block, parent=parent)
         self.unitary = unitary
 
         self._inverse = None
-        
+
         if recursive:
             self.gate(name, NullBlock(block), pargs, qargs, unitary = unitary)
             self._code = []
@@ -1018,6 +1154,10 @@ class Gate(Referencable, CodeBlock):
         if recursive and self.entry.depth > 0: self._error(noExitWarning.format(self.name))
 
     def invert(self, pargs, qargs):
+        """
+        Calculates the inverse of the gate and called gates and assigns it to self._inverse
+        """
+
         if not self.unitary: self._error("Non-unitary object not invertible")
         if self._inverse: return self._inverse
         self._inverse = []
@@ -1029,23 +1169,27 @@ class Gate(Referencable, CodeBlock):
                 self._error("Non-invertible object in gate {}".format(self.name))
 
         return self._inverse
-        
+
     def parse_gate_args(self, args, type_):
+        """
+        Parse classes of arguments and assign them in scope
+        """
+
         if not args: return []
         if type_ in ["ClassicalArgument"]:
             for arg in args:
-                self._objs[arg] = Constant( (arg, "float") , ( MathsBlock(self, [arg]) , None) )
+                self._objs[arg] = Constant( self, (arg, "float") , ( MathsBlock(self, [arg]) , None) )
                 self._pargs.append(self._objs[arg])
         elif type_ in ["SpecialArgument"]:
             for arg in args:
-                self._objs[arg] = Constant( (arg, "int") , ( MathsBlock(self, [arg]), None) )
+                self._objs[arg] = Constant( self, (arg, "int") , ( MathsBlock(self, [arg]), None) )
                 self._spargs.append(self._objs[arg])
         elif type_ in ["QuantumArgument"]:
             for argTok in args:
                 arg = argTok["var"]
                 size = argTok.get("ref", {"index":1})
                 if size is not None: size = self.parse_range(size)
-                self._objs[arg] = Argument(arg, size)
+                self._objs[arg] = Argument(self, arg, size)
                 self._qargs.append(self._objs[arg])
         elif type_ in ["Gates"]:
             for arg in args:
@@ -1067,6 +1211,10 @@ class Gate(Referencable, CodeBlock):
         self._error("Cannot perform measure in gate")
 
 class Circuit(Gate):
+    """
+    Type reflecting REQASM extension to gate
+    """
+
     def __init__(self, *args, **kwargs):
         Gate.__init__(self, *args, **kwargs)
         self.type_ = "Gate"
@@ -1084,7 +1232,11 @@ class Circuit(Gate):
         self._code += [variable]
 
 class Opaque(Gate):
-    
+    """
+    Type reflecting OpenQASM opaque gate
+    Allows the definition of a block through directive extensions
+    """
+
     def __init__(self, parent, name, pargs = [], qargs = [], spargs = [], gargs = [], byprod = [], recursive = False, unitary = False, returnType = None):
         self.type_ = "Gate"
         self.name = name
@@ -1110,7 +1262,7 @@ class Opaque(Gate):
     def set_inverse(self, block):
         CodeBlock.__init__(self, block, parent=self.parent)
         self.inverse = block
-        
+
 class ExternalLang:
     pass
 
@@ -1122,7 +1274,7 @@ class CBlock(ExternalLang):
 class Loop(CodeBlock):
     def __init__(self, parent, block, var, start, end, step = 1):
         CodeBlock.__init__(self,block, parent=parent)
-        self._objs[var] = Constant( (var, "int") , (var, None) )
+        self._objs[var] = Constant( self, (var, "int") , (var, None) )
         self._objs[var].loopVar = True
         self.depth = 1
         self.var = var
@@ -1131,7 +1283,7 @@ class Loop(CodeBlock):
         if step != 1: raise NotImplementedError("Non contiguous loops not currently permitted")
         self.step = step
         self.parse_instructions()
-        
+
 class NestLoop(Loop):
     def __init__(self, block, var, start, end, step = 1):
         self._code = [block]

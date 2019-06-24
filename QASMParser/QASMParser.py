@@ -16,11 +16,11 @@ class ProgFile(CodeBlock):
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
         for constant in ["e","pi"]:
-            self._objs[constant] = Constant( ( constant, "float"), ( None, None ))
+            self._objs[constant] = Constant( self, ( constant, "float"), ( None, None ))
         for val, name in enumerate(["F", "T"]):
-            self._objs[name] = Constant( ( name, "bool") , ( val, None ) )
+            self._objs[name] = Constant( self, ( name, "bool") , ( val, None ) )
         self.parse_instructions()
-        
+
     def to_lang(self, filename = None, module = False, function = False, includes = {}, langOut = "C", verbose = False):
         try:
             lang = import_module(f"QASMParser.langs.{langOut}")
@@ -33,25 +33,25 @@ class ProgFile(CodeBlock):
 
         if hasattr(self, "classLang") and self.classLang is not langOut:
             raise NotImplementedError("Classical language {} does not match output language {}".format(self.classLang, langOut))
-        
+
         def print_code(self, code, outputFile):
             self.depth += 1
             for line in code:
-                
+
                 if verbose and hasattr(line,'original') and type(line) is not Comment: # Verbose -- Print original
                     writeln(Comment(self, line.original).to_lang() + "\n")
 
                 if hasattr(line,"inlineComment"): # Inline comments
                     writeln(line.inlineComment.to_lang())
-                    
+
                 if hasattr(line,"_loops") and line._loops: # Handle loops
                     writeln(line._loops.to_lang() + lang.blockOpen)
                     print_code(self,line._loops._code,outputFile)
                     writeln(lang.blockClose)
-                    
+
                 elif issubclass(type(line), ExternalLang): # Handle verbatim language blocks
                     writeln(line.to_lang())
-                    
+
                 elif hasattr(line,"_code"): # Print children
                     writeln(line.to_lang() + lang.blockOpen)
                     print_code(self,line._code,outputFile)
@@ -61,18 +61,18 @@ class ProgFile(CodeBlock):
                     if lang.blockClose and lang.blockClose in line.line: self.depth -= 1
                     writeln(line.to_lang())
                     if lang.blockOpen and lang.blockOpen in line.line: self.depth += 1
-                
+
                 else: # Print self
                     writeln(line.to_lang())
-                
+
             self.depth -= 1
-            
+
         if filename: outputFile = open(filename, 'w')
         else:        outputFile = sys.stdout
 
         codeToWrite = self._code[:]
         self.depth = -1
-       
+
         for line in self.currentFile.header:
             writeln(Comment(self, line).to_lang())
 
@@ -88,7 +88,7 @@ class ProgFile(CodeBlock):
                         writeln(line)
                 elif type(lang.header) is str:
                     writeln(lang.header)
-                    
+
         incs = [ x for x in codeToWrite if isinstance(x, Include) ]
         for include in incs:
             target = codeToWrite.index(include)
@@ -108,7 +108,7 @@ class ProgFile(CodeBlock):
             while codeToWrite and issubclass(type(codeToWrite[-1]), Gate):
                 gate.append(codeToWrite.pop())
             print_code(self, reversed(gate), outputFile)
-            
+
         if any( [ not isinstance(line, Comment) for line in codeToWrite ] ):
             if not lang.bareCode:
                 temp = Gate(self, funcName, NullBlock(self.currentFile), returnType = "int")
@@ -118,14 +118,14 @@ class ProgFile(CodeBlock):
                 for reg in regs:
                     temp._code += [Comment(self, f'{reg.name}[{reg.start}:{reg.end-1}]')]
                 codeToWrite = [ x for x in codeToWrite if type(x).__name__ != "QuantumRegister" ]
-                temp._code += [QuantumRegister("qreg", QuantumRegister.numQubits)]
+                temp._code += [QuantumRegister(self, "qreg", QuantumRegister.numQubits)]
                 temp._code += codeToWrite
                 codeToWrite = [temp]
 
         print_code(self, codeToWrite, outputFile)
-            
+
         if filename: outputFile.close()
-        
+
     def run(self):
         try:
             lang = import_module(f"QASMParser.langs.Python")

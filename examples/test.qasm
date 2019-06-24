@@ -82,9 +82,10 @@ if ((ans[1] == 1) and (ans[0] == 2))
 
 val lambda = sqrt(1);
 U(0,0,lambda) a;
-if (ans[0] == 1) U a;
+if (ans[0] == 1) U(0,0,lambda) a;
 
 alias geoff to a;
+reset geoff;
 reset a;
 reset b[2];
 
