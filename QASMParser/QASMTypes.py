@@ -67,11 +67,8 @@ class Operation:
             offset = arg[0].start
 
         elif isinstance(arg[0], Alias):
-
             start = arg[1]
             offset = arg[0]
-            # start = arg[1]
-            # offset = arg[0].targets[0][0].start
 
         elif issubclass(type(arg[0]),Register):
             start = arg[1]
@@ -84,8 +81,11 @@ class Operation:
 
     def _arg_to_string(self, offset, start):
         if isinstance(offset, Alias):
-            return f"{offset.name}[{start}]"
-        
+            if isinstance(start, str):
+                return f"&{offset.name}[{start}[0]]"
+            else:
+                return f"&{offset.name}[{start}]"
+                
         elif isinstance(start, int):
             return str(offset + start)
 
@@ -249,7 +249,7 @@ class CodeBlock:
         else:
             self._error("Unrecognised type {} in _resolve".format(type_))
 
-    def _resolve_maths(self, elem, additional_vars = {}, topLevel = False):
+    def _resolve_maths(self, elem, additional_vars = {}, topLevel = True):
         """
         Perform the set of maths operations to return the final value or an error if it cannot be evaluated
         """
@@ -268,18 +268,17 @@ class CodeBlock:
             tempDict[key] = val
 
         if isinstance(elem, MathsBlock):
-            for maths in elem.maths:
-                outStr += self._resolve_maths(maths, additional_vars)
+            outStr += self._resolve_maths(elem.maths, additional_vars, False)
         elif isinstance(elem, int) or isinstance(elem, float):
             outStr += str(elem)
         elif isinstance(elem, Constant):
-            outStr += self._resolve_maths(elem.val,additional_vars)
+            outStr += self._resolve_maths(elem.val,additional_vars, False)
         elif elem in tempDict:
-            outStr += self._resolve_maths(tempDict[elem],additional_vars)
+            outStr += self._resolve_maths(tempDict[elem],additional_vars, False)
         elif isinstance(elem, Binary):
             for op, operand in elem.args:
                 if op == "nop":
-                    operand = self._resolve_maths(operand,additional_vars)
+                    operand = self._resolve_maths(operand,additional_vars, False)
                     outStr += f"{operand}"
                 elif op == "in":
                     if len(operand) == 2:
@@ -287,10 +286,10 @@ class CodeBlock:
                     else:
                         raise OSError
                 elif op in identOp:
-                    operand = self._resolve_maths(operand,additional_vars)
+                    operand = self._resolve_maths(operand,additional_vars, False)
                     outStr += f" {op} {operand}"
                 elif op in subOp:
-                    operand = self._resolve_maths(operand,additional_vars)
+                    operand = self._resolve_maths(operand,additional_vars, False)
                     outStr += f" {subOp[op]} {operand}"
                 else:
                     raise NotImplementedError(op)
@@ -298,11 +297,11 @@ class CodeBlock:
             elem = elem.op
             args = []
             for arg in elem.args:
-                args.append(self._resolve_maths(parent, arg),additional_vars)
+                args.append(self._resolve_maths(parent, arg),additional_vars, False)
             outStr += f"{elem}({', '.join(args)})"
         elif isinstance(elem, ParseResults):
             var = self._resolve(elem, type_="Constant")
-            outStr += self._resolve_maths(var,additional_vars)
+            outStr += self._resolve_maths(var,additional_vars, False)
         elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             self._error("Cannot resolve ClassicalRegister {} to constant value".format(elem[0].name))
         else:
@@ -389,7 +388,7 @@ class CodeBlock:
 
         referee, refInter = self._resolve(referee, type_="QuantumRegister", index = refIndex)
         refInter = refInter[0], refInter[1]
-        refSize = 1 + refInter[1] - refInter[0]
+        refSize = self._resolve_maths(refInter[1] - refInter[0] + 1)
 
         if self._check_def(aliasName, create=True, type_ = "Alias"):
             self.new_alias(aliasName, refSize)
@@ -397,10 +396,10 @@ class CodeBlock:
         alias, aliasInter = self._resolve(aliasName, type_="Alias", index=argIndex)
         aliasSize = 1 + aliasInter[1] - aliasInter[0]
         if aliasSize != refSize:
-            self._error(aliasIndexWarning.format(aliasName, refSize, aliasSize))
+            self._error(aliasIndexWarning.format(aliasName, aliasSize, refSize))
 
         self._code += [SetAlias( self, (alias, aliasInter),  (referee, refInter) )]
-        
+
     def gate(self, gateName, block,
              pargs = None, qargs = None, spargs = None, gargs = None, byprod = None,
              recursive = False, unitary=False, type_ = "gate"):
@@ -428,7 +427,7 @@ class CodeBlock:
 
         varName, varType = var
         value, valType = val
-        
+
         val = (self._resolve( value, type_="Constant"), valType)
         if self._check_def(varName, create=True, type_="Constant"):
             letobj = Constant( self, var, val )
@@ -930,7 +929,7 @@ class Alias(Register):
     """
     Alias as specified in REQASM
     """
-    
+
     def __init__(self, parent, name, inter):
         Register.__init__(self, parent, name, inter)
         self.type_ = "Alias"
@@ -1032,7 +1031,7 @@ class CallGate(Operation):
                                                      f"{expect*nLoops}", f"{nArg}"))
 
     def handle_loops(self, pargs):
-        """ 
+        """
         Handle loops for calling of gates:
         If gate args all just qubits not registers:
             Use regular handling
@@ -1045,23 +1044,23 @@ class CallGate(Operation):
         # Gates need special loop handling for multi-args
         if all( qarg[1] == 1 for qarg in self.resolved_qargs ): # Can use regular loop if everyone only takes 1 arg
             Operation.handle_loops(self, pargs)
-        elif self.nLoops == 1:
+        elif self.nLoops < 2:
             for parg in pargs:
                 pargStart, pargEnd = parg[1]
+
                 if pargStart == pargEnd:
                     parg[1] = pargStart
                     self._prevars.append(None)
                 else:
                     if isinstance(pargStart, int) and isinstance(pargEnd, int):
                         tempName = "temp_" + str( parg[0].name )
-                        self.parent.let(
-                            ( tempName, "listint" ),
-                            ( list(range(pargStart, pargEnd + 1)), None)
-                        )
+                        self._prevars.append( (pargStart, pargEnd) )
                         parg[1] = tempName
+                    else:
+                        raise NotImplementedError
         else:
             raise NotImplementedError("Cannot currently loop non-linear gates")
-                    
+
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
@@ -1282,16 +1281,21 @@ class CBlock(ExternalLang):
         self.block = block
 
 class Loop(CodeBlock):
-    def __init__(self, parent, block, var, start, end, step = 1):
+    def __init__(self, parent, block, var, start, end, step = None):
         CodeBlock.__init__(self,block, parent=parent)
-        self._objs[var] = Constant( self, (var, "int") , (var, None) )
+        self._objs[var] = Constant( self, (var, "int") , (0, None) ) # Value is 0 for disambiguating resolution
         self._objs[var].loopVar = True
         self.depth = 1
+
+        if not isinstance(var, (list,tuple) ): var = [var]
+        if not isinstance(start, (list,tuple) ): start = [start]
+        if not isinstance(end, (list,tuple) ): end = [end]
+        
         self.var = var
         self.start = start
         self.end = end
-        if step != 1: raise NotImplementedError("Non contiguous loops not currently permitted")
-        self.step = step
+        self.step = step or (1,)*len(start)
+        if not isinstance(self.step, (list,tuple) ): self.step = [step]
         self.parse_instructions()
 
 class NestLoop(Loop):
@@ -1299,10 +1303,13 @@ class NestLoop(Loop):
         self._code = [block]
         self.depth = 1
         self.var = var
+        if not isinstance(var, (list,tuple) ): var = [var]
+        if not isinstance(start, (list,tuple) ): start = [start]
+        if not isinstance(end, (list,tuple) ): end = [end]
         self.start = start
         self.end = end
-        if step != 1: raise NotImplementedError("Non contiguous loops not currently permitted")
         self.step = step
+        if not isinstance(self.step, (list,tuple) ): self.step = [step]
 
 class InitEnv:
     # Initialise QuESTEnv

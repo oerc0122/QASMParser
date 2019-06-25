@@ -7,7 +7,7 @@ class QASMFile:
 
     _QASMFiles = []
     depth_limit = 10
-    
+
     def __init__(self,filename, reqVersion=(1,2,0)):
         if filename in QASMFile._QASMFiles: raise IOError('Circular dependency in includes')
         if os.path.isfile(filename): self.File = open(filename,'r')
@@ -82,7 +82,7 @@ class QASMFile:
                 import traceback
                 traceback.print_stack()
                 quit()
-                
+
     def read_instruction(self):
         line = self.readline()
         currentLine = line
@@ -102,7 +102,7 @@ class QASMFile:
                         currentLine = currentLine[end:].lstrip()
                 except ParseException as err:
                     self._handler(err, currentLine)
-                    
+
             if currentLine.strip().startswith(";"): # Handle null statement
                 currentLine = currentLine.lstrip(" ;\n\t")
             line = self.readline()
@@ -144,13 +144,13 @@ class QASMString(QASMFile):
 
     def __del__(self):
         pass
-        
+
 class QASMBlock(QASMFile):
     def __init__(self, parent, block, startline = None):
         self._parent_file(parent)
         if startline: self.nLine = startline
         self.File = block
-        
+
     def __len__(self):
         return len(self.File)
 
@@ -158,7 +158,7 @@ class QASMBlock(QASMFile):
         for instruction in self.File[0]:
             self.nLine += 1
             yield instruction
-    
+
     def readline(self):
         """ Reads a line from a file """
         raise NotImplementedError()
@@ -171,7 +171,7 @@ class NullBlock(QASMFile):
         self._parent_file(parent)
         self.File = [';']
         self.read = False
-        
+
     def __len__(self):
         return 0
 

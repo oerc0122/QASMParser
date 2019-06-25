@@ -104,7 +104,6 @@ def End_to_c(self):
     return "return;"
 
 def Reset_to_c(self):
-    print( self._qargs )
     qarg = self._qargs
     qargRef = self.resolve_arg(qarg)
     return f'collapseToOutcome(qreg, {qargRef}, 0);'
@@ -172,17 +171,25 @@ def Maths_to_c(parent, maths, logical):
 
 def Alias_to_c(self):
     return f"int {self.name}[{self.size}];"
-    # return Let( None, (self.name, "listint"), ( self.targets, None ) ).to_lang()
 
 def SetAlias_to_c(self):
     outStr = ""
-    indexRange = range( self._pargs[1][0], self._pargs[1][1] + 1 )
-    valRange = range( self._qargs[1][0], self._qargs[1][1] + 1 )
-    for index, val in zip( indexRange, valRange ):
-        target = self.resolve_arg( (self._qargs[0], val) )
-        outStr += f"{self.alias.name}[{index}] = {target};\n"
+
+    if self.parent._resolve_maths( self._pargs[1][1] - self._pargs[1][0] + 1) > 1:
+        aliasIndex, targetIndex = (self.alias.name+"_index",self._qargs[0].name+"_index")
+        outStr += Loop(self.parent, NullBlock(self.parent.currentFile),
+                       (aliasIndex, targetIndex),
+                       (self._pargs[1][0], self._qargs[1][0]),
+                       (self._pargs[1][1], self._qargs[1][1]), step = None).to_lang()
+        if self._qargs[0].start > 0:
+            outStr += f"\n  {self.alias.name}[{aliasIndex}] = {targetIndex} + {self._qargs[0].start};"
+        else:
+            outStr += f"\n  {self.alias.name}[{aliasIndex}] = {targetIndex};"
+    else:
+        self._qargs = (self._qargs[0], self._qargs[1][0])
+        outStr = f"{self.alias.name}[{self._pargs[1][0]}] = {self.resolve_arg(self._qargs)};"
     return outStr
-    
+
 def Let_to_c(self):
     var = self.const
 
@@ -198,7 +205,8 @@ def Let_to_c(self):
         if var.var_type: value = f"{assignee};\n"
         else: value = ""
         for index, val in enumerate(var.val):
-            value += f"{var.name}[{index}] = {val};\n"
+            if val is not None:
+                value += f"{var.name}[{index}] = {val};\n"
         return value
     else:
         value = resolve_maths(self, var.val)
@@ -212,12 +220,20 @@ def CBlock_to_c(self):
 def CallGate_to_c(self):
     printArgs = ""
     outString = ""
-
-    for index, temp in enumerate(self._prevars):
-        if temp:
-            temp.const.val = [ str(val + self._qargs[index][0].start) for val in temp.const.val ]
-            outString += temp.to_lang() + "\n"
-            temp.const.val = [ int(val) - self._qargs[index][0].start for val in temp.const.val ]
+    for index, (start, end) in enumerate(self._prevars):
+        if start or end:
+            varName = "temp_" + self._qargs[index][0].name
+            varIndex = self._qargs[index][0].name + "_index"
+            targetIndex = "temp_index"
+            outString += Let( self.parent, ( varName, "listint" ), ( [None]*(end-start+1), None) ).to_lang()
+            outString += Loop(self.parent, NullBlock(self.parent.currentFile),
+                           (varIndex, targetIndex),
+                           (0, start),
+                           (end - start + 1, end), step = None).to_lang()
+            if self._qargs[index][0].start > 0:
+                outString += f"\n  {varName}[{varIndex}] = {targetIndex} + {self._qargs[index][0].start}; \n"
+            else:
+                outString += f"\n  {varName}[{varIndex}] = {targetIndex}; \n"
 
     if self._qargs:
         printArgs += "qreg"
@@ -271,8 +287,13 @@ def CreateGate_to_c(self):
     return outStr
 
 def Loop_to_c(self):
-    start = resolve_maths(self, self.start)
-    end   = resolve_maths(self, self.end)
-    step  = resolve_maths(self, self.step)
+    resolve = lambda b: resolve_maths(self, b)
+    start = map ( resolve, self.start )
+    end   = map ( resolve, self.end )
+    step  = map ( resolve, self.step )
 
-    return  f"for (int {self.var} = {start}; {self.var} <= {end}; {self.var} += {step}) "
+    var  = ( f"int {var} = {init}" for var, init in zip(self.var, start) )
+    term = ( f"{var} <= {term}"    for var, term in zip(self.var, end) )
+    inc  = ( f"{var} += {inc}"     for var, inc  in zip(self.var, step) )
+    return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(inc)} )"
+

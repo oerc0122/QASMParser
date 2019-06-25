@@ -50,24 +50,16 @@ class Binary(MathOp):
         else: self.args = []
         while tokens:
             self.args.append( (tokens.pop(0), tokens.pop(0)) )
-    def __repr__(self):
-        
-        return f"{self.args}"
-            
+
 class Function(MathOp):
     def __init__(self, tokens):
         self.op = tokens[0]
         self.args = tokens["args"]
 
-    def __repr__(self):
-        return f"{self.op} ({self.args})"
-
-
-            
 def _setup_QASMParser():
 
     global reserved
-    
+
     class _Op:
 
         def __init__(self, name, argParser, version = "OPENQASM 2.0", qop = False, keyOverride = None):
@@ -83,7 +75,7 @@ def _setup_QASMParser():
 
             self.version = parseVersion(version)
             self.parser.addParseAction(lambda s,l,t: _setVersion(t, self.version))
-            
+
             _reservedKeys.append(name)
             if qop:
                 qops[name] = self
@@ -100,7 +92,7 @@ def _setup_QASMParser():
 
             self.parser = Keyword(name)("keyword") + validName("gateName")
 
-                
+
             if prefixes:
                 localPrefixParser = Each( map(Optional, map( Keyword, prefixes ) ) ).addParseAction(prefixSetter)
             else:
@@ -158,11 +150,11 @@ def _setup_QASMParser():
     commentCloseStr = "*/"
     commentOpenSyntax  = Literal(commentOpenStr)
     commentCloseSyntax = Literal(commentCloseStr)
-    
+
     dirSyntax = "***"
     dirOpenStr = f"{dirSyntax} begin"
     dirCloseStr = f"{dirSyntax} end"
-    
+
     dirSyntax = Keyword(dirSyntax)
     dirOpenSyntax  = CaselessLiteral(dirOpenStr)
     dirCloseSyntax = CaselessLiteral(dirCloseStr)
@@ -177,7 +169,7 @@ def _setup_QASMParser():
     intExp = Forward()
     realExp = Forward()
     boolExp = Forward()
-    
+
     index = intExp.setResultsName("index")
     interval = Optional(intExp.setResultsName("start"), default=None) + inS + Optional(intExp.setResultsName("end"), default=None)
     indexRef = Group(inL + index + inR)
@@ -189,7 +181,7 @@ def _setup_QASMParser():
     regListNoRef = Group(delimitedList( regNoRef ))
     regListRef = Group(delimitedList( regRef ))
     regListMustRef = Group(delimitedList( regMustRef ))
-    
+
     def setMathType(toks, type_):
         toks["type"] = type_
 
@@ -233,7 +225,7 @@ def _setup_QASMParser():
             toks[prefix] = prefix in toks.asList()
     prefixParser = Each( map(Optional, map( Keyword, prefixes ) ) ).addParseAction(prefixSetter)
 
-    
+
     pargParser = brL + delimitedList(validName)("pargs") + brR
     spargParser = inL + delimitedList(validName)("spargs") + inR
     gargParser = ungroup(nestedExpr("<",">", delimitedList(ungroup(validName)), None))
@@ -241,20 +233,20 @@ def _setup_QASMParser():
 
     callPargParser = brL + delimitedList(realExp) + brR
     callSpargParser = inL + delimitedList(intExp) + inR
-    
+
     fullArgParser = Optional(pargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
     callArgParser = Optional(callPargParser("pargs")) & Optional(callSpargParser("spargs")) & Optional(gargParser("gargs"))
-    
+
     returnParser = _to_ + validName("byprod")
 
     modifiers = ZeroOrMore(Combine(oneOf(callMods) + Suppress("-")) )
 
-    
+
     commentLine = Literal(commentSyntax).suppress() + restOfLine("comment")
     commentBlock = QuotedString(quoteChar = commentOpenStr, endQuoteChar = commentCloseStr, multiline = True)("comment")
     comment = commentLine | commentBlock
     comment.addParseAction(lambda s,l,t : _setVersion(t, (0,0,0)))
-    
+
     directiveName = Word(alphas).setParseAction(downcaseTokens)
     directiveArgs = CharsNotIn(";")
 
@@ -271,7 +263,7 @@ def _setup_QASMParser():
                                 Group(ZeroOrMore (Combine(Optional(White(" ")) + ~dirCloseSyntax + Word(printables+" "))))("block"),
                                 ignoreExpr = comment | quotedString).setWhitespaceChars("\n").setParseAction(splitArgs))
     directiveBlock.addParseAction(lambda s,l,t: _setVersion(t, (2,1,0)))
-    
+
     # Programming lines
     _Op("version", Empty(),version = None, keyOverride = Combine(oneOf(versions)("type") + White() + real("versionNumber"))("version") )
     _Op("include", quotedString("file").addParseAction(removeQuotes))
@@ -281,7 +273,7 @@ def _setup_QASMParser():
     _Op("opaque", validName("name") + fullArgParser + qargParser("qargs"), keyOverride = prefixParser + "opaque")
     _Routine("gate", pargs = True, qargs = True)
     _Routine("circuit", pargs = True, qargs = True, spargs = True, returnables = True, version = "REQASM 1.0")
-    
+
     # Variable-like structures
     _Op("creg", regRef("arg"))
     _Op("qreg", regRef("arg"))
@@ -301,7 +293,7 @@ def _setup_QASMParser():
     _Op("next",   validName("loopVar"), qop = True, version = "REQASM 1.0")
     _Op("escape", validName("loopVar"), qop = True, version = "REQASM 1.0")
     _Op("end",    validName("process"), qop = True, version = "REQASM 1.0")
-    
+
     # Special gate call handler
     callGate = Combine(Group(modifiers)("mods") + validName("gate")) + callArgParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call"))
     callGate.addParseAction(lambda s,l,t: _setVersion(t, (1,2,0)))
@@ -318,7 +310,7 @@ def _setup_QASMParser():
     _Op("for", blocks["for"].parser     + Group(Group(Group(Or(qopsParsers))))("block"), version="REQASM 1.0", keyOverride = Empty())
     _Op("while", blocks["while"].parser + Group(Group(Group(Or(qopsParsers))))("block"), version="OMEQASM 1.0", keyOverride = Empty())
 
-    # Set-up line parsers    
+    # Set-up line parsers
     reserved = Or(_reservedKeys) ^ e ^ pi
     validName << (~reserved) + Word(alphas,alphanums+"_")
 
@@ -338,9 +330,9 @@ def _setup_QASMParser():
     dummyCodeBlock = nestedExpr("{","}", testLine, (quotedString | comment))
 
     ignoreSpecialBlocks = (~commentOpenSyntax + ~commentCloseSyntax + ~dirOpenSyntax + ~dirCloseSyntax)
-    
+
     testLine <<= comment | directiveBlock | ((ignoreSpecialBlocks + CharsNotIn("{;")) + lineEnd) ^ ( ignoreSpecialBlocks + CharsNotIn("{") + dummyCodeBlock)
-    
+
     testKeyword = dirSyntax.setParseAction(lambda s,l,t: _overrideKeyword(t, "directive")) | Word(alphas)("keyword")
 
     code = (Group(directiveBlock)) | Group(validLine)

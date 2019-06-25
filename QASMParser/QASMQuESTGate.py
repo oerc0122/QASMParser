@@ -28,7 +28,7 @@ def _invert_U(**kwargs):
     qargs = kwargs["qargs"]
     qargs[0][1] = (None, None)
     return [CallGate(None, "U", new_args, qargs)]
-            
+
 _U.invert = _invert_U
 
 _CX = Opaque(dummy, "CX", pargs = [], qargs = [{"var":"a"}, {"var":"b"}], unitary = True)
@@ -44,7 +44,7 @@ def _invert_CX(**kwargs):
     for qarg in qargs:
         qarg[1] = (None, None)
     return [CallGate(None, "CX", **kwargs)]
-    
+
 _CX.invert = _invert_CX
 
 Gate.internalGates["U"] = _U
