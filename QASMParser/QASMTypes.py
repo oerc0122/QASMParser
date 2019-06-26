@@ -63,8 +63,8 @@ class Operation:
         """ Return name, index or value for output into output language """
 
         if type(arg[0]) is Argument:
-            start = arg[1]
-            offset = arg[0].start
+            offset = arg[1]
+            start = arg[0].start
 
         elif isinstance(arg[0], Alias):
             start = arg[1]
@@ -80,9 +80,10 @@ class Operation:
         return self._arg_to_string(offset, start)
 
     def _arg_to_string(self, offset, start):
+
         if isinstance(offset, Alias):
             if isinstance(start, str):
-                return f"&{offset.name}[{start}[0]]"
+                return f"{offset.name}[{start}]"
             else:
                 return f"&{offset.name}[{start}]"
                 
@@ -1302,10 +1303,11 @@ class NestLoop(Loop):
     def __init__(self, block, var, start, end, step = 1):
         self._code = [block]
         self.depth = 1
-        self.var = var
         if not isinstance(var, (list,tuple) ): var = [var]
         if not isinstance(start, (list,tuple) ): start = [start]
         if not isinstance(end, (list,tuple) ): end = [end]
+
+        self.var = var
         self.start = start
         self.end = end
         self.step = step

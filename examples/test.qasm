@@ -90,7 +90,7 @@ reset a;
 reset b[2];
 
 alias q to a[1:2];
-
+alias q[0] to b[1];
 x q;
 
 for Q in [1:3] {
