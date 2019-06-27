@@ -11,12 +11,13 @@ isReal = re.compile("[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 class Operation:
     """ Base class for callable function-like objects """
 
-    def __init__(self, parent, qargs = None, pargs = None):
+    def __init__(self, parent, qargs = None, pargs = None, gargs = None, spargs = None):
         self.parent = parent
         self._loops = None
         self._qargs = qargs
         self._pargs = pargs
-        self._prevars = []
+        self._spargs = spargs
+        self._gargs = gargs
 
     def add_loop(self, index, start, end):
         """ Wrap self in a loop """
@@ -113,7 +114,7 @@ class CodeBlock:
 
             elif isinstance(var,Argument):
 
-                return [var, var.name + "_index"]
+                return [var, var.name]
 
 
         elif type_ == "Alias":
@@ -177,7 +178,7 @@ class CodeBlock:
 
                 if isinstance(var,Argument):
 
-                    return [var, var.name + "_index"]
+                    return [var, var.name]
 
                 elif isinstance(var,Constant):
 
@@ -205,7 +206,7 @@ class CodeBlock:
         else:
             self._error("Unrecognised type {} in _resolve".format(type_))
 
-    def _resolve_maths(self, elem, additional_vars = {}, topLevel = True):
+    def _resolve_maths(self, elem, additional_vars = {}, topLevel = True, tempDict = None):
         """
         Perform the set of maths operations to return the final value or an error if it cannot be evaluated
         """
@@ -219,22 +220,29 @@ class CodeBlock:
 
         outStr = ""
 
-        tempDict = copy.copy(self._objs)
-        for key, val in additional_vars.items():
-            tempDict[key] = val
+        if tempDict is None:
+            tempDict = copy.copy(self._objs)
+            for key, val in additional_vars.items():
+                tempDict[key] = val
 
+        recurse = lambda elem: self._resolve_maths(elem, additional_vars, False, tempDict)
+                
         if isinstance(elem, MathsBlock):
-            outStr += self._resolve_maths(elem.maths, additional_vars, False)
+            for point in elem.maths:
+                outStr += recurse(point)
         elif isinstance(elem, int) or isinstance(elem, float):
             outStr += str(elem)
         elif isinstance(elem, Constant):
-            outStr += self._resolve_maths(elem.val,additional_vars, False)
+            if not hasattr(elem, "sparg"):
+                outStr += recurse(elem.val)
+            else:
+                outStr += elem.name
         elif isinstance(elem, str) and elem in tempDict:
-            outStr += self._resolve_maths(tempDict[elem],additional_vars, False)
+            outStr += recurse(tempDict[elem])
         elif isinstance(elem, Binary):
             for op, operand in elem.args:
                 if op == "nop":
-                    operand = self._resolve_maths(operand,additional_vars, False)
+                    operand = recurse(operand)
                     outStr += f"{operand}"
                 elif op == "in":
                     if len(operand) == 2:
@@ -242,10 +250,10 @@ class CodeBlock:
                     else:
                         raise OSError
                 elif op in identOp:
-                    operand = self._resolve_maths(operand,additional_vars, False)
+                    operand = recurse(operand)
                     outStr += f" {op} {operand}"
                 elif op in subOp:
-                    operand = self._resolve_maths(operand,additional_vars, False)
+                    operand = recurse(operand)
                     outStr += f" {subOp[op]} {operand}"
                 else:
                     raise NotImplementedError(op)
@@ -261,13 +269,13 @@ class CodeBlock:
         elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             self._error("Cannot resolve ClassicalRegister {} to constant value".format(elem[0].name))
         else:
-            raise NotImplementedError(type(elem))
+            raise NotImplementedError("Cannot parse {} in _resolve_maths".format(type(elem).__name__))
 
         if topLevel:
             try:
                 return eval(str(outStr))
             except:
-                self._error("Boop")
+                self._error("Error parsing maths string:\n {}".format(outStr) )
         else:
             return outStr
 
@@ -749,7 +757,7 @@ class MathsBlock:
                     new_args.append( arg )
             elem.args = new_args
 
-        self.maths = elem
+        self.maths = [elem]
 
     def __add__(self, val):
         return MathsBlock(self.parent, Binary( [[ self.maths, "+", val ]] ))
@@ -822,13 +830,11 @@ class Register(Referencable):
 
             if isinstance(start, Constant): start = start.val
             if isinstance(end,   Constant): end   = end.val
-
             if start == end:
                 size = end
                 start, end = 0, end
             else:
                 size = end - start + 1
-
             self.min = start
             self.max = end
             self.start = 0
@@ -893,10 +899,9 @@ class Alias(Register):
         self.all_set = False
 
     def set_target(self, indices, target, interval):
-        """ Aliases target to indices and re-establishes contiguity of blocks """
-
+        """ Aliases target to indices """
         for index in range(indices[0],indices[1]+1):
-            self.targets[index - self.start] = (target, interval[0] + index)
+            self.targets[index - self.min] = (target, interval[0] + index)
 
         self.all_set = all(target is not (None, None) for target in self.targets)
 
@@ -909,7 +914,7 @@ class Argument(Register):
         Register.__init__(self, parent, name, size)
         self.name = name
         self.type_ = "QuantumRegister"
-        self.start = name + "_index"
+        self.start = name
         self.end = self.size
 
 
@@ -945,11 +950,11 @@ class Let(Operation):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
 class CallGate(Operation):
-    def __init__(self, parent, gate, pargs, qargs, spargs, gargs):
+    def __init__(self, parent, gate, pargs, qargs, gargs, spargs):
         self.name = gate
-        Operation.__init__(self, parent, qargs, pargs)
+        Operation.__init__(self, parent, qargs, pargs, gargs, spargs)
         self.callee = self.parent._resolve(self.name, type_="Gate")
-        self._check_args(pargs, qargs, spargs, gargs)
+        self._check_args(pargs, qargs, gargs, spargs)
         self.handle_loops(self._qargs)
 
     def _check_args(self, pargs, qargs, gargs, spargs):
@@ -965,9 +970,15 @@ class CallGate(Operation):
         parsed_sparg = zip((sparg.name for sparg in self.callee._spargs), spargs)
 
         new_spargs = dict(parsed_sparg)
-
         new_qargs = []
+
+        for sparg in spargs: # Disambiguate?
+            if sparg in self.parent._spargs:
+                new_spargs[sparg.name] = 0
+
+                
         for qarg in self.callee._qargs:
+            print(qarg.size)
             new_qargs.append([qarg, int(self.parent._resolve_maths(qarg.size, additional_vars = new_spargs ))])
 
         self.resolved_qargs = new_qargs
@@ -980,11 +991,11 @@ class CallGate(Operation):
             if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
             if not self.nLoops : self.nLoops = nArg // expect  # Assume all vars much have the same number of loops
             if nArg % expect != 0:
-                self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_}",
+                self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_+1}",
                                                      f"multiple of {expect}", f"{nArg}"))
             elif nArg // expect != self.nLoops:
-                self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_}",
-                                                     f"{expect*nLoops}", f"{nArg}"))
+                self.parent._error(argWarning.format(f"call to {self.name} in qarg {id_+1} for implicit {self.nLoops} loops",
+                                                     f"{expect*self.nLoops} qubits", f"{nArg}"))
 
     def handle_loops(self, pargs):
         """
@@ -1013,7 +1024,6 @@ class CallGate(Operation):
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
-
 
 class SetAlias(Operation):
     def __init__(self, parent, alias, target):
@@ -1137,11 +1147,11 @@ class Gate(Referencable, CodeBlock):
         if not args: return []
         if type_ in ["ClassicalArgument"]:
             for arg in args:
-                self._objs[arg] = Constant( self, (arg, "float") , ( MathsBlock(self, [arg]) , None) )
+                self._objs[arg] = Constant( self, (arg, "float") , ( MathsBlock(self, arg), None) )
                 self._pargs.append(self._objs[arg])
         elif type_ in ["SpecialArgument"]:
             for arg in args:
-                self._objs[arg] = Constant( self, (arg, "int") , ( MathsBlock(self, [arg]), None) )
+                self._objs[arg] = Constant( self, (arg, "int") , ( MathsBlock(self, arg), None) )
                 self._spargs.append(self._objs[arg])
         elif type_ in ["QuantumArgument"]:
             for argTok in args:
@@ -1206,9 +1216,10 @@ class Opaque(Gate):
         self.set_block(NullBlock(self.parentFile))
         self.unitary = unitary
 
+        self._pargs = []
+        self._qargs  = []
         self._spargs = []
         self._gargs  = []
-
         self.parse_gate_args(pargs,  "ClassicalArgument")
         self.parse_gate_args(spargs, "SpecialArgument")
         self.parse_gate_args(qargs,  "QuantumArgument")

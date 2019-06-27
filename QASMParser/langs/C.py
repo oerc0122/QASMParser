@@ -51,6 +51,7 @@ typesTranslation = {
     }
 
 def resolve_maths(self, elem):
+
     if isinstance(elem, MathsBlock):
         value = Maths_to_c(self, elem, False)
     elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
@@ -88,9 +89,9 @@ def resolve_arg(arg):
 
     if isinstance( index, Constant):
         index = index.name
-        
+
     if type(obj) is Argument:
-        if obj.size < 2:
+        if obj.size == 1:
             return obj.start
         else:
             return f"{ref}{obj.start}[{index}]"
@@ -161,36 +162,38 @@ def Maths_to_c(parent, maths, logical):
     # Ops which will be more complicated
     compSubOp = ["^","div"]
     outStr = ""
+    for element in maths.maths:
 
-    if isinstance(maths.maths, Binary):
-        for op, operand in maths.maths.args:
-            if op == "nop":
-                operand = resolve_maths(parent, operand)
-                outStr += f"{operand}"
-            elif op == "in":
-                if len(operand) == 2:
-                    outStr = f"({outStr} > {operand[0]} && {outStr} < {operand[1]})"
+        if isinstance(element, Binary):
+            for op, operand in element.args:
+                if op == "nop":
+                    operand = resolve_maths(parent, operand)
+                    outStr += f"{operand}"
+                elif op == "in":
+                    if len(operand) == 2:
+                        outStr = f"({outStr} > {operand[0]} && {outStr} < {operand[1]})"
+                    else:
+                        raise OSError
+                elif op == "^":
+                    outStr = f"pow({outStr}, {operand})"
+                elif op == "div":
+                    outStr = f"floor({outStr} / {operand})"
+                elif op in identOp:
+                    operand = resolve_maths(parent, operand)
+                    outStr += f" {op} {operand}"
+                elif op in subOp:
+                    operand = resolve_maths(parent, operand)
+                    outStr += f" {subOp[op]} {operand}"
                 else:
-                    raise OSError
-            elif op == "^":
-                outStr = f"pow({outStr}, {operand})"
-            elif op == "div":
-                outStr = f"floor({outStr} / {operand})"
-            elif op in identOp:
-                operand = resolve_maths(parent, operand)
-                outStr += f" {op} {operand}"
-            elif op in subOp:
-                operand = resolve_maths(parent, operand)
-                outStr += f" {subOp[op]} {operand}"
-            else:
-                raise NotImplementedError(op)
-    elif isinstance(maths.maths, Function):
-        elem = maths.maths.op
-        args = []
-        for arg in maths.maths.args:
-            args.append(resolve_maths(parent, arg))
-        outStr += f"{elem}({', '.join(args)})"
-
+                    raise NotImplementedError(op)
+        elif isinstance(element, Function):
+            elem = element.op
+            args = []
+            for arg in element.args:
+                args.append(resolve_maths(parent, arg))
+            outStr += f"{elem}({', '.join(args)})"
+        else: raise NotImplementedError("Maths cannot parse type {}".format(type(elem).__name__))
+    
     return outStr
 
 def Alias_to_c(self):
@@ -246,39 +249,19 @@ def CBlock_to_c(self):
     return "\n".join(self.block)
 
 def CallGate_to_c(self):
-    printArgs = ""
-    outString = ""
-    for index, (start, end) in enumerate(self._prevars):
-        if start or end:
-            varName = "temp_" + self._qargs[index][0].name
-            varIndex = self._qargs[index][0].name + "_index"
-            targetIndex = "temp_index"
-            outString += Let( self.parent, ( varName, "listint" ), ( [None]*(end-start+1), None) ).to_lang()
-            outString += Loop(self.parent, NullBlock(self.parent.currentFile),
-                           (varIndex, targetIndex),
-                           (0, start),
-                           (end - start + 1, end), step = None).to_lang()
-            if self._qargs[index][0].start > 0:
-                outString += f"\n  {varName}[{varIndex}] = {targetIndex} + {self._qargs[index][0].start}; \n"
-            else:
-                outString += f"\n  {varName}[{varIndex}] = {targetIndex}; \n"
 
-    if self._qargs:
-        printArgs += "qreg"
-        for index, qarg in enumerate(self._qargs):
-            if self._prevars and self._prevars[index]:
-                printArgs += ", "+qarg[1]
-            else:
-                printArgs += ", "+resolve_arg(qarg)
-    if self._pargs:
-        if self._qargs:
-            printArgs += ", "
-        printArgs += ", ".join([resolve_maths(self, parg) for parg in self._pargs])
+    printQargs = ""
+    printPargs = ""
+    printSpargs = ""
+
+    if self._qargs: printQargs = "qreg, " + ", ".join(
+            f"{resolve_arg(qarg)}" for qarg in self._qargs)
+    if self._pargs: printPargs = ", ".join( f"{resolve_maths(self.parent,parg)}" for parg in self._pargs )
+    if self._spargs: printSpargs = ", ".join( f"{resolve_maths(self.parent, sparg)}" for sparg in self._spargs )
+
+    printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
     printGate = self.name
-    preString = []
-    for line in preString:
-        outString += line + ";\n"
-    outString += f"{printGate}({printArgs});"
+    outString = f"{printGate}({printArgs});"
     return outString
 
 def Comment_to_c(self):
@@ -290,7 +273,7 @@ def Measure_to_c(self):
     qarg = self._qargs
     qargRef = resolve_arg(qarg)
     pargRef = resolve_arg(parg)
-    return f"{parg[0].name}[{pargRef}] = measure(qreg, {qargRef});"
+    return f"{pargRef} = measure(qreg, {qargRef});"
 
 def IfBlock_to_c(self):
     outStr = Maths_to_c(self, self._cond, True)
@@ -304,12 +287,13 @@ def While_to_c(self):
 def CreateGate_to_c(self):
     printQargs = ""
     printPargs = ""
+    printSpargs = ""
     if self._qargs: printQargs = "Qureg qreg, " + ", ".join(
-            (f"int {qarg.name}_index" if qarg.size == 1 else f"int* {qarg.name}_index" for qarg in self._qargs )
-    )
-    if self._pargs: printPargs = ", ".join((f"{parg.var_type} {parg.name}" for parg in self._pargs))
+            f"int {qarg.name}" if qarg.size == 1 else f"int* {qarg.name}" for qarg in self._qargs)
+    if self._pargs: printPargs = ", ".join( f"{parg.var_type} {parg.name}" for parg in self._pargs )
+    if self._spargs: printSpargs = ", ".join( f"int {sparg.name}" for sparg in self._spargs )
 
-    printArgs = ", ".join((printQargs, printPargs)).rstrip(", ")
+    printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
     returnType = typesTranslation[self.returnType]
     outStr = f"{returnType} {self.name}({printArgs}) "
     return outStr
