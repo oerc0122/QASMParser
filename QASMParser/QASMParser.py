@@ -117,6 +117,7 @@ class ProgFile(CodeBlock):
                 regs = [ x for x in codeToWrite if type(x).__name__ == "QuantumRegister" ]
                 for reg in regs:
                     temp._code += [Comment(self, f'{reg.name}[{reg.start}:{reg.end-1}]')]
+                    temp._code += [Let ( self, ( reg.name, "const listint" ), ( list(range(reg.start, reg.end)), None ) ) ]
                 codeToWrite = [ x for x in codeToWrite if type(x).__name__ != "QuantumRegister" ]
                 temp._code += [QuantumRegister(self, "qreg", QuantumRegister.numQubits)]
                 temp._code += codeToWrite

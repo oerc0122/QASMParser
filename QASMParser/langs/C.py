@@ -43,6 +43,7 @@ typesTranslation = {
     "complex":"Complex",
     "ComplexMatrix2":"ComplexMatrix2",
     "listint":"int",
+    "const listint":"const int",
     "listfloat":"float",
     "str":"char",
     "bool":"int",
@@ -76,6 +77,29 @@ def resolve_maths(self, elem):
 
     return value
 
+def resolve_arg(arg):
+    obj, index = arg
+
+    if isinstance( index, (list, tuple) ):
+        ref = "&"
+        index = index[0]
+    else:
+        ref = ""
+
+    if isinstance( index, Constant):
+        index = index.name
+        
+    if type(obj) is Argument:
+        if obj.size < 2:
+            return obj.start
+        else:
+            return f"{ref}{obj.start}[{index}]"
+    elif issubclass(type(obj), Register):
+        return f"{ref}{obj.name}[{index}]"
+    else:
+        raise NotImplementedError("Resolution of {}".format(type(obj).__name__))
+
+
 def Include_to_c(self):
     return f'#include "{self.filename}"'
 
@@ -105,7 +129,7 @@ def End_to_c(self):
 
 def Reset_to_c(self):
     qarg = self._qargs
-    qargRef = self.resolve_arg(qarg)
+    qargRef = resolve_arg(qarg)
     return f'collapseToOutcome(qreg, {qargRef}, 0);'
 
 def ClassicalRegister_to_c(self):
@@ -187,7 +211,7 @@ def SetAlias_to_c(self):
             outStr += f"\n  {self.alias.name}[{aliasIndex}] = {targetIndex};"
     else:
         self._qargs = (self._qargs[0], self._qargs[1][0])
-        outStr = f"{self.alias.name}[{self._pargs[1][0]}] = {self.resolve_arg(self._qargs)};"
+        outStr = f"{self.alias.name}[{self._pargs[1][0]}] = {resolve_arg(self._qargs)};"
     return outStr
 
 def Let_to_c(self):
@@ -196,17 +220,21 @@ def Let_to_c(self):
     assignee = var.name
     if var.var_type:
         assignee = f"{typesTranslation[var.var_type]} {assignee}"
-        if var.var_type in ["listint", "listfloat"]: assignee += f"[{len(var.val)}]"
+        if var.var_type in ["const listint", "listint", "listfloat"]: assignee += f"[{len(var.val)}]"
 
     # Simple declaration
     if var.val is None: return f"{assignee};"
 
     if isinstance(var.val, (list, tuple) ) :
-        if var.var_type: value = f"{assignee};\n"
-        else: value = ""
-        for index, val in enumerate(var.val):
-            if val is not None:
-                value += f"{var.name}[{index}] = {val};\n"
+        if var.var_type.startswith("const"):
+            val = map(str, var.val)
+            value = f"{assignee} = {{ {','.join(val)} }};"
+        else:
+            if var.var_type: value = f"{assignee};\n"
+            else: value = ""
+            for index, val in enumerate(var.val):
+                if val is not None:
+                    value += f"{var.name}[{index}] = {val};\n"
         return value
     else:
         value = resolve_maths(self, var.val)
@@ -241,7 +269,7 @@ def CallGate_to_c(self):
             if self._prevars and self._prevars[index]:
                 printArgs += ", "+qarg[1]
             else:
-                printArgs += ", "+self.resolve_arg(qarg)
+                printArgs += ", "+resolve_arg(qarg)
     if self._pargs:
         if self._qargs:
             printArgs += ", "
@@ -260,8 +288,8 @@ def Comment_to_c(self):
 def Measure_to_c(self):
     parg = self._pargs
     qarg = self._qargs
-    qargRef = self.resolve_arg(qarg)
-    pargRef = self.resolve_arg(parg)
+    qargRef = resolve_arg(qarg)
+    pargRef = resolve_arg(parg)
     return f"{parg[0].name}[{pargRef}] = measure(qreg, {qargRef});"
 
 def IfBlock_to_c(self):
@@ -296,4 +324,3 @@ def Loop_to_c(self):
     term = ( f"{var} <= {term}"    for var, term in zip(self.var, end) )
     inc  = ( f"{var} += {inc}"     for var, inc  in zip(self.var, step) )
     return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(inc)} )"
-

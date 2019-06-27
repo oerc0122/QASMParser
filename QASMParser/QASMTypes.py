@@ -59,51 +59,6 @@ class Operation:
             for parg in pargs:
                 parg[1] = parg[1][0]
 
-    def resolve_arg(self, arg):
-        """ Return name, index or value for output into output language """
-
-        if type(arg[0]) is Argument:
-            offset = arg[1]
-            start = arg[0].start
-
-        elif isinstance(arg[0], Alias):
-            start = arg[1]
-            offset = arg[0]
-
-        elif issubclass(type(arg[0]),Register):
-            start = arg[1]
-            offset = arg[0].start
-
-        else:
-            raise TypeError(parseArgWarning.format("arg", type(arg[0]).__name__))
-
-        return self._arg_to_string(offset, start)
-
-    def _arg_to_string(self, offset, start):
-
-        if isinstance(offset, Alias):
-            if isinstance(start, str):
-                return f"{offset.name}[{start}]"
-            else:
-                return f"&{offset.name}[{start}]"
-                
-        elif isinstance(start, int):
-            return str(offset + start)
-
-        elif isinstance(start, Constant):
-            if (offset > 0): return f"{offset} + {start.val}"
-            else: return f"{start.val}"
-
-        elif isinstance(start, str):
-            if (offset > 0): return f"{start} + {offset}"
-            else: return f"{start}"
-
-        elif isinstance(start, MathsBlock):
-            return MathsBlock.to_lang(self.parent, start + offset)
-
-        else:
-            return start
-
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
 
@@ -274,7 +229,7 @@ class CodeBlock:
             outStr += str(elem)
         elif isinstance(elem, Constant):
             outStr += self._resolve_maths(elem.val,additional_vars, False)
-        elif elem in tempDict:
+        elif isinstance(elem, str) and elem in tempDict:
             outStr += self._resolve_maths(tempDict[elem],additional_vars, False)
         elif isinstance(elem, Binary):
             for op, operand in elem.args:
@@ -1051,14 +1006,8 @@ class CallGate(Operation):
 
                 if pargStart == pargEnd:
                     parg[1] = pargStart
-                    self._prevars.append(None)
                 else:
-                    if isinstance(pargStart, int) and isinstance(pargEnd, int):
-                        tempName = "temp_" + str( parg[0].name )
-                        self._prevars.append( (pargStart, pargEnd) )
-                        parg[1] = tempName
-                    else:
-                        raise NotImplementedError
+                    pass
         else:
             raise NotImplementedError("Cannot currently loop non-linear gates")
 
@@ -1291,7 +1240,7 @@ class Loop(CodeBlock):
         if not isinstance(var, (list,tuple) ): var = [var]
         if not isinstance(start, (list,tuple) ): start = [start]
         if not isinstance(end, (list,tuple) ): end = [end]
-        
+
         self.var = var
         self.start = start
         self.end = end
