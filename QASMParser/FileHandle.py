@@ -110,7 +110,13 @@ class QASMFile:
 
         if currentLine.strip(): # Catch remainder
             try:
-                QASMcodeParser.parseString(currentLine, parseAll=True)
+                for inst, start, end in QASMcodeParser.scanString(currentLine):
+                    instruction = inst[0]
+                    instruction.original = currentLine[start:end]
+                    prev = end
+                    yield instruction
+                    currentLine = currentLine[end:].lstrip()
+                
             except ParseException as err:
                 self._handler(err, currentLine)
 

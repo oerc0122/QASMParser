@@ -77,6 +77,8 @@ class CodeBlock:
         self._code = []
         self._qargs= []
         self._pargs= []
+        self._spargs = []
+        self._gargs = []
         if copyObjs:
             self._objs = copy.copy(parent._objs)
         else:
@@ -152,6 +154,8 @@ class CodeBlock:
             if isinstance(var, list):
                 if len(var) == 1:
                     var = var.pop()
+                elif len(var) == 0:
+                    return None
                 else:
                     raise NotImplementedError("cannot handle list args")
 
@@ -184,7 +188,7 @@ class CodeBlock:
 
                     return var.name
 
-                elif isinstance(var, ClassicalRegister):
+                elif isinstance(var, ClassicalRegister ):
 
                     if index or index is None: # If index or implicit loop
 
@@ -197,7 +201,7 @@ class CodeBlock:
                     self._error("Cannot use quantum register {} in maths expression".format(var.name))
 
                 else:
-                    self._error("Undetermined type in maths parsing")
+                    self._error("Undetermined type {} in maths parsing".format(type(var).__name__))
 
         elif type_ == "Gate":
             self._is_def(var, create=False, type_ = type_)
@@ -271,11 +275,14 @@ class CodeBlock:
         else:
             raise NotImplementedError("Cannot parse {} in _resolve_maths".format(type(elem).__name__))
 
+        if not outStr:
+            return "0"
+        
         if topLevel:
             try:
                 return eval(str(outStr))
             except:
-                self._error("Error parsing maths string:\n {}".format(outStr) )
+                self._error("Error parsing maths string:\n '{}'\n".format(outStr) )
         else:
             return outStr
 
@@ -874,7 +881,7 @@ class ClassicalRegister(Register):
         self.start = 0
         self.end = self.size
 
-class DeferredClassicalRegister(Register):
+class DeferredClassicalRegister(ClassicalRegister):
     """
     Classical register whose size is unknown until execution of the code,
     e.g. size is a function variable
@@ -978,7 +985,6 @@ class CallGate(Operation):
 
                 
         for qarg in self.callee._qargs:
-            print(qarg.size)
             new_qargs.append([qarg, int(self.parent._resolve_maths(qarg.size, additional_vars = new_spargs ))])
 
         self.resolved_qargs = new_qargs
@@ -1193,7 +1199,7 @@ class Circuit(Gate):
         self._is_def(argName, create=True)
 
         if classical:
-            variable = DeferredClassicalRegister(argName, self._resolve(size, "Constant"))
+            variable = DeferredClassicalRegister(self, argName, size)
             self._objs[argName] = variable
         else:
             self._error("Cannot declare new qarg in circuit")
