@@ -1,3 +1,4 @@
+
 # Declare several warnings which may occur
 eofWarning = 'Unexpected end of file while {}'
 argWarning  = 'Bad argument list in {} expected {}, received {}'
@@ -24,3 +25,13 @@ unknownParseWarning = "Unknown parsing error occurred"
 unitaryWarning = "Attempted to call non-unitary gate {} from explicit unitary gate {}"
 gateWarning = "Unrecognised gate-like type {}"
 aliasIndexWarning = "Mismatched indices {}: Requested {}, received {}"
+
+def print_decor(func):
+    import inspect
+    import sys
+    def wrapper(name):
+        sys.stdout.write(f"{inspect.currentframe().f_back.f_code.co_filename} {inspect.currentframe().f_back.f_lineno}: ")
+        func(name)
+    return wrapper
+
+#print = print_decor(print)

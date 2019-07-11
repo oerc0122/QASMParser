@@ -89,7 +89,10 @@ def resolve_arg(arg):
 
     if isinstance( index, Constant):
         index = index.name
+    elif isinstance( index, MathsBlock):
 
+        index = resolve_maths(None, index)
+        
     if type(obj) is Argument:
         if obj.size == 1:
             return obj.start

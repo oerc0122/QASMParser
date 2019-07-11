@@ -1,5 +1,4 @@
 from pyparsing import *
-
 ParserElement.enablePackrat()
 
 # Versions are considered over-layered enhancements
@@ -55,6 +54,7 @@ class Function(MathOp):
     def __init__(self, tokens):
         self.op = tokens[0]
         self.args = tokens["args"]
+
 
 def _setup_QASMParser():
 
@@ -331,7 +331,7 @@ def _setup_QASMParser():
 
     ignoreSpecialBlocks = (~commentOpenSyntax + ~commentCloseSyntax + ~dirOpenSyntax + ~dirCloseSyntax)
 
-    testLine <<= comment | directiveBlock | ((ignoreSpecialBlocks + CharsNotIn("{;")) + lineEnd) ^ ( ignoreSpecialBlocks + CharsNotIn("{") + dummyCodeBlock)
+    testLine <<= comment | directiveBlock | ( ignoreSpecialBlocks + CharsNotIn("{") + dummyCodeBlock) | (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd)
 
     testKeyword = dirSyntax.setParseAction(lambda s,l,t: _overrideKeyword(t, "directive")) | Word(alphas)("keyword")
 

@@ -191,7 +191,6 @@ class CodeBlock:
                 elif isinstance(var, ClassicalRegister ):
 
                     if index or index is None: # If index or implicit loop
-
                         index = self.parse_range(index, var)
 
                         return [var, index]
@@ -230,7 +229,7 @@ class CodeBlock:
                 tempDict[key] = val
 
         recurse = lambda elem: self._resolve_maths(elem, additional_vars, False, tempDict)
-                
+
         if isinstance(elem, MathsBlock):
             for point in elem.maths:
                 outStr += recurse(point)
@@ -277,7 +276,7 @@ class CodeBlock:
 
         if not outStr:
             return "0"
-        
+
         if topLevel:
             try:
                 return eval(str(outStr))
@@ -417,6 +416,7 @@ class CodeBlock:
         qargs = self.parse_args(qargs, type_ = "QuantumRegister")
         gargs = self.parse_args(gargs, type_ = "Gate")
         spargs = self.parse_args(spargs, type_ = "Constant")
+
 
         if "INV" in modifiers.asList():
             orig = self._resolve(gateName, type_ = "Gate")
@@ -706,15 +706,19 @@ class CodeBlock:
         elif rangeSpec.get("start", None) is not None or rangeSpec.get("end", None) is not None:
             if indexOnly: self._error("Passed range specifier to index")
             start, end = rangeSpec.get("start", None), rangeSpec.get("end", None)
+
             start = self._resolve(start, type_ = "Constant")
             end   = self._resolve(end, type_ = "Constant")
+
             if arg:
                 if not start: start = 0
                 if not end: end = arg.size
             else:
                 if start is None or end is None:
                     self._error(loopSpecWarning.format("end" if end is None else "start"))
+
             interval = (start, end)
+
             self._check_bounds(interval, arg)
 
         else:
@@ -737,7 +741,8 @@ class MathsBlock:
     def __init__(self, parent, maths, topLevel=False):
         self.parent = parent
         self.topLevel = topLevel
-        elem = maths
+        elem = copy.deepcopy(maths)
+
         self.logical = False
         if isinstance(elem, Binary):
             new_args = []
@@ -809,6 +814,8 @@ class Constant(Referencable):
     def __mul__(self, val):
         return MathsBlock(self.parent, Binary( [[ self, "*", val ]] ))
 
+    def __deepcopy__(self, memo):
+        return Constant(self.parent, (self.name, self.var_type), (self.val, self.cast) )
 
     def to_lang(self):
         raise NotImplementedError(langWarning.format(type(self).__name__))
@@ -960,12 +967,16 @@ class CallGate(Operation):
     def __init__(self, parent, gate, pargs, qargs, gargs, spargs):
         self.name = gate
         Operation.__init__(self, parent, qargs, pargs, gargs, spargs)
+
         self.callee = self.parent._resolve(self.name, type_="Gate")
+
         self._check_args(pargs, qargs, gargs, spargs)
+
         self.handle_loops(self._qargs)
 
     def _check_args(self, pargs, qargs, gargs, spargs):
         """ Check gate arguments are valid and of the right size. Raise error if not """
+
 
         # Check number of args matches
         for name, args, expect in zip(["pargs", "gargs", "spargs"],
@@ -983,7 +994,7 @@ class CallGate(Operation):
             if sparg in self.parent._spargs:
                 new_spargs[sparg.name] = 0
 
-                
+
         for qarg in self.callee._qargs:
             new_qargs.append([qarg, int(self.parent._resolve_maths(qarg.size, additional_vars = new_spargs ))])
 
@@ -991,7 +1002,9 @@ class CallGate(Operation):
 
         self.nLoops = 0
         # Implicit loops mean we handle qargs separately
-        for id_,qarg in enumerate(qargs):
+        for id_, qarg in enumerate(qargs):
+            # Hack to bypass stupidity of Python's object fiddling
+            if isinstance(qarg[1][1], MathsBlock) or isinstance(qarg[1][0], MathsBlock): continue
             nArg = qarg[1][1] - qarg[1][0] + 1
             expect = new_qargs[id_][1]
             if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
@@ -1010,7 +1023,7 @@ class CallGate(Operation):
             Use regular handling
         If gate takes qregs, but can be looped (based on args):
             Loop in blocks
-        If gate takes qregs and is not looped:
+        If gate ta-kes qregs and is not looped:
             Use prevars
         """
 

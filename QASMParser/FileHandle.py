@@ -53,6 +53,7 @@ class QASMFile:
 
     def _handler(self,err, line):
             if not err.line:
+                print("No line found")
                 self._error(unknownParseWarning)
             if len(line) < 80:
                 print(" ".join(line.splitlines()))
@@ -95,6 +96,7 @@ class QASMFile:
                         if start != prev:
                             if prev != 0: break
                             else: QASMcodeParser.parseString(currentLine,parseAll=True)
+                        if not currentLine[start:end].strip(): continue # Skip blank lines
                         instruction = inst[0]
                         instruction.original = currentLine[start:end]
                         prev = end
@@ -116,7 +118,7 @@ class QASMFile:
                     prev = end
                     yield instruction
                     currentLine = currentLine[end:].lstrip()
-                
+
             except ParseException as err:
                 self._handler(err, currentLine)
 
