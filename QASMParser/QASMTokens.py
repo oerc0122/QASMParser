@@ -237,13 +237,13 @@ def _setup_QASMParser():
     fullArgParser = Optional(pargParser("pargs")) & Optional(spargParser("spargs")) & Optional(gargParser("gargs"))
     callArgParser = Optional(callPargParser("pargs")) & Optional(callSpargParser("spargs")) & Optional(gargParser("gargs"))
 
-    returnParser = _to_ + validName("byprod")
+    returnParser = Optional(_to_ + validName("byprod"))
 
     modifiers = ZeroOrMore(Combine(oneOf(callMods) + Suppress("-")) )
 
 
     commentLine = Literal(commentSyntax).suppress() + restOfLine("comment")
-    commentBlock = QuotedString(quoteChar = commentOpenStr, endQuoteChar = commentCloseStr, multiline = True)("comment")
+    commentBlock = cStyleComment("comment").addParseAction(removeQuotes).addParseAction(removeQuotes)
     comment = commentLine | commentBlock
     comment.addParseAction(lambda s,l,t : _setVersion(t, (0,0,0)))
 
@@ -265,12 +265,12 @@ def _setup_QASMParser():
     directiveBlock.addParseAction(lambda s,l,t: _setVersion(t, (2,1,0)))
 
     # Programming lines
-    _Op("version", Empty(),version = None, keyOverride = Combine(oneOf(versions)("type") + White() + real("versionNumber"))("version") )
+    _Op("version", Empty(),version = (0,0,0), keyOverride = Combine(oneOf(versions)("type") + White() + real("versionNumber"))("version") )
     _Op("include", quotedString("file").addParseAction(removeQuotes))
 
 
     # Gate-like structures
-    _Op("opaque", validName("name") + fullArgParser + qargParser("qargs"), keyOverride = prefixParser + "opaque")
+    _Op("opaque", validName("name") + fullArgParser + qargParser("qargs") + returnParser, keyOverride = prefixParser + "opaque")
     _Routine("gate", pargs = True, qargs = True)
     _Routine("circuit", pargs = True, qargs = True, spargs = True, returnables = True, version = "REQASM 1.0")
 
@@ -295,7 +295,7 @@ def _setup_QASMParser():
     _Op("end",    validName("process"), qop = True, version = "REQASM 1.0")
 
     # Special gate call handler
-    callGate = Combine(Group(modifiers)("mods") + validName("gate")) + callArgParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call"))
+    callGate = Combine(Group(modifiers)("mods") + validName("gate")) + callArgParser + regListRef("qargs").addParseAction(lambda s,l,t: _overrideKeyword(t, "call")) + returnParser
     callGate.addParseAction(lambda s,l,t: _setVersion(t, (1,2,0)))
 
     # Block structures
@@ -303,7 +303,7 @@ def _setup_QASMParser():
     _Block("if", "(" + boolExp("cond") + ")", version = "REQASM 1.0")
     _Block("while", "(" + boolExp("cond") + ")", version = "OMEQASM 1.0")
 
-    qopsParsers = list(map ( lambda qop: qop.parser, qops.values())) + [callGate]
+    qopsParsers = list(map ( lambda qop: qop.parser, qops.values())) + [callGate, directiveBlock]
     blocksParsers = list(map ( lambda block: block.parser, blocks.values()))
 
     _Op("if", blocks["if"].parser       + Group(Group(Group(Or(qopsParsers))))("block"), version="OPENQASM 2.0", keyOverride = Empty())
@@ -316,7 +316,7 @@ def _setup_QASMParser():
 
     copsParsers = list(map ( lambda cop: cop.parser, cops.values()))
 
-    operations = ( (Or(copsParsers) ^ Or(qopsParsers)) | callGate ) + lineEnd.suppress()
+    operations = (( (Or(copsParsers) ^ Or(qopsParsers)) | callGate ) + lineEnd.suppress())  ^ directiveBlock
 
     validLine = Forward()
     codeBlock = nestedExpr("{","}", Suppress(White()) ^ Group(validLine), (quotedString))
@@ -327,11 +327,11 @@ def _setup_QASMParser():
                 comment))                              # Whole line comment
 
     testLine = Forward()
-    dummyCodeBlock = nestedExpr("{","}", testLine, (quotedString | comment))
+    dummyCodeBlock = nestedExpr("{","}", testLine, (directiveBlock | quotedString | comment))
 
     ignoreSpecialBlocks = (~commentOpenSyntax + ~commentCloseSyntax + ~dirOpenSyntax + ~dirCloseSyntax)
 
-    testLine <<= comment | directiveBlock | ( ignoreSpecialBlocks + CharsNotIn("{") + dummyCodeBlock) | (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd)
+    testLine <<= comment | directiveBlock | (ignoreSpecialBlocks +  CharsNotIn("{") + dummyCodeBlock) | (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd)
 
     testKeyword = dirSyntax.setParseAction(lambda s,l,t: _overrideKeyword(t, "directive")) | Word(alphas)("keyword")
 

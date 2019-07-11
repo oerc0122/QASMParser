@@ -72,10 +72,10 @@ class QASMFile:
                     temp = blocks[key].parser.parseString(err.line)
                 else:
                     raise ParseException(instructionWarning.format(key, self.QASMType, self.versionNumber))
-                if key in ["gate", "circuit"]:
+                if key in ["gate", "circuit", "opaque"]:
                     if reserved.searchString(err.line.replace(key,"")):
-                        raise ParseException("Reserved keyword '{}' used in gate declaration".format(
-                            reserved.searchString(err.line.replace(key,"")).pop().pop()
+                        raise ParseException("Reserved keyword '{}' used in {} declaration".format(
+                            reserved.searchString(err.line.replace(key,"")).pop().pop(), key
                             ))
                 raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
             except ParseException as subErr:
@@ -88,11 +88,11 @@ class QASMFile:
         line = self.readline()
         currentLine = line
         while line is not None:
-            *test, = lineParser.scanString(currentLine)
+            *test, = lineParser.scanString(currentLine.strip())
             if test and test[0][1] == 0: # If line looks like valid instruction
                 try:
                     prev = 0
-                    for inst, start, end in QASMcodeParser.scanString(currentLine):
+                    for inst, start, end in QASMcodeParser.scanString(currentLine.lstrip()):
                         if start != prev:
                             if prev != 0: break
                             else: QASMcodeParser.parseString(currentLine,parseAll=True)
@@ -112,10 +112,13 @@ class QASMFile:
 
         if currentLine.strip(): # Catch remainder
             try:
+                if list(QASMcodeParser.scanString(currentLine))[0][0] != 0:
+                    raise IOError
                 for inst, start, end in QASMcodeParser.scanString(currentLine):
                     instruction = inst[0]
                     instruction.original = currentLine[start:end]
                     prev = end
+                    print(inst)
                     yield instruction
                     currentLine = currentLine[end:].lstrip()
 

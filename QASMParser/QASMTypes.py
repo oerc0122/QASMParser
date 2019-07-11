@@ -508,6 +508,7 @@ class CodeBlock:
         non_code = ["alias","exit","comment","barrier","directive"]
         keyword = token.get("keyword", None)
         comment = token.get("comment", "")
+
         if self.currentFile.version < token["reqVersion"]:
             self._error(instructionWarning.format(keyword, self.currentFile.QASMType, self.currentFile.versionNumber))
 
@@ -852,7 +853,7 @@ class Register(Referencable):
             self.min = start
             self.max = end
             self.start = 0
-            self.end   = size
+            self.end = size
 
         else:
             size = inter
@@ -894,12 +895,8 @@ class DeferredClassicalRegister(ClassicalRegister):
     e.g. size is a function variable
     """
     def __init__(self, parent, name, size):
-        Referencable.__init__(self, parent)
-        self.name = name
-        self.size = size
+        Register.__init__(self, parent, name, size)
         self.type_ = "ClassicalRegister"
-        self.start = 0
-        self.end = size
 
 class Alias(Register):
     """
@@ -1004,7 +1001,9 @@ class CallGate(Operation):
         # Implicit loops mean we handle qargs separately
         for id_, qarg in enumerate(qargs):
             # Hack to bypass stupidity of Python's object fiddling
-            if isinstance(qarg[1][1], MathsBlock) or isinstance(qarg[1][0], MathsBlock): continue
+            if isinstance(qarg[1][1], (Constant, MathsBlock)) or isinstance(qarg[1][0], (Constant, MathsBlock)) or \
+               new_qargs[id_][1] == 0:
+                continue
             nArg = qarg[1][1] - qarg[1][0] + 1
             expect = new_qargs[id_][1]
             if not isinstance(nArg, int): continue                # Skip constants which cannot be resolved
@@ -1023,7 +1022,7 @@ class CallGate(Operation):
             Use regular handling
         If gate takes qregs, but can be looped (based on args):
             Loop in blocks
-        If gate ta-kes qregs and is not looped:
+        If gate takes qregs and is not looped:
             Use prevars
         """
 
@@ -1134,7 +1133,7 @@ class Gate(Referencable, CodeBlock):
         if not byprod:
             self.returnType = None
         else:
-            self._code.append( Return(byprod) )
+            self._code.append( Return(self, byprod) )
             self.returnType = "listint"
 
         if returnType is not None: self.returnType = returnType
@@ -1219,6 +1218,8 @@ class Circuit(Gate):
 
         self._code += [variable]
 
+    measurement = CodeBlock.measurement
+        
 class Opaque(Gate):
     """
     Type reflecting OpenQASM opaque gate

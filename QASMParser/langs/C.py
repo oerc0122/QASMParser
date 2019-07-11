@@ -166,7 +166,6 @@ def Maths_to_c(parent, maths, logical):
     compSubOp = ["^","div"]
     outStr = ""
     for element in maths.maths:
-
         if isinstance(element, Binary):
             for op, operand in element.args:
                 if op == "nop":
@@ -195,7 +194,9 @@ def Maths_to_c(parent, maths, logical):
             for arg in element.args:
                 args.append(resolve_maths(parent, arg))
             outStr += f"{elem}({', '.join(args)})"
-        else: raise NotImplementedError("Maths cannot parse type {}".format(type(elem).__name__))
+        elif isinstance(element, str):
+            outStr += element
+        else: raise NotImplementedError("Maths cannot parse type {} {}".format(type(element).__name__, element))
     
     return outStr
 
@@ -268,7 +269,7 @@ def CallGate_to_c(self):
     return outString
 
 def Comment_to_c(self):
-    if (len(self.comment.splitlines()) > 1): return "/*\n" + self.comment.replace("*/","**") + "\n*/"
+    if (len(self.comment.splitlines()) > 1): return "/*" + self.comment.replace("*/","**") + "*/"
     else: return "//" + self.comment.replace("/*","**").replace("*/","**")
 
 def Measure_to_c(self):
