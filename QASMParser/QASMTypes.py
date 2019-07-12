@@ -272,7 +272,7 @@ class CodeBlock:
         elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             self._error("Cannot resolve ClassicalRegister {} to constant value".format(elem[0].name))
         else:
-            raise NotImplementedError("Cannot parse {} in _resolve_maths".format(type(elem).__name__))
+            raise NotImplementedError("Cannot parse {} {} in _resolve_maths".format(type(elem).__name__, elem))
 
         if not outStr:
             return "0"
@@ -1266,6 +1266,8 @@ class Loop(CodeBlock):
         CodeBlock.__init__(self,block, parent=parent)
         self._objs[var] = Constant( self, (var, "int") , (0, None) ) # Value is 0 for disambiguating resolution
         self._objs[var].loopVar = True
+        self.loopVar = self._objs[var]
+        self.name = var+"_loop"
         self.depth = 1
 
         if not isinstance(var, (list,tuple) ): var = [var]

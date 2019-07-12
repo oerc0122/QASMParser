@@ -11,6 +11,7 @@ lang_constants = ["e", "pi", "T", "F"]
 class ProgFile(CodeBlock):
     def __init__(self, filename):
         self.filename = filename
+        self.name = filename
         CodeBlock.__init__(self, QASMFile(filename), parent = None, copyFuncs = False, copyObjs = False)
         self.parent = self
         for gate in Gate.internalGates.values():
@@ -70,6 +71,7 @@ class ProgFile(CodeBlock):
         if filename: outputFile = open(filename, 'w')
         else:        outputFile = sys.stdout
 
+        # Create copy to work with
         codeToWrite = self._code[:]
         self.depth = -1
 
@@ -118,6 +120,7 @@ class ProgFile(CodeBlock):
                 for reg in regs:
                     temp._code += [Comment(self, f'{reg.name}[{reg.start}:{reg.end-1}]')]
                     temp._code += [Let ( self, ( reg.name, "const listint" ), ( list(range(reg.start, reg.end)), None ) ) ]
+                # Remove qreg declarations
                 codeToWrite = [ x for x in codeToWrite if type(x).__name__ != "QuantumRegister" ]
                 temp._code += [QuantumRegister(self, "qreg", QuantumRegister.numQubits)]
                 temp._code += codeToWrite

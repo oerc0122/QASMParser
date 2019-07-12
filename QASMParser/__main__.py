@@ -3,9 +3,17 @@
 from QASMParser.QASMParser import *
 import QASMParser.QASMQuESTGate
 from QASMParser.cli import get_command_args
+from QASMParser.partition import quickDispl
 
 def main():
     argList = get_command_args()
+    
+    if argList.print:
+        for source in argList.sources:
+            myProg = ProgFile(source)
+            print(source)
+            quickDispl(myProg, topLevel = True)
+        return
 
     lang = None
     if argList.language:
