@@ -1,3 +1,7 @@
+"""
+Module to supply functions to write C from given QASM types
+"""
+
 from QASMParser.QASMTypes import *
 
 def set_lang():
@@ -29,7 +33,7 @@ def set_lang():
 
 # Several details pertaining to the language in question
 hoistFuncs = True    # Move functions to front of program
-hoistIncludes = True # Move includes to  front of program
+hoistIncludes = True # Move includes  to front of program
 hoistVars  = False   # Move variables to front of program
 bareCode   = False   # Can code be bare or does it need to be in function
 blockOpen = "{"      # Block delimiters
@@ -51,7 +55,7 @@ typesTranslation = {
     }
 
 def resolve_maths(self, elem):
-
+    
     if isinstance(elem, MathsBlock):
         value = Maths_to_c(self, elem, False)
     elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
@@ -165,26 +169,26 @@ def Maths_to_c(parent, maths, logical):
     # Ops which will be more complicated
     compSubOp = ["^","div"]
     outStr = ""
+
     for element in maths.maths:
         if isinstance(element, Binary):
             for op, operand in element.args:
-                if op == "nop":
-                    operand = resolve_maths(parent, operand)
-                    outStr += f"{operand}"
-                elif op == "in":
+                if op == "in":
                     if len(operand) == 2:
                         outStr = f"({outStr} > {operand[0]} && {outStr} < {operand[1]})"
                     else:
                         raise OSError
+                    continue
+                operand = resolve_maths(parent, operand)
+                if op == "nop":
+                    outStr += f"{operand}"
                 elif op == "^":
                     outStr = f"pow({outStr}, {operand})"
                 elif op == "div":
                     outStr = f"floor({outStr} / {operand})"
                 elif op in identOp:
-                    operand = resolve_maths(parent, operand)
                     outStr += f" {op} {operand}"
                 elif op in subOp:
-                    operand = resolve_maths(parent, operand)
                     outStr += f" {subOp[op]} {operand}"
                 else:
                     raise NotImplementedError(op)
