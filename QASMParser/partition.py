@@ -56,11 +56,12 @@ def calculate_adjmat(code):
                         for loopVar in range(maths(line._loops.start[0]), maths(line._loops.end[0])):
                             qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs, loopVar) )
                                          for arg, qarg in zip(line.callee._qargs, line._qargs))
+                            parse_code(line.callee, args = qargsSend, spargs = spargsSend)
                     else:
                         qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs))
                                      for arg, qarg in zip(line.callee._qargs, line._qargs))
+                        parse_code(line.callee, args = qargsSend, spargs = spargsSend)
 
-                    parse_code(line.callee, args = qargsSend, spargs = spargsSend)
                     del qargsSend
                     del spargsSend
                     continue
@@ -114,6 +115,7 @@ class QubitLine:
                 self.line[i] = s
 
         elif isinstance(range_, int):
+            print(range_)
             self.line[range_] = s
 
         elif isinstance(range_, tuple):
@@ -198,6 +200,7 @@ def quickDispl(self, topLevel = False, args = {}, spargs = {}):
     for line in code:
         printLn.set_qubits()
         if isinstance(line, CallGate):
+            print(line.name)
             if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
                 # Prepare args and enter function
                 spargsSend = dict( ((arg.name, maths(sparg.val) )
@@ -206,11 +209,12 @@ def quickDispl(self, topLevel = False, args = {}, spargs = {}):
                     for loopVar in range(maths(line._loops.start[0]), maths(line._loops.end[0])):
                         qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs, loopVar) )
                                      for arg, qarg in zip(line.callee._qargs, line._qargs))
+                        quickDispl(line.callee, args = qargsSend, spargs = spargsSend)
                 else:
                     qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs))
                                  for arg, qarg in zip(line.callee._qargs, line._qargs))
+                    quickDispl(line.callee, args = qargsSend, spargs = spargsSend)
 
-                quickDispl(line.callee, args = qargsSend, spargs = spargsSend)
                 del qargsSend
                 del spargsSend
                 continue
