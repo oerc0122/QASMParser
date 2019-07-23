@@ -1,14 +1,112 @@
 from .QASMTypes import *
 from .QASMParser import ProgFile
+import numpy as np
+import itertools as it
 import sys
 
+np.set_printoptions(suppress=True)
+
+def print_adjmat(regNames, mat):
+    row_format ="{:^8}" * (len(mat) + 1)
+    print(row_format.format("", *regNames))
+    for reg, row in zip(regNames, mat):
+        print(row_format.format(reg, *row))
+
+def calculate_adjmat(code):
+    def update_adjmat(block):
+        for i,j in it.permutations(*block.line.nonzero(), 2):
+            adjMat[i,j] += 1
+
+    class QubitBlock:
+        def __init__(self,size):
+            self.line = np.zeros(size, dtype=np.int8)
+            self.nQubits = size
+
+        def set_qubits(self, s = 0, range_ = None):
+            if range_ is None:
+                for i in range(self.nQubits):
+                    self.line[i] = s
+
+            elif isinstance(range_, int):
+                self.line[range_] = s
+
+            elif isinstance(range_, tuple):
+                for i in range(*range_):
+                    self.line[i] = s
+
+            elif isinstance(range_, list):
+                for i in range_:
+                    self.line[i] = s
+
+    def parse_code(self, args = {}, spargs = {}):
+        maths = lambda x: self._resolve_maths( x, additional_vars = spargs)
+
+        code = self._code
+
+        block = QubitBlock(nQubits)
+
+        for line in code:
+
+            if isinstance(line, CallGate):
+                if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
+                    # Prepare args and enter function
+                    spargsSend = dict( ((arg.name, maths(sparg.val) )
+                                       for arg, sparg in zip(line.callee._spargs, line._spargs)))
+                    if line._loops is not None:
+                        for loopVar in range(maths(line._loops.start[0]), maths(line._loops.end[0])):
+                            qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs, loopVar) )
+                                         for arg, qarg in zip(line.callee._qargs, line._qargs))
+                    else:
+                        qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs))
+                                     for arg, qarg in zip(line.callee._qargs, line._qargs))
+
+                    parse_code(line.callee, args = qargsSend, spargs = spargsSend)
+                    del qargsSend
+                    del spargsSend
+                    continue
+
+                qargs = line._qargs
+
+                if line._loops is not None:
+                    for loopVar in range(line._loops.start[0], line._loops.end[0]+1):
+                        block.set_qubits()
+                        for qarg in qargs:
+                            block.set_qubits(1, resolve_arg(self, qarg, args, spargs, loopVar))
+                        update_adjmat(block)
+                else:
+                    block.set_qubits()
+                    for qarg in qargs:
+                        block.set_qubits(1, resolve_arg(self, qarg, args, spargs))
+                    update_adjmat(block)
+
+            elif isinstance(line, SetAlias):
+                a = rangeP1(*line._pargs[1])
+                b = rangeP1(*line._qargs[1])
+                for i in range(len(a)):
+                    args[line.alias.name][a[i]] = resolve_arg(self, (line._qargs[0], b[i]), args, spargs)
+
+            elif isinstance(line, Alias):
+                args[line.name] = [None]*line.size
+
+            elif isinstance(line, Loop):
+                spargsSend = dict( **spargs )
+                for i in range(maths(line.start[0]), maths(line.end[0])):
+                    spargsSend[line.loopVar.name] = i
+                    parse_code(line, args = args, spargs = spargsSend)
+                del spargsSend
+
+    regs = [ reg for reg in code._code if type(reg).__name__ == "QuantumRegister" ]
+    nQubits = QuantumRegister.numQubits
+    adjMat = np.zeros( (nQubits, nQubits), dtype=np.int32 )
+
+    parse_code(code)
+    return adjMat
 
 class QubitLine:
     def __init__(self, size):
         self.line = [" "]*size
         self.nQubits = size
         self.isIf = False
-
 
     def set_qubits(self, s = "|", range_ = None):
         if range_ is None:
@@ -42,10 +140,6 @@ def sliceP1(start = None, stop = None, step = None):
 def rangeP1(start = None, stop = None, step = 1):
     """ Actually include the stop like anything sensible would """
     return range(start, stop+1, step)
-
-def calculate_adjmat(code):
-    regs = [ reg for reg in code if type(reg).__name__ == "QuantumRegister" ]
-    nQubits = QuantumRegister.numQubits
 
 def resolve_arg( self, var, args, spargs, loopVar = None ):
     var, ind = var
@@ -145,8 +239,8 @@ def quickDispl(self, topLevel = False, args = {}, spargs = {}):
             args[line.name] = [None]*line.size
 
         elif isinstance(line, Loop):
+            spargsSend = dict( **spargs )
             for i in range(maths(line.start[0]), maths(line.end[0])):
-                spargsSend = dict( **spargs )
                 spargsSend[line.loopVar.name] = i
                 quickDispl(line, args = args, spargs = spargsSend)
             del spargsSend

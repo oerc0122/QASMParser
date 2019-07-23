@@ -16,6 +16,7 @@ parser.add_argument('-l','--language', help="Output file language")
 parser.add_argument('-d','--debug', help="Output original QASM in translation", action="store_true")
 parser.add_argument('-c','--to-module', help = "Compile as module for inclusion into larger project", action="store_true")
 parser.add_argument("-I","--include", help = 'Include a pre-"compiled" source', action=StoreDictKeyPair, metavar="QASMFILE=CFILE,QASMFILE2=CFILE2,...", default={})
+parser.add_argument('-a','--analyse', help="Print adjacency matrix info", action="store_true")
 parser.add_argument('-p','--print', help="Print graphical summary of circuit", action="store_true")
                     
 def get_command_args():
