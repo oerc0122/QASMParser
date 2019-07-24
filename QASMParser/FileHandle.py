@@ -1,26 +1,38 @@
+"""
+Module to handle reading of QASM files, blocks and perform error handling with useful output
+"""
+
 import os.path
-import copy
-from .QASMTokens import *
-from .QASMErrors import *
+from pyparsing import (ParseException)
+from .QASMTokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parseVersion,
+                         qops, cops, blocks)
+from .QASMErrors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
+                         unknownParseWarning, instructionWarning)
 
 class QASMFile:
-
+    """
+    Main class to handle QASM text files and sensibly handle errors.
+    """
     _QASMFiles = []
     depth_limit = 10
 
-    def __init__(self,filename, reqVersion=(1,2,0)):
-        if filename in QASMFile._QASMFiles: raise IOError('Circular dependency in includes')
-        if os.path.isfile(filename): self.File = open(filename,'r')
-        else: raise FileNotFoundError(fnfWarning.format(filename))
+    def __init__(self, filename, reqVersion=(1, 2, 0)):
+        if filename in QASMFile._QASMFiles:
+            raise IOError('Circular dependency in includes')
+        if os.path.isfile(filename):
+            self.File = open(filename, 'r')
+        else:
+            raise FileNotFoundError(fnfWarning.format(filename))
+
         self.path = filename
         self.name = filename[filename.rfind('/')+1:] # Remove path
-        if len(QASMFile._QASMFiles) > self.depth_limit: self._error(recursionError.format(self.depth_limit))
+        if len(QASMFile._QASMFiles) > self.depth_limit:
+            self.error(recursionError.format(self.depth_limit))
         QASMFile._QASMFiles.append(self.name)
         self.nLine = 0
-        temp = ''
         self.header = []
         for line in self.read_instruction():
-            if line.get('keyword',None) is None:
+            if line.get('keyword', None) is None:
                 if line.get("comment", None) is not None:
                     self.header += [line['comment']]
                 else:
@@ -31,14 +43,15 @@ class QASMFile:
                 self.versionNumber = line["version"]["versionNumber"]
                 break
             else:
-                self._error("Header does not contain version")
+                self.error(headerVerWarning)
 
-        if reqVersion[0] > self.version[0] :
-            self._error('Unsupported QASM version: {}.{}'.format(*self.version))
+        if reqVersion[0] > self.version[0]:
+            self.error(QASMVerWarning.format(*self.version))
 
-    def _error(self, message=""):
+    def error(self, message=""):
+        """ Raise error formatted with filename and line number for help debugging """
         print(fileWarning.format(message=message,
-                                         file=self.name, line=self.nLine))
+                                 file=self.name, line=self.nLine))
         import traceback
         traceback.print_stack()
         quit()
@@ -51,40 +64,43 @@ class QASMFile:
         except AttributeError:
             return
 
-    def _handler(self,err, line):
-            if not err.line:
-                print("No line found")
-                self._error(unknownParseWarning)
-            if len(line) < 80:
-                print(" ".join(line.splitlines()))
-                print(" "*(line.index(err.line) + err.column-1) + "^")
+    def _handler(self, err, line):
+        """ Make errors from parsing more comprehensible by trying different parsers independently """
+        if not err.line:
+            print("No line found")
+            self.error(unknownParseWarning)
+        if len(line) < 80:
+            print(" ".join(line.splitlines()))
+            print(" "*(line.index(err.line) + err.column-1) + "^")
+        else:
+            print(err.line)
+            print(" "*(err.column-1) + "^")
+        problem = errorKeywordParser.parseString(err.line)
+        key = problem["keyword"]
+        try:
+            if key in qops.keys():
+                qops[key].parser.parseString(err.line)
+            elif key in cops.keys():
+                cops[key].parser.parseString(err.line)
+            elif key in blocks.keys():
+                blocks[key].parser.parseString(err.line)
             else:
-                print(err.line)
-                print(" "*(err.column-1) + "^")
-            problem = errorKeywordParser.parseString(err.line)
-            key = problem["keyword"]
-            try:
-                if key in qops.keys():
-                    temp = qops[key].parser.parseString(err.line)
-                elif key in cops.keys():
-                    temp = cops[key].parser.parseString(err.line)
-                elif key in blocks.keys():
-                    temp = blocks[key].parser.parseString(err.line)
-                else:
-                    raise ParseException(instructionWarning.format(key, self.QASMType, self.versionNumber))
-                if key in ["gate", "circuit", "opaque"]:
-                    if reserved.searchString(err.line.replace(key,"")):
-                        raise ParseException("Reserved keyword '{}' used in {} declaration".format(
-                            reserved.searchString(err.line.replace(key,"")).pop().pop(), key
-                            ))
-                raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
-            except ParseException as subErr:
-                print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))
-                import traceback
-                traceback.print_stack()
-                quit()
+                raise ParseException(instructionWarning.format(key, self.QASMType, self.versionNumber))
+            if key in ["gate", "circuit", "opaque"]:
+                if reserved.searchString(err.line.replace(key, "")):
+                    raise ParseException("Reserved keyword '{}' used in {} declaration".format(
+                        reserved.searchString(err.line.replace(key, "")).pop().pop(), key
+                        ))
+            raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
+
+        except ParseException as subErr:
+            print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))
+            import traceback
+            traceback.print_stack()
+            quit()
 
     def read_instruction(self):
+        """ Generator to read a single instruction from the file """
         line = self.readline()
         currentLine = line
         while line is not None:
@@ -94,9 +110,11 @@ class QASMFile:
                     prev = 0
                     for inst, start, end in QASMcodeParser.scanString(currentLine.lstrip()):
                         if start != prev:
-                            if prev != 0: break
-                            else: QASMcodeParser.parseString(currentLine,parseAll=True)
-                        if not currentLine[start:end].strip(): continue # Skip blank lines
+                            if prev != 0:
+                                break
+                            else: QASMcodeParser.parseString(currentLine, parseAll=True)
+                        if not currentLine[start:end].strip():
+                            continue # Skip blank lines
                         instruction = inst[0]
                         instruction.original = currentLine[start:end]
                         prev = end
@@ -108,7 +126,8 @@ class QASMFile:
             if currentLine.strip().startswith(";"): # Handle null statement
                 currentLine = currentLine.lstrip(" ;\n\t")
             line = self.readline()
-            if line is not None: currentLine += line
+            if line is not None:
+                currentLine += line
 
         if currentLine.strip(): # Catch remainder
             try:
@@ -118,7 +137,6 @@ class QASMFile:
                     instruction = inst[0]
                     instruction.original = currentLine[start:end]
                     prev = end
-                    print(inst)
                     yield instruction
                     currentLine = currentLine[end:].lstrip()
 
@@ -129,10 +147,11 @@ class QASMFile:
         """ Reads a line from a file """
         for line in self.File:
             self.nLine += 1
-            if not line.strip(): continue
+            if not line.strip():
+                continue
             return line
-        else:
-            return None
+
+        return None
 
     def _parent_file(self, parent):
         self.name = parent.name
@@ -141,10 +160,11 @@ class QASMFile:
         self.nLine = parent.nLine
 
 class QASMString(QASMFile):
+    """ Class to spoof a QASM file """
     def __init__(self, block):
         import io
         self.parent = self
-        self.version = (2,2,0)
+        self.version = (2, 2, 0)
         self.versionNumber = 2.0
         self.QASMType = "REQASM"
         self.name = "Internal"
@@ -157,27 +177,31 @@ class QASMString(QASMFile):
         pass
 
 class QASMBlock(QASMFile):
-    def __init__(self, parent, block, startline = None):
+    """ Class to handle sub blocks of code such as if/for """
+    def __init__(self, parent, block, startline=None):
         self._parent_file(parent)
-        if startline: self.nLine = startline
+        if startline:
+            self.nLine = startline
         self.File = block
 
     def __len__(self):
         return len(self.File)
 
     def read_instruction(self):
+        """ Generator to read a single instruction from the block """
         for instruction in self.File[0]:
             self.nLine += 1
             yield instruction
 
     def readline(self):
-        """ Reads a line from a file """
-        raise NotImplementedError()
+        """ Raise error because readline should not be called for blocks """
+        raise NotImplementedError("Attempted to read line from QASMBlock")
 
     def __del__(self):
         pass
 
 class NullBlock(QASMFile):
+    """ Class to serve as dummy block in case of opaque gates """
     def __init__(self, parent):
         self._parent_file(parent)
         self.File = [';']
@@ -187,6 +211,7 @@ class NullBlock(QASMFile):
         return 0
 
     def readline(self):
+        """ Return null """
         if not self.read:
             self.read = True
             return "// "

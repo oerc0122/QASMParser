@@ -1,99 +1,112 @@
-from .QASMTypes import *
-from .QASMParser import ProgFile
-import numpy as np
-import itertools as it
-import sys
+"""
+Module to perform analysis for partitioning tensor network representation of state for memory optimisation.
+"""
 import copy
-from math import log2, exp
+import itertools as it
+from math import log2
+import numpy as np
+from .QASMTypes import (CallGate, QuantumRegister, Opaque, SetAlias, Alias, Loop, CBlock)
 
-def exp_add(a, b):
-    if b == 0: return a
-    if a == 0: return b
+def exp_add(a: float, b: float):
+    """ The the exponents of two numbers """
+    if b == 0:
+        return a
+    if a == 0:
+        return b
 
     # Assume that for very large numbers the 1 is irrelevant
     if a > 30 or b > 30:
         return a + b
-    
+
     if a > b:
-        out = log2( 2**(a - b) + 1 ) + b
+        out = log2(2**(a - b) + 1) + b
     else:
-        out = log2( 2**(b - a) + 1 ) + a
+        out = log2(2**(b - a) + 1) + a
     return out
 
-def slice_cost(mat, slice_, max):
-    qubit_cost = 0
-    cut_cost = 0
-    cut_prev = 0
+def slice_cost(mat: np.ndarray, currSlice: tuple, best: float):
+    """ Calculate the cost of a slice of given matrix mat """
+    qubitCost = 0
+    cutCost = 0
+    cutPrev = 0
     work = mat.copy()
 
-    for cut in slice_:
-        cut_cost = exp_add(cut_cost, work[cut].sum())
+    for cut in currSlice:
+        cutCost = exp_add(cutCost, work[cut].sum())
         work[cut] = 0
         # work[:][:cut] = 0
         cut += 1
-        qubit_cost = exp_add(qubit_cost,  (cut - cut_prev))
-        cut_prev = cut
+        qubitCost = exp_add(qubitCost, (cut - cutPrev))
+        cutPrev = cut
         # Early exit for large values
-        if exp_add(qubit_cost, cut_cost) > max: return exp_add(qubit_cost, cut_cost)
+        if exp_add(qubitCost, cutCost) > best:
+            return exp_add(qubitCost, cutCost)
     # Catch remainder
-    if cut_prev != len(mat):
-        qubit_cost = exp_add(qubit_cost,  (len(mat) - cut_prev))
-    total_cost = exp_add(qubit_cost, cut_cost)
-    print("HI", slice_, qubit_cost, cut_cost, total_cost, max)
-    return total_cost
-    
+    if cutPrev != len(mat):
+        qubitCost = exp_add(qubitCost, (len(mat) - cutPrev))
+    totalCost = exp_add(qubitCost, cutCost)
+    print("HI", currSlice, qubitCost, cutCost, totalCost, best)
+    return totalCost
+
 def slice_adjmat(mat):
-    slices = it.chain.from_iterable( it.combinations(range(len(mat)), i) for i in rangeP1(1,len(mat)) )
+    """ Calculate the optimal slice of adjacency matrix mat """
+    slices = it.chain.from_iterable(it.combinations(range(len(mat)), i) for i in range_inclusive(1, len(mat)))
     base = len(mat)
-    best_slice = ()
-    for potential_slice in slices:
+    bestSlice = ()
+    for potentialSlice in slices:
 
-        total_cost = slice_cost(mat, potential_slice, base)
+        totalCost = slice_cost(mat, potentialSlice, base)
 
-        if base > total_cost:
-            base = total_cost
-            best_slice = potential_slice
+        if base > totalCost:
+            base = totalCost
+            bestSlice = potentialSlice
 
-    print(2**base, best_slice, 2**slice_cost(mat, best_slice, base))
-    return best_slice
-    
+    print(2**base, bestSlice, 2**slice_cost(mat, bestSlice, base))
+    return bestSlice
+
 def print_adjmat(regNames, mat):
-    row_format ="{:^8}" * (len(mat) + 1)
-    print(row_format.format("", *regNames))
+    """ Print the adjacency matrix in a pretty form """
+    rowFormat = "{:^8}" * (len(mat) + 1)
+    print(rowFormat.format("", *regNames))
     for reg, row in zip(regNames, mat):
-        print(row_format.format(reg, *row))
+        print(rowFormat.format(reg, *row))
     print()
 
 def calculate_adjmat(code):
+    """ Calculate the entanglement adjacency from a code block """
     def update_adjmat(block):
-        for i,j in it.permutations(*block.line.nonzero(), 2):
-            adjMat[i,j] += 1
+        """ Set the appropriate elements of the adjacency matrix """
+        for i, j in it.permutations(*block.line.nonzero(), 2):
+            adjMat[i, j] += 1
 
     class QubitBlock:
-        def __init__(self,size):
+        """ Class to store information about Qubits """
+        def __init__(self, size):
             self.line = np.zeros(size, dtype=np.int8)
             self.nQubits = size
 
-        def set_qubits(self, s = 0, range_ = None):
-            if range_ is None:
+        def set_qubits(self, value=0, ranges=None):
+            """ Set labels to qubits """
+            if ranges is None:
                 for i in range(self.nQubits):
-                    self.line[i] = s
+                    self.line[i] = value
 
-            elif isinstance(range_, int):
-                self.line[range_] = s
+            elif isinstance(ranges, int):
+                self.line[ranges] = value
 
-            elif isinstance(range_, tuple):
-                for i in range(*range_):
-                    self.line[i] = s
+            elif isinstance(ranges, tuple):
+                for i in range(*ranges):
+                    self.line[i] = value
 
-            elif isinstance(range_, list):
-                for i in range_:
-                    self.line[i] = s
+            elif isinstance(ranges, list):
+                for i in ranges:
+                    self.line[i] = value
 
-    def parse_code(self, args = {}, spargs = {}):
-        maths = lambda x: self._resolve_maths( x, additional_vars = spargs)
+    def parse_code(self, args=(), spargs=()):
+        """ Traverse code recursively updating the adjacency matrix accordingly """
+        maths = lambda x: self.resolve_maths(x, additional_vars=spargs)
 
-        code = self._code
+        code = self.code
 
         block = QubitBlock(nQubits)
 
@@ -102,26 +115,26 @@ def calculate_adjmat(code):
             if isinstance(line, CallGate):
                 if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
                     # Prepare args and enter function
-                    spargsSend = dict( ((arg.name, maths(sparg.val) )
-                                       for arg, sparg in zip(line.callee._spargs, line._spargs)))
-                    if line._loops is not None:
-                        for loopVar in range(maths(line._loops.start[0]), maths(line._loops.end[0])):
-                            qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs, loopVar) )
-                                         for arg, qarg in zip(line.callee._qargs, line._qargs))
-                            parse_code(line.callee, args = qargsSend, spargs = spargsSend)
+                    spargsSend = dict(((arg.name, maths(sparg.val))
+                                       for arg, sparg in zip(line.callee.spargs, line.spargs)))
+                    if line.loops is not None:
+                        for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])):
+                            qargsSend = dict((arg.name, resolve_arg(self, qarg, args, spargs, loopVar))
+                                             for arg, qarg in zip(line.callee.qargs, line.qargs))
+                            parse_code(line.callee, args=qargsSend, spargs=spargsSend)
                     else:
-                        qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs))
-                                     for arg, qarg in zip(line.callee._qargs, line._qargs))
-                        parse_code(line.callee, args = qargsSend, spargs = spargsSend)
+                        qargsSend = dict((arg.name, resolve_arg(self, qarg, args, spargs))
+                                         for arg, qarg in zip(line.callee.qargs, line.qargs))
+                        parse_code(line.callee, args=qargsSend, spargs=spargsSend)
 
                     del qargsSend
                     del spargsSend
                     continue
 
-                qargs = line._qargs
+                qargs = line.qargs
 
-                if line._loops is not None:
-                    for loopVar in range(line._loops.start[0], line._loops.end[0]+1):
+                if line.loops is not None:
+                    for loopVar in range(line.loops.start[0], line.loops.end[0]+1):
                         block.set_qubits()
                         for qarg in qargs:
                             block.set_qubits(1, resolve_arg(self, qarg, args, spargs, loopVar))
@@ -133,70 +146,78 @@ def calculate_adjmat(code):
                     update_adjmat(block)
 
             elif isinstance(line, SetAlias):
-                a = rangeP1(*line._pargs[1])
-                b = rangeP1(*line._qargs[1])
-                for i in range(len(a)):
-                    args[line.alias.name][a[i]] = resolve_arg(self, (line._qargs[0], b[i]), args, spargs)
+                a = range_inclusive(*line.pargs[1])
+                b = range_inclusive(*line.qargs[1])
+                for i, elem in enumerate(a):
+                    args[line.alias.name][elem] = resolve_arg(self, (line.qargs[0], b[i]), args, spargs)
 
             elif isinstance(line, Alias):
                 args[line.name] = [None]*line.size
 
             elif isinstance(line, Loop):
-                spargsSend = dict( **spargs )
+                spargsSend = dict(**spargs)
                 for i in range(maths(line.start[0]), maths(line.end[0])):
                     spargsSend[line.loopVar.name] = i
-                    parse_code(line, args = args, spargs = spargsSend)
+                    parse_code(line, args=args, spargs=spargsSend)
                 del spargsSend
 
-    regs = [ reg for reg in code._code if type(reg).__name__ == "QuantumRegister" ]
     nQubits = QuantumRegister.numQubits
-    adjMat = np.zeros( (nQubits, nQubits), dtype=np.int32 )
+    adjMat = np.zeros((nQubits, nQubits), dtype=np.int32)
 
     parse_code(code)
     return adjMat
 
 class QubitLine:
+    """ Type to store graph of entanglement """
     def __init__(self, size):
         self.line = [" "]*size
         self.nQubits = size
         self.isIf = False
 
-    def set_qubits(self, s = "|", range_ = None):
-        if range_ is None:
+    def set_qubits(self, value="|", ranges=None):
+        """ Set labels to qubits """
+        if ranges is None:
             for i in range(self.nQubits):
-                self.line[i] = s
+                self.line[i] = value
 
-        elif isinstance(range_, int):
-            self.line[range_] = s
+        elif isinstance(ranges, int):
+            self.line[ranges] = value
 
-        elif isinstance(range_, tuple):
-            for i in range(*range_):
-                self.line[i] = s
+        elif isinstance(ranges, tuple):
+            for i in range(*ranges):
+                self.line[i] = value
 
-        elif isinstance(range_, list):
-            for i in range_:
-                self.line[i] = s
+        elif isinstance(ranges, list):
+            for i in ranges:
+                self.line[i] = value
 
     def write(self):
-        print(*(f"{elem:<2.2}" for elem in self.line), end = "")
-        print("?") if self.isIf else print()
+        """ Print the qubit list """
+        print(*(f"{elem:<2.2}" for elem in self.line), end="")
+        if self.isIf:
+            print("?")
+        else:
+            print()
 
     def write_classical(self):
-        start = 3*self.nQubits//2 - 6
-        end = 3*self.nQubits - 11 - start
-        print("*"*start, " Classical ", "*"*end)
+        """ Print an appropriately scaled classical line """
+        # start = 3*self.nQubits//2 - 6
+        # end = 3*self.nQubits - 11 - start
+        print("{:*^{width}}".format(' Classical ', width=3*self.nQubits))
+#        print("*"*start, " Classical ", "*"*end)
 
-def sliceP1(start = None, stop = None, step = None):
+def slice_inclusive(start=None, stop=None, step=None):
     """ Actually include the stop like anything sensible would """
     return slice(start, stop+1, step)
 
-def rangeP1(start = None, stop = None, step = 1):
+def range_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop like anything sensible would """
     return range(start, stop+1, step)
 
-def resolve_arg( self, var, args, spargs, loopVar = None ):
+def resolve_arg(self, var, args, spargs, loopVar=None):
+    """ Determine the actual register point """
     var, ind = var
-    maths = lambda x: self._resolve_maths( x, additional_vars = spargs)
+    maths = lambda x: self.resolve_maths(x, additional_vars=spargs)
 
     if isinstance(ind, (list, tuple)):
         *ind, = map(maths, ind)
@@ -209,13 +230,15 @@ def resolve_arg( self, var, args, spargs, loopVar = None ):
 
     if var.name in args:
         out = copy.copy(args[var.name])
-        if isinstance(out, (list,tuple)):
+        if isinstance(out, (list, tuple)):
             if isinstance(out, tuple) and len(out) == 2:
                 *out, = range(*out)
             if isinstance(ind, int):
                 return out[ind]
             elif isinstance(ind, (list, tuple)):
-                return list(out[sliceP1(*ind)])
+                return list(out[slice_inclusive(*ind)])
+            else:
+                raise Exception("Cannot handle request")
         elif isinstance(out, int):
             return out
 
@@ -228,24 +251,25 @@ def resolve_arg( self, var, args, spargs, loopVar = None ):
     else:
         raise Exception("Cannot handle request")
 
-def quickDispl(self, topLevel = False, args = {}, spargs = {}):
+def print_circuit_diag(self, topLevel=False, args=(), spargs=()):
+    """ Recursively traverse the code to print a quick entanglement graph/circuit diagram """
     #print(self.name, *args, *spargs)
-    code = self._code
+    code = self.code
     nQubits = QuantumRegister.numQubits
     printLn = QubitLine(nQubits)
 
-    maths = lambda x: self._resolve_maths( x, additional_vars = spargs)
+    maths = lambda x: self.resolve_maths(x, additional_vars=spargs)
 
     # Print header
     if topLevel:
-        regs = [ reg for reg in code if type(reg).__name__ == "QuantumRegister" ]
-        printLn.line = list(map(str,range(nQubits)))
+        regs = [reg for reg in code if type(reg).__name__ == "QuantumRegister"]
+        printLn.line = list(map(str, range(nQubits)))
         printLn.write()
-        P = 0
+        j = 0
         for reg in regs:
             for i in range(reg.size):
-                printLn.line[P] = reg.name
-                P += 1
+                printLn.line[j] = reg.name
+                j += 1
         printLn.write()
         printLn.set_qubits("0")
         printLn.write()
@@ -255,26 +279,26 @@ def quickDispl(self, topLevel = False, args = {}, spargs = {}):
         if isinstance(line, CallGate):
             if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
                 # Prepare args and enter function
-                spargsSend = dict( ((arg.name, maths(sparg.val) )
-                                   for arg, sparg in zip(line.callee._spargs, line._spargs)))
-                if line._loops is not None:
-                    for loopVar in range(maths(line._loops.start[0]), maths(line._loops.end[0])):
-                        qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs, loopVar) )
-                                     for arg, qarg in zip(line.callee._qargs, line._qargs))
-                        quickDispl(line.callee, args = qargsSend, spargs = spargsSend)
+                spargsSend = dict(((arg.name, maths(sparg.val))
+                                   for arg, sparg in zip(line.callee.spargs, line.spargs)))
+                if line.loops is not None:
+                    for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])):
+                        qargsSend = dict((arg.name, resolve_arg(self, qarg, args, spargs, loopVar))
+                                         for arg, qarg in zip(line.callee.qargs, line.qargs))
+                        print_circuit_diag(line.callee, args=qargsSend, spargs=spargsSend)
                 else:
-                    qargsSend = dict( (arg.name, resolve_arg(self, qarg, args, spargs))
-                                 for arg, qarg in zip(line.callee._qargs, line._qargs))
-                    quickDispl(line.callee, args = qargsSend, spargs = spargsSend)
+                    qargsSend = dict((arg.name, resolve_arg(self, qarg, args, spargs))
+                                     for arg, qarg in zip(line.callee.qargs, line.qargs))
+                    print_circuit_diag(line.callee, args=qargsSend, spargs=spargsSend)
 
                 del qargsSend
                 del spargsSend
                 continue
 
-            qargs = line._qargs
+            qargs = line.qargs
 
-            if line._loops is not None:
-                for loopVar in range(line._loops.start[0], line._loops.end[0]+1):
+            if line.loops is not None:
+                for loopVar in range(line.loops.start[0], line.loops.end[0]+1):
                     printLn.set_qubits()
                     for qarg in qargs:
                         printLn.set_qubits(line.name[0:2], resolve_arg(self, qarg, args, spargs, loopVar))
@@ -286,19 +310,19 @@ def quickDispl(self, topLevel = False, args = {}, spargs = {}):
                 printLn.write()
 
         elif isinstance(line, SetAlias):
-            a = rangeP1(*line._pargs[1])
-            b = rangeP1(*line._qargs[1])
-            for i in range(len(a)):
-                args[line.alias.name][a[i]] = resolve_arg(self, (line._qargs[0], b[i]), args, spargs)
+            a = range_inclusive(*line.pargs[1])
+            b = range_inclusive(*line.qargs[1])
+            for i, elem in enumerate(a):
+                args[line.alias.name][elem] = resolve_arg(self, (line.qargs[0], b[i]), args, spargs)
 
         elif isinstance(line, Alias):
             args[line.name] = [None]*line.size
 
         elif isinstance(line, Loop):
-            spargsSend = dict( **spargs )
+            spargsSend = dict(**spargs)
             for i in range(maths(line.start[0]), maths(line.end[0])):
                 spargsSend[line.loopVar.name] = i
-                quickDispl(line, args = args, spargs = spargsSend)
+                print_circuit_diag(line, args=args, spargs=spargsSend)
             del spargsSend
 
         elif isinstance(line, CBlock):

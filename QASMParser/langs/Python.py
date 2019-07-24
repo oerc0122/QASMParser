@@ -1,6 +1,17 @@
-from QASMParser.QASMTypes import *
+"""
+Module to supply functions to write Python from given QASM types
+"""
+
+
+
+from QASMParser.QASMTypes import (ClassicalRegister, QuantumRegister, Let, CBlock,
+                                  Argument, CallGate, Comment, Measure, IfBlock, Verbatim,
+                                  Gate, Opaque, Loop, NestLoop, Reset, Output, InitEnv)
 
 def set_lang():
+    """
+    Assign all methods for converting into python.
+    """
     ClassicalRegister.to_lang = ClassicalRegister_to_Python
     QuantumRegister.to_lang = QuantumRegister_to_Python
     Let.to_lang = Let_to_Python
@@ -11,13 +22,13 @@ def set_lang():
     IfBlock.to_lang = IfBlock_to_Python
     Gate.to_lang = CreateGate_to_Python
     Opaque.to_lang = CreateGate_to_Python
-    PyBlock.to_lang = PyBlock_to_Python
+    CBlock.to_lang = PyBlock_to_Python
     Loop.to_lang = Loop_to_Python
     NestLoop.to_lang = Loop_to_Python
     Reset.to_lang = Reset_to_Python
     Output.to_lang = Output_to_Python
     InitEnv.to_lang = init_env
-    
+
 
 # Several details pertaining to the language in question
 hoistFuncs = False   # Move functions to front of program
@@ -28,91 +39,113 @@ blockClose = ""    #  ""      ""
 indent = "    "       # Standard indent depth
 
 def Python_include(filename):
+    """Syntax conversion for python imports."""
     return f'from {filename} import *'
 header = [Python_include("QuESTLibs")]
 
 def init_env(self):
+    """Syntax conversion for initialising the QuEST environment."""
     return f'Env = createQuESTEnv()'
 
 def Output_to_Python(self):
-    carg, bindex = self._cargs
-    return f'print({carg.name}[{bindex}])'
+    """Syntax conversion for printing a parg."""
+    parg, bindex = self.pargs
+    return f'print({parg.name}[{bindex}])'
 
 def Reset_to_Python(self):
-    qarg = self._qargs
+    """Syntax conversion for resetting quantum state to zero."""
+    qarg = self.qargs
     qargRef = self.resolve_arg(qarg)
     return f'collapseToOutcome(qreg, {qargRef}, 0)'
-    
+
 def ClassicalRegister_to_Python(self):
+    """Syntax conversion for creating a classical register."""
     return f'{self.name} = [0]*{self.size}'
 
 def QuantumRegister_to_Python(self):
+    """Syntax conversion for creating a quantum register."""
     return f"{self.name} = createQureg({self.size}, Env)"
 
 def Argument_to_Python(self):
-    if self.classical: return f'{self.name}'
-    else: return f'{self.name}, {self.name}_index'
+    """Syntax conversion for creating a function argument."""
+    if self.classical:
+        return f'{self.name}'
+    return f'{self.name}, {self.name}_index'
 
 def Let_to_Python(self):
+    """Syntax conversion for creating a variable."""
     var = self.const
     assignee = var.name
 
     # Simple declaration
-    if var.val is None and var.var_type is None: return f"{assignee} = None"
-    elif var.val is None and var.var_type: return f'{assignee} = {var.var_type}()' 
+    if var.val is None and var.var_type is None:
+        return f"{assignee} = None"
+    elif var.val is None and var.var_type:
+        return f'{assignee} = {var.var_type}()'
 
-    if type(var.val) is list: value = ",".join(var.val)
-    else:  value =  f'{var.val}'
-    if var.cast: value = f"{var.cast}({value})"
+    if isinstance(var.val, (tuple, list)):
+        value = ",".join(var.val)
+    else:
+        value =  f'{var.val}'
+    if var.cast:
+        value = f"{var.cast}({value})"
 
     return f"{assignee} = {value}"
-    
+
 def PyBlock_to_Python(self):
-    return ""
-    
+    """Syntax conversion for classical block."""
+    return "\n".join(self.block)
+
 def CallGate_to_Python(self):
+    """Syntax conversion for calling a gate."""
     printArgs = ""
-    if self._qargs:
+    if self.qargs:
         printArgs += "qreg, "
-        printArgs += ", ".join([self.resolve_arg(qarg) for qarg in self._qargs])
-    for carg in self._cargs:
+        printArgs += ", ".join([self.resolve_arg(qarg) for qarg in self.qargs])
+    for parg in self.pargs:
         if printArgs:
-            printArgs += ", "+carg
+            printArgs += ", "+parg
         else:
-            printArgs = carg
+            printArgs = parg
     printGate = self.name
     preString = []
-    outString = ""    
+    outString = ""
     for line in preString:
         outString += line + ";\n"
     outString += f"{printGate}({printArgs})"
     return outString
 
 def Comment_to_Python(self):
+    """Syntax conversion for a comment."""
     return "#" + self.comment
 
 def Measure_to_Python(self):
-    carg, bindex = self._cargs
-    qarg = self._qargs
+    """Syntax conversion for a measurement."""
+    parg, bindex = self.pargs
+    qarg = self.qargs
     qargRef = self.resolve_arg(qarg)
-    return f"{carg.name}[{bindex}] = measure(qreg, {qargRef})"
+    return f"{parg.name}[{bindex}] = measure(qreg, {qargRef})"
 
 def IfBlock_to_Python(self):
-    return f"if ({self._cond})"
+    """Syntax conversion for an if statement."""
+    return f"if ({self.cond})"
 
 def CreateGate_to_Python(self):
-    if type(self._code[0]) is Verbatim and self._code[0].line == ";": self._code = [Verbatim("pass")]
+    """Syntax conversion for declaring a gate."""
+    if isinstance(self.code[0], Verbatim) and self.code[0].line == ";":
+        self.code = [Verbatim("pass")]
     printArgs = ""
-    if self._qargs:
+    if self.qargs:
         printArgs += "qreg"
-        printArgs += ", " + ", ".join([f"{qarg}_index" for qarg in self._qargs])
-    for carg in self._cargs:
-        if printArgs: printArgs += ", "+carg
-        else: printArgs += carg
+        printArgs += ", " + ", ".join([f"{qarg}_index" for qarg in self.qargs])
+    for parg in self.pargs:
+        if printArgs:
+            printArgs += ", "+parg
+        else:
+            printArgs += parg
     outStr = f"def {self.name}({printArgs})"
     return outStr
 
 def Loop_to_Python(self):
+    """Syntax conversion for declaring a loop."""
     return  f"for {self.var} in range({self.start}, {self.end}, {self.step})"
-
-
