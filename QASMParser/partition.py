@@ -3,14 +3,66 @@ from .QASMParser import ProgFile
 import numpy as np
 import itertools as it
 import sys
+import copy
+from math import log2, exp
 
-np.set_printoptions(suppress=True)
+def exp_add(a, b):
+    if b == 0: return a
+    if a == 0: return b
 
+    # Assume that for very large numbers the 1 is irrelevant
+    if a > 30 or b > 30:
+        return a + b
+    
+    if a > b:
+        out = log2( 2**(a - b) + 1 ) + b
+    else:
+        out = log2( 2**(b - a) + 1 ) + a
+    return out
+
+def slice_cost(mat, slice_, max):
+    qubit_cost = 0
+    cut_cost = 0
+    cut_prev = 0
+    work = mat.copy()
+
+    for cut in slice_:
+        cut_cost = exp_add(cut_cost, work[cut].sum())
+        work[cut] = 0
+        # work[:][:cut] = 0
+        cut += 1
+        qubit_cost = exp_add(qubit_cost,  (cut - cut_prev))
+        cut_prev = cut
+        # Early exit for large values
+        if exp_add(qubit_cost, cut_cost) > max: return exp_add(qubit_cost, cut_cost)
+    # Catch remainder
+    if cut_prev != len(mat):
+        qubit_cost = exp_add(qubit_cost,  (len(mat) - cut_prev))
+    total_cost = exp_add(qubit_cost, cut_cost)
+    print("HI", slice_, qubit_cost, cut_cost, total_cost, max)
+    return total_cost
+    
+def slice_adjmat(mat):
+    slices = it.chain.from_iterable( it.combinations(range(len(mat)), i) for i in rangeP1(1,len(mat)) )
+    base = len(mat)
+    best_slice = ()
+    for potential_slice in slices:
+
+        total_cost = slice_cost(mat, potential_slice, base)
+
+        if base > total_cost:
+            base = total_cost
+            best_slice = potential_slice
+
+    print(2**base, best_slice, 2**slice_cost(mat, best_slice, base))
+    return best_slice
+    
 def print_adjmat(regNames, mat):
     row_format ="{:^8}" * (len(mat) + 1)
     print(row_format.format("", *regNames))
     for reg, row in zip(regNames, mat):
         print(row_format.format(reg, *row))
+    print()
 
 def calculate_adjmat(code):
     def update_adjmat(block):
@@ -115,7 +167,6 @@ class QubitLine:
                 self.line[i] = s
 
         elif isinstance(range_, int):
-            print(range_)
             self.line[range_] = s
 
         elif isinstance(range_, tuple):
@@ -150,7 +201,9 @@ def resolve_arg( self, var, args, spargs, loopVar = None ):
     if isinstance(ind, (list, tuple)):
         *ind, = map(maths, ind)
     elif isinstance(ind, str) and loopVar is not None:
-        ind = loopVar
+        shift = ind.split("_loop")[1]
+        shift = shift if shift else 0
+        ind = loopVar + int(shift)
     else:
         ind = maths(ind)
 
@@ -200,7 +253,6 @@ def quickDispl(self, topLevel = False, args = {}, spargs = {}):
     for line in code:
         printLn.set_qubits()
         if isinstance(line, CallGate):
-            print(line.name)
             if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
                 # Prepare args and enter function
                 spargsSend = dict( ((arg.name, maths(sparg.val) )
