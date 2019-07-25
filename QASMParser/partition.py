@@ -234,22 +234,24 @@ def resolve_arg(self, var, args, spargs, loopVar=None):
             if isinstance(out, tuple) and len(out) == 2:
                 *out, = range(*out)
             if isinstance(ind, int):
-                return out[ind]
+                out = out[ind]
             elif isinstance(ind, (list, tuple)):
-                return list(out[slice_inclusive(*ind)])
+                out = list(out[slice_inclusive(*ind)])
             else:
                 raise Exception("Cannot handle request")
         elif isinstance(out, int):
-            return out
+            out = out
 
     elif isinstance(ind, (list, tuple)):
         *out, = map(lambda x: var.start + x, ind)
         out[1] += 1
-        return tuple(out)
+        out = tuple(out)
     elif isinstance(ind, int):
-        return var.start + ind
+        out = var.start + ind
     else:
         raise Exception("Cannot handle request")
+
+    return out
 
 def print_circuit_diag(self, topLevel=False, args=(), spargs=()):
     """ Recursively traverse the code to print a quick entanglement graph/circuit diagram """

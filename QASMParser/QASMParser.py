@@ -33,12 +33,23 @@ class ProgFile(CodeBlock):
         self.depth = 0
         self.classLang = None
 
-    def to_lang(self, filename=None, module=False, includes=(), langOut="C", verbose=False):
+    def to_lang(self, filename=None, module=False, includes=None, langOut="C", verbose=False):
         """
         Translate file into provided language.
         If filename is provided write translation to file.
         Replace included files with their in language equivalents for module support.
+
+        :param filename: output file to write
+        :param module: whether to compile
+        :param includes: dictionary of substitutions for included files
+        :param langOut: output language
+        :param verbose: whether to provide original QASM alongside
+        :returns: None
+        :rtype: None
         """
+        if includes is None:
+            includes = {}
+
         try:
             lang = import_module(f"QASMParser.langs.{langOut}")
             lang.set_lang()
@@ -158,7 +169,7 @@ class ProgFile(CodeBlock):
             outputFile.close()
 
     def run(self):
-        """ Run constructed code """
+        """ Run constructed code in Python """
         try:
             lang = import_module(f"QASMParser.langs.Python")
             lang.set_lang()
@@ -169,7 +180,11 @@ class ProgFile(CodeBlock):
             exec(line.to_lang())
 
     def include(self, filename):
-        """ Parse second file and add gates and vars into local scope """
+        """ Parse second file and add gates and vars into local scope
+
+        :param filename: file to include
+
+        """
         other = ProgFile(filename)
         self.code += [Include(self, filename, other.code)]
         for objName, obj in other.get_objs():

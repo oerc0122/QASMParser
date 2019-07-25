@@ -1,27 +1,39 @@
+"""
+Module to handle command line interface options for QASM transpiler
+"""
 import argparse
 
 # DictKeyPair taken from StackOverflow
 class StoreDictKeyPair(argparse.Action):
-     def __call__(self, parser, namespace, values, option_string=None):
-          my_dict = {}
-          for kv in values.split(","):
-               k,v = kv.split("=")
-               my_dict[k] = v
-          setattr(namespace, self.dest, my_dict)
+    """ Class to convert a=b into dictionary key, value pair """
+    def __call__(self, parser, namespace, values, optionString=None):
+        newDict = {}
+        for keyVal in values.split(","):
+            key, value = keyVal.split("=")
+            newDict[key] = value
+        setattr(namespace, self.dest, newDict)
 
-parser = argparse.ArgumentParser(description='QASM parser to translate from QASM to QuEST input', add_help=True)
-parser.add_argument('sources', nargs=argparse.REMAINDER, help="List of sources to compile")
-parser.add_argument('-o','--output', help="File to compile to", default="")
-parser.add_argument('-l','--language', help="Output file language")
-parser.add_argument('-d','--debug', help="Output original QASM in translation", action="store_true")
-parser.add_argument('-c','--to-module', help = "Compile as module for inclusion into larger project", action="store_true")
-parser.add_argument("-I","--include", help = 'Include a pre-"compiled" source', action=StoreDictKeyPair, metavar="QASMFILE=CFILE,QASMFILE2=CFILE2,...", default={})
-parser.add_argument('-a','--analyse', help="Print adjacency matrix info", action="store_true")
-parser.add_argument('-p','--print', help="Print graphical summary of circuit", action="store_true")
-                    
+_parser = argparse.ArgumentParser(description='QASM parser to translate from QASM to QuEST input', add_help=True)
+_parser.add_argument('sources', nargs=argparse.REMAINDER, help="List of sources to compile")
+_parser.add_argument('-o', '--output', help="File to compile to", default="")
+_parser.add_argument('-l', '--language', help="Output file language")
+_parser.add_argument('-d', '--debug', help="Output original QASM in translation", action="store_true")
+_parser.add_argument('-c', '--to-module', help="Compile as module for inclusion into larger project",
+                     action="store_true")
+_parser.add_argument("-I", "--include", help='Include a pre-transpiled source',
+                     action=StoreDictKeyPair, metavar="QASMFILE=CFILE,QASMFILE2=CFILE2,...", default={})
+_parser.add_argument('-a', '--analyse', help="Print adjacency matrix info", action="store_true")
+_parser.add_argument('-p', '--print', help="Print graphical summary of circuit", action="store_true")
+
 def get_command_args():
-     argList = parser.parse_args()
-     if not argList.sources:
-          parser.print_help()
-          exit()
-     return argList
+    """Run parser and parse arguments
+
+    :returns: List of arguments
+    :rtype: argparse.Namespace
+
+    """
+    argList = _parser.parse_args()
+    if not argList.sources:
+        _parser.print_help()
+        exit()
+    return argList

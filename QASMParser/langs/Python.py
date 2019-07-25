@@ -1,16 +1,17 @@
 """
 Module to supply functions to write Python from given QASM types
 """
-
-
-
+# pylint: disable=C0103,W0613
 from QASMParser.QASMTypes import (ClassicalRegister, QuantumRegister, Let, CBlock,
                                   Argument, CallGate, Comment, Measure, IfBlock, Verbatim,
                                   Gate, Opaque, Loop, NestLoop, Reset, Output, InitEnv)
 
 def set_lang():
     """
-    Assign all methods for converting into python.
+    Assign all methods for converting into Python
+
+    :returns: None
+    :rtype: None
     """
     ClassicalRegister.to_lang = ClassicalRegister_to_Python
     QuantumRegister.to_lang = QuantumRegister_to_Python
@@ -32,16 +33,20 @@ def set_lang():
 
 # Several details pertaining to the language in question
 hoistFuncs = False   # Move functions to front of program
-hoistVars  = False  # Move variables to front of program
-bareCode   = False  # Can code be bare or does it need to be in function
+hoistVars = False  # Move variables to front of program
+bareCode = False  # Can code be bare or does it need to be in function
 blockOpen = ":"     # Block delimiters
 blockClose = ""    #  ""      ""
 indent = "    "       # Standard indent depth
 
-def Python_include(filename):
-    """Syntax conversion for python imports."""
+def python_include(filename: str):
+    """Syntax conversion for python imports.
+
+    :param filename: filename to import
+
+    """
     return f'from {filename} import *'
-header = [Python_include("QuESTLibs")]
+header = [python_include("QuESTLibs")]
 
 def init_env(self):
     """Syntax conversion for initialising the QuEST environment."""
@@ -86,7 +91,7 @@ def Let_to_Python(self):
     if isinstance(var.val, (tuple, list)):
         value = ",".join(var.val)
     else:
-        value =  f'{var.val}'
+        value = f'{var.val}'
     if var.cast:
         value = f"{var.cast}({value})"
 

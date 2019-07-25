@@ -1,7 +1,7 @@
 """
 Module to supply functions to write C from given QASM types
 """
-
+# pylint: disable=C0103,W0613
 from QASMParser.QASMTypes import (ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
                                   Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate,
                                   Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
@@ -13,6 +13,9 @@ from QASMParser.FileHandle import (NullBlock)
 def set_lang():
     """
     Assign all methods for converting into C.
+
+    :returns: None
+    :rtype: None
     """
     ClassicalRegister.to_lang = ClassicalRegister_to_c
     QuantumRegister.to_lang = QuantumRegister_to_c
@@ -63,8 +66,13 @@ _typesTranslation = {
     None:"void"
 }
 
-def Maths_to_c(parent, maths):
-    """Resolve mathematical operations into C."""
+def Maths_to_c(parent, maths: MathsBlock):
+    """Resolve mathematical operations into C.
+
+    :param parent: Parent containing resolvable variables
+    :param maths: Mathsblock to convert to C
+
+    """
     # Ops which should be unchanged
     identOp = ["-", "+", "*", "/", "%", "<", "<=", "==", "!=", ">=", ">", "!", "sin", "cos", "tan", "sqrt", "abs"]
     # Ops which require simple substitution
@@ -152,8 +160,8 @@ def resolve_arg(arg):
 
     if isinstance(obj, Argument):
         if obj.size == 1:
-            out =  obj.start
-        out =  f"{ref}{obj.start}[{index}]"
+            out = obj.start
+        out = f"{ref}{obj.start}[{index}]"
 
     elif issubclass(type(obj), Register):
         out = f"{ref}{obj.name}[{index}]"
@@ -279,13 +287,14 @@ def Let_to_c(self):
             for index, val in enumerate(var.val):
                 if val is not None:
                     value += f"{var.name}[{index}] = {val};\n"
-        return value
+        out = value
     else:
         value = resolve_maths(self, var.val)
         if var.cast:
             value = f"({var.cast}) {value}"
+        out = f"{assignee} = {value};"
 
-    return f"{assignee} = {value};"
+    return out
 
 def CBlock_to_c(self):
     """Syntax conversion for classical block."""

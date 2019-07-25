@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main program for parsing QASM scripts into QuEST input format
+Main program for transpiling QASM scripts into QuEST input format
 """
 
 import numpy
