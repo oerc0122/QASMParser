@@ -160,7 +160,6 @@ def resolve_arg(arg):
     :rtype: str
     """
 
-
     obj, index = arg
 
     if isinstance(index, (list, tuple)):
@@ -176,9 +175,11 @@ def resolve_arg(arg):
         index = resolve_maths(None, index)
 
     if isinstance(obj, Argument):
+        print(obj.name, obj.size)
         if obj.size == 1:
             out = obj.start
-        out = f"{ref}{obj.start}[{index}]"
+        else:
+            out = f"{ref}{obj.start}[{index}]"
 
     elif issubclass(type(obj), Register):
         out = f"{ref}{obj.name}[{index}]"
