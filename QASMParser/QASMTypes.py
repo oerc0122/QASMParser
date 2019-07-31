@@ -19,6 +19,10 @@ from .FileHandle import (QASMBlock, NullBlock)
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile(r"[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 
+def slice_inclusive(start=None, stop=None, step=1):
+    """ Actually include the stop like anything sensible would """
+    return slice(start, stop+1, step)
+
 def resolve_arg(block, var, args, spargs, loopVar=None):
     """ Determine the actual register ID
 

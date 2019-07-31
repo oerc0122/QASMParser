@@ -155,7 +155,7 @@ def parse_code(self, adjMat, args=None, spargs=None, depth=0, maxDepth=-1):
             qargs = line.qargs
 
             if line.loops is not None:
-                for loopVar in range(line.loops.start[0], line.loops.end[0]+1):
+                for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])+1):
                     adjMat.set_qubits()
                     for qarg in qargs:
                         adjMat.set_qubits(1, resolve_arg(self, qarg, args, spargs, loopVar))
@@ -177,6 +177,7 @@ def parse_code(self, adjMat, args=None, spargs=None, depth=0, maxDepth=-1):
 
         elif isinstance(line, Loop):
             spargsSend = dict(**spargs)
+            qargsSend = args
             for i in range(maths(line.start[0]), maths(line.end[0])):
                 spargsSend[line.loopVar.name] = i
                 recurse(line)

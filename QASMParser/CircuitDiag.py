@@ -44,6 +44,10 @@ def range_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop like anything sensible would """
     return range(start, stop+1, step)
 
+def slice_inclusive(start=None, stop=None, step=1):
+    """ Actually include the stop like anything sensible would """
+    return slice(start, stop+1, step)
+
 def print_circuit_diag(self, topLevel=False, args=None, spargs=None, depth=0, maxDepth=-1):
     """ Recursively traverse the code to print a quick entanglement graph/circuit diagram """
     #print(self.name, *args, *spargs)
@@ -99,7 +103,7 @@ def print_circuit_diag(self, topLevel=False, args=None, spargs=None, depth=0, ma
             qargs = line.qargs
 
             if line.loops is not None:
-                for loopVar in range(line.loops.start[0], line.loops.end[0]+1):
+                for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])+1):
                     printLn.set_qubits()
                     for qarg in qargs:
                         printLn.set_qubits(line.name[0:2], resolve_arg(self, qarg, args, spargs, loopVar))
@@ -121,6 +125,7 @@ def print_circuit_diag(self, topLevel=False, args=None, spargs=None, depth=0, ma
 
         elif isinstance(line, Loop):
             spargsSend = dict(**spargs)
+            qargsSend = args
             for i in range(maths(line.start[0]), maths(line.end[0])):
                 spargsSend[line.loopVar.name] = i
                 recurse(line)
