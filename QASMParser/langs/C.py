@@ -175,7 +175,6 @@ def resolve_arg(arg):
         index = resolve_maths(None, index)
 
     if isinstance(obj, Argument):
-        print(obj.name, obj.size)
         if obj.size == 1:
             out = obj.start
         else:
