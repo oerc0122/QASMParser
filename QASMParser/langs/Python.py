@@ -85,7 +85,8 @@ def Let_to_Python(self):
     # Simple declaration
     if var.val is None and var.var_type is None:
         return f"{assignee} = None"
-    elif var.val is None and var.var_type:
+
+    if var.val is None and var.var_type:
         return f'{assignee} = {var.var_type}()'
 
     if isinstance(var.val, (tuple, list)):

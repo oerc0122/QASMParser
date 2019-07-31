@@ -19,45 +19,122 @@ from .FileHandle import (QASMBlock, NullBlock)
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile(r"[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 
+def resolve_arg(block, var, args, spargs, loopVar=None):
+    """ Determine the actual register ID
+
+    :param block: block to resolve argument
+    :param var:   var to resolve
+    :param args:  extra arguments
+    :param spargs: extra special arguments
+    :param loopVar: Whether there is an implicit loop
+    :returns: 
+    :rtype: 
+
+    """
+
+
+    var, ind = var
+    maths = lambda x: block.resolve_maths(x, additionalVars=spargs)
+
+    if isinstance(ind, (list, tuple)):
+        *ind, = map(maths, ind)
+    elif isinstance(ind, str) and loopVar is not None:
+        shift = ind.split("_loop")[1]
+        shift = shift if shift else 0
+        ind = loopVar + int(shift)
+    else:
+        ind = maths(ind)
+
+    if var.name in args:
+        out = copy.copy(args[var.name])
+        if isinstance(out, (list, tuple)):
+            if isinstance(out, tuple) and len(out) == 2:
+                *out, = range(*out)
+            if isinstance(ind, int):
+                out = out[ind]
+            elif isinstance(ind, (list, tuple)):
+                out = list(out[slice_inclusive(*ind)])
+            else:
+                raise Exception("Cannot handle request")
+        elif isinstance(out, int):
+            out = out
+
+    elif isinstance(ind, (list, tuple)):
+        *out, = map(lambda x: var.start + x, ind)
+        out[1] += 1
+        out = tuple(out)
+    elif isinstance(ind, int):
+        out = var.start + ind
+    else:
+        raise Exception("Cannot handle request")
+
+    return out
+
 def to_lang_error(self):
     """ Standard error handle for undefined function """
     print("Not implemented:", langWarning.format(type(self).__name__))
     quit()
 
 class CoreOp:
-    """ Abstract base class for operations which do not necessarily translate into QASM ops """
+    """ Abstract base class for QASM operations """
+    def __init__(self, parent):
+        self._parent = parent
+
+    @property
+    def parent(self):
+        """ Reutrn parent """
+        return self._parent
+
     to_lang = to_lang_error
 
 # Base types
-class Operation:
-    """ Base class for callable function-like objects """
+class Operation(CoreOp):
+    """ Base class for callable function-like objects
+
+    :param parent: Parent block defining object
+    :param qargs: Input quantum arguments Input quantum arguments
+    :param pargs: Input parameter arguments
+    :param gargs: Input gate arguments
+    :param spargs: Input special arguments
+    """
 
     def __init__(self, parent, qargs=None, pargs=None, gargs=None, spargs=None):
-        """Initialise an operaion
-
-        :param parent: Parent block defining object
-        :param qargs: Input quantum arguments Input quantum arguments
-        :param pargs: Input parameter arguments
-        :param gargs:
-        :param spargs: Input special arguments
-        :returns:
-        :rtype:
-
-        """
-        self.parent = parent
+        """Initialise an operation """
+        CoreOp.__init__(self, parent)
         self.loops = None
-        self.qargs = qargs
-        self.pargs = pargs
-        self.spargs = spargs
-        self.gargs = gargs
+        self._qargs = qargs
+        self._pargs = pargs
+        self._spargs = spargs
+        self._gargs = gargs
+        self._error = self.parent.currentFile.error
         self.innermost = None
 
-    def add_loop(self, index, start, end):
+    @property
+    def qargs(self):
+        """ qargs getter """
+        return self._qargs
+
+    @property
+    def pargs(self):
+        """ pargs getter """
+        return self._pargs
+
+    @property
+    def spargs(self):
+        """ spargs getter """
+        return self._spargs
+
+    @property
+    def gargs(self):
+        """ gargs getter """
+        return self._gargs
+
+    def _add_loop(self, index, start, end):
         """ Wrap self in a loop
 
-        :param index:
-        :param start:
-        :param end:
+        :param index: Loop variable
+        :param start: Loop start
+        :param end:   Loop end
 
         """
         if self.loops:
@@ -66,14 +143,12 @@ class Operation:
             self.innermost = NestLoop(copy.copy(self), index, start, end)
             self.loops = self.innermost
 
-    def finalise_loops(self):
+    def _finalise_loops(self):
         """ Dealias references of self if self has changed to avoid infinite loops """
 
         if self.loops:
             self.innermost.code = [copy.copy(self)]
             self.innermost.code[0].loops = []
-        else:
-            pass
 
     def handle_loops(self, pargs):
         """ Handle loop rules according to modified REQASM rules
@@ -86,7 +161,7 @@ class Operation:
 
         if loopable:
             loopVar = pargs[0][0].name + "_loop"
-            self.add_loop(loopVar, baseStart, baseEnd)
+            self._add_loop(loopVar, baseStart, baseEnd)
         else:
             loopVar = False
 
@@ -101,41 +176,44 @@ class Operation:
             for parg in pargs:
                 parg[1] = parg[1][0]
 
-    to_lang = to_lang_error
 
+class Referencable(CoreOp):
+    """ Base class for any element which will exist within scope
 
-class Referencable:
-    """ Base class for any element which will exist within scope """
-
+    :param parent: Parent block defining object
+    """
     def __init__(self, parent):
-        """Initialise a referencable object
+        """Initialise a referencable object """
+        CoreOp.__init__(self, parent)
+        self._argType = type(self).__name__
 
-        :param parent: Parent block defining object
-        :returns:
-        :rtype:
+    @property
+    def argType(self):
+        """ argType getter """
+        return self._argType
 
-        """
-        self.argType = type(self).__name__
-        self.parent = parent
-
-    to_lang = to_lang_error
-
-class CodeBlock:
+class CodeBlock(CoreOp):
     """  Base class for an object which creates its own scope and contains code """
-
-    def __init__(self, block, parent, copyObjs=True):
+    def __init__(self, parent, block, copyObjs=True):
         """Initialise a code block
 
-        :param block:Code block of operations
+        :param block: Code block of operations
         :param parent: Parent block defining object
         :param copyObjs: Inherit objects from parent
 
         """
-        self.code = []
-        self.qargs = []
-        self.pargs = []
-        self.spargs = []
-        self.gargs = []
+        CoreOp.__init__(self, parent)
+
+        if parent is not None:
+            self.classLang = parent.classLang
+        else:
+            self.classLang = None
+
+        self._code = []
+        self._qargs = []
+        self._pargs = []
+        self._spargs = []
+        self._gargs = []
         if copyObjs:
             self._objs = copy.copy(parent.get_objs("Copy"))
         else:
@@ -144,32 +222,56 @@ class CodeBlock:
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile.error
 
+    @property
+    def code(self):
+        """ Code getter """
+        return self._code
+
+    @property
+    def qargs(self):
+        """ qargs getter """
+        return self._qargs
+
+    @property
+    def pargs(self):
+        """ pargs getter """
+        return self._pargs
+
+    @property
+    def spargs(self):
+        """ spargs getter """
+        return self._spargs
+
+    @property
+    def gargs(self):
+        """ gargs getter """
+        return self._gargs
 
     def get_objs(self, obj=None):
         """ Return objects dict or element
 
-        :param ob:j
+        :param obj: Object to be searched for
 
         """
-        if obj is not None:
-            out = self._objs[obj]
-        elif obj == "Copy":
+        if obj == "Copy":
             out = self._objs
+        elif obj is not None:
+            out = self._objs[obj]
         else:
             out = self._objs.items()
         return out
 
-    def _dump_line(self):
+    def dump_line(self):
         """ Return current line """
         return self.currentFile.nLine
 
     def _resolve(self, var, argType, index=""):
         """Resolve an argument and return its corresponding value or location based on current scope.
 
-        :param var:
-        :param argType:
-        :param index:
-
+        :param var: Variable to resolve
+        :param argType: Type of variable to resolve
+        :param index: Possible index of register objects
+        :returns: Resolved argument
         """
          # If we've accidentally passed the object through (fix this more thoroughly)
         if isinstance(var, (Constant)):
@@ -290,11 +392,12 @@ class CodeBlock:
     def resolve_maths(self, elem, additionalVars=None, topLevel=True, tempDict=None):
         """Perform the set of maths operations to return the final value or an error if it cannot be evaluated
 
-        :param elem:
-        :param additionalVars:
-        :param topLevel:
-        :param tempDict:
-
+        :param elem: Element to be resolved
+        :param additionalVars: A dictionary of variables already resolved with values
+        :param topLevel: Whether this is the function to eval
+        :param tempDict: Higher level resolved values
+        :returns: Resolved numerical value of mathsblock
+        :rtype: int/float/bool
         """
          # Ops which should be unchanged
         identOp = ["-", "+", "*", "/", "%",
@@ -375,9 +478,10 @@ class CodeBlock:
         Create == False: returns False if object does not exist or is not of matching type
 
         :param name: Reference name of the object
-        :param create:
-        :param argType:
-
+        :param create: Whether variable is to be created
+        :param argType: Type of argument to find
+        :returns: Whether object exists or can be created
+        :rtype: Bool
         """
         if name not in self._objs:
             out = create
@@ -394,11 +498,8 @@ class CodeBlock:
         Create == False: returns an error if object does not exist or is not of matching type
 
         :param name: Reference name of the object
-        :param create:
-        :param argType:
-        :returns:
-        :rtype:
-
+        :param create: Whether variable is to be created
+        :param argType: Type of argument to find
         """
 
         if create: # Check for duplicate naming
@@ -416,8 +517,8 @@ class CodeBlock:
     def _check_bounds(self, interval, arg=None):
         """ Check for register over-run and raise error if present
 
-        :param interval:
-        :param arg:
+        :param interval: Range to establish in range
+        :param arg:      Argument to check range of
 
         """
         if arg is None:
@@ -430,20 +531,20 @@ class CodeBlock:
         elif isinstance(interval[1], int) and interval[1] > arg.max:
             self._error(indexWarning.format(Req=interval[1], Var=arg.name, Min=arg.min, Max=arg.max))
 
-    def comment(self, comment):
+    def _comment(self, comment):
         """ Create a comment in scope of self and append it to the code
 
-        :param comment:
+        :param comment: Comment to transpile
 
         """
-        self.code += [Comment(self, comment)]
+        self._code += [Comment(self, comment)]
 
-    def new_variable(self, argName, size, classical):
+    def _new_variable(self, argName, size, classical):
         """ Create a new register in scope of self and append it to the code
 
-        :param argName:
-        :param size:
-        :param classical:
+        :param argName: Name of register to create
+        :param size:    Size of register to create
+        :param classical: Whether register is Classical or Quantum
 
         """
         self._is_def(argName, create=True)
@@ -455,32 +556,29 @@ class CodeBlock:
             variable = QuantumRegister(self, argName, size)
             self._objs[argName] = variable
 
-        self.code += [variable]
+        self._code += [variable]
 
-    def new_alias(self, argName, size):
+    def _new_alias(self, argName, size):
         """ Create a new alias in scope of self
 
-        :param argName:
-        :param size:
+        :param argName: Name of alias to create
+        :param size:    Size of alias to create
 
         """
         self._is_def(argName, create=True)
         alias = Alias(self, argName, size)
         self._objs[argName] = alias
-        self.code += [alias]
+        self._code += [alias]
 
-    def alias(self, aliasName, argIndex, referee, refIndex):
+    def _alias(self, aliasName, argIndex, referee, refIndex):
         """
         If an alias called aliasName exists: assign values to this alias
         If it does not exist:  Create it and if values assign it
 
-        :param aliasName:
-        :param argIndex:
-        :param referee:
-        :param refIndex:
-        :returns:
-        :rtype:
-
+        :param aliasName: Name of alias to create
+        :param argIndex:  Index of alias to assign to
+        :param referee:   Register to be aliased
+        :param refIndex:  Index of register to be aliased
         """
 
         referee, refInter = self._resolve(referee, argType="QuantumRegister", index=refIndex)
@@ -488,30 +586,30 @@ class CodeBlock:
         refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
 
         if self._check_def(aliasName, create=True, argType="Alias"):
-            self.new_alias(aliasName, refSize)
+            self._new_alias(aliasName, refSize)
 
         alias, aliasInter = self._resolve(aliasName, argType="Alias", index=argIndex)
         aliasSize = 1 + aliasInter[1] - aliasInter[0]
         if aliasSize != refSize:
             self._error(aliasIndexWarning.format(aliasName, aliasSize, refSize))
 
-        self.code += [SetAlias(self, (alias, aliasInter), (referee, refInter))]
+        self._code += [SetAlias(self, (alias, aliasInter), (referee, refInter))]
 
-    def gate(self, gateName, block,
-             pargs=None, qargs=None, spargs=None, gargs=None, byprod=None,
-             recursive=False, unitary=False, argType="gate"):
+    def _gate(self, gateName, block,
+              pargs=None, qargs=None, spargs=None, gargs=None, byprod=None,
+              recursive=False, unitary=False, argType="gate"):
         """Declare a new gate-like object in current scope and append it to the code
 
-        :param gateName:
-        :param block:Code block of operations
+        :param gateName: Name of gate to output
+        :param block: Code block of operations
         :param pargs: Input parameter arguments
         :param qargs: Input quantum arguments Input quantum arguments
         :param spargs: Input special arguments
-        :param gargs:
+        :param gargs: Input gate arguments
         :param byprod: Output classical bit
         :param recursive: Gate allowed to recurse
         :param unitary: Gate allowed to contain non-unitaries
-        :param argType:
+        :param argType: Type of gate to return
 
         """
         self._is_def(gateName, create=True)
@@ -536,13 +634,16 @@ class CodeBlock:
             self._error(gateWarning.format(argType))
 
         self._objs[gate.name] = gate
-        self.code += [gate]
+        self._code += [gate]
 
-    def let(self, var, val):
+    def _leave(self):
+        """ Leave loop """
+        self._error("Cannot exit from a non-recursive gate")
+    def _let(self, var, val):
         """ Define and set variable in scope
 
-        :param var:
-        :param val:
+        :param var: Tuple of variable name, variable type
+        :param val: Tuple of value, value type
 
         """
         varName, _ = var # Don't need varType
@@ -557,17 +658,17 @@ class CodeBlock:
             letobj = Constant(self, var, val)
             self._objs[letobj.name] = letobj
 
-        self.code += [Let(self, letobj)]
+        self._code += [Let(self, letobj)]
 
-    def call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers=()):
+    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers=()):
         """ Check gate exists, if it does, call it, else raise error
 
-        :param gateName:
+        :param gateName: Name of gate to call
         :param pargs: Input parameter arguments
         :param qargs: Input quantum arguments Input quantum arguments
-        :param gargs:
+        :param gargs: Input gate args
         :param spargs: Input special arguments
-        :param modifiers:
+        :param modifiers: Modifiers on call such as invert and control
 
         """
         self._is_def(gateName, create=False, argType="Gate")
@@ -582,23 +683,23 @@ class CodeBlock:
             orig = self._resolve(gateName, argType="Gate")
             if self._check_def("inv_"+gateName, create=True, argType="Gate"):
                 inv = copy.copy(orig)
-                inv.code = orig.invert(pargs, qargs)
+                inv._code = orig.invert(pargs, qargs)
                 inv.name = "inv_"+inv.name
                 orig.inverse = inv
-                self.code += [inv]
+                self._code += [inv]
             gateName = "inv_"+gateName
 
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs)
 
-        self.code += [gate]
+        self._code += [gate]
 
-    def measurement(self, qarg, qindex, parg, bindex):
+    def _measurement(self, qarg, qindex, parg, bindex):
         """ Add measurement to code
 
-        :param qarg:
-        :param qindex:
-        :param parg:
-        :param bindex:
+        :param qarg: Quantum register to measure
+        :param qindex: Index of quantum register to measure
+        :param parg: Output classical register
+        :param bindex: Index of output classical register
 
         """
         parg = self._resolve(parg, argType="ClassicalRegister", index=bindex)
@@ -606,16 +707,9 @@ class CodeBlock:
 
         measure = Measure(self, qarg, parg)
 
-        self.code += [measure]
+        self._code += [measure]
 
-    def leave(self):
-        """ Leave loop """
-        if hasattr(self, "entry"):
-            self.entry.exited()
-        else:
-            self._error("Cannot exit from a non-recursive gate")
-
-    def reset(self, qarg, qindex):
+    def _reset(self, qarg, qindex):
         """ Reset register value
 
         :param qarg:
@@ -625,9 +719,9 @@ class CodeBlock:
         qarg = self._resolve(qarg, argType="QuantumRegister", index=qindex)
         reset = Reset(self, qarg)
 
-        self.code += [reset]
+        self._code += [reset]
 
-    def output(self, parg, bindex):
+    def _output(self, parg, bindex):
         """ Write out creg
 
         :param parg:
@@ -637,21 +731,21 @@ class CodeBlock:
         parg = self._resolve(parg, argType="ClassicalRegister", index=bindex)
         output = Output(self, parg)
 
-        self.code += [output]
+        self._code += [output]
 
-    def loop(self, var, block, start, end):
+    def _loop(self, var, block, start, end):
         """ Add loop to code
 
         :param var:
-        :param block:Code block of operations
+        :param block: Code block of operations
         :param start:
         :param end:
 
         """
         loop = Loop(self, block, var, start, end)
-        self.code += [loop]
+        self._code += [loop]
 
-    def cycle(self, var):
+    def _cycle(self, var):
         """ Cycle loop
 
         :param var:
@@ -660,9 +754,9 @@ class CodeBlock:
         var = self._resolve(var, argType="Constant")
         if not var.loopVar:
             self._error("Cannot cycle non-loop vars")
-        self.code += [Cycle(self, var)]
+        self._code += [Cycle(self, var)]
 
-    def escape(self, var):
+    def _escape(self, var):
         """ Break out of loop
 
         :param var:
@@ -671,53 +765,61 @@ class CodeBlock:
         var = self._resolve(var, argType="Constant")
         if not var.loopVar:
             self._error("Cannot escape non-loop vars")
-        self.code += [Escape(self, var)]
+        self._code += [Escape(self, var)]
 
-    def end(self):
+    def _end(self):
         """ End current process """
-        self.code += [TheEnd(self, self)]
+        self._code += [TheEnd(self, self)]
 
-    def new_while(self, cond, block):
+    def _new_while(self, cond, block):
         """ Add while block
 
         :param cond:
-        :param block:Code block of operations
+        :param block: Code block of operations
 
         """
-        self.code += [While(self, cond, block)]
+        self._code += [While(self, cond, block)]
 
-    def new_if(self, cond, block):
+    def _new_if(self, cond, block):
         """ Add if block
 
         :param cond:
-        :param block:Code block of operations
+        :param block: Code block of operations
 
         """
-        self.code += [IfBlock(self, cond, block)]
+        self._code += [IfBlock(self, block, cond)]
+
+    def _init_env(self):
+        """ Add a call to initialise QuEST environment """
+        self._code += [InitEnv(self)]
+
+    def include(self, _):
+        """ Raise an error if attempting to include outside of a main file """
+        self._error(includeNotMainWarning)
 
     def classical_block(self, block):
         """ Add classical block
 
-        :param block:Code block of operations
+        :param block: Code block of operations
 
         """
-        self.code += [CBlock(self, block)]
+        self._code += [CBlock(self, block)]
 
-    def directive(self, directive, args=None, block=None):
+    def _directive(self, directive, args=None, block=None):
         """ Determine and apply directive
 
-        :param directive:
-        :param args:
-        :param block:Code block of operations
+        :param directive: Type of directive to apply
+        :param args: Arguments to the directive
+        :param block: Code block of operations
 
         """
         if directive in ["classicallang", "classlang"]:
-            if not isinstance(self, ProgFile):
+            if type(self).__name__ != "ProgFile":
                 self._error("Cannot set classical language outside of main code")
-            if hasattr(self, "classLang"):
-                if self.classLang is not None:
-                    self._error("Classical language already defined as {}".format(self.classLang))
-                self.classLang = args.strip('"\'')
+            elif self.classLang is not None:
+                self._error("Classical language already defined as {}".format(self.classLang))
+
+            self.classLang = args.strip('"\'')
         elif directive == "classical":
             if block:
                 self.classical_block(block)
@@ -751,10 +853,7 @@ class CodeBlock:
                                                   self.currentFile.versionNumber))
 
         if keyword == "include":
-            if hasattr(self, "include"):
-                self.include(token["file"])
-            else:
-                self._error(includeNotMainWarning)
+            self.include(token["file"])
 
         # Functions and gates
         elif keyword == "call":
@@ -765,32 +864,32 @@ class CodeBlock:
             gargs = token.get("gargs", [])
             mods = token.get("mods", [])
 
-            self.call_gate(gateName, pargs, qargs, gargs, spargs, modifiers=mods)
+            self._call_gate(gateName, pargs, qargs, gargs, spargs, modifiers=mods)
         elif keyword == "measure":
             qarg = token["qreg"]["var"]
             qindex = token["qreg"].get("ref", None)
             parg = token["creg"]["var"]
             bindex = token["creg"].get("ref", None)
-            self.measurement(qarg, qindex, parg, bindex)
+            self._measurement(qarg, qindex, parg, bindex)
         elif keyword == "reset":
             qarg = token["qreg"]["var"]
             qindex = token["qreg"].get("ref", None)
-            self.reset(qarg, qindex)
+            self._reset(qarg, qindex)
         elif keyword == "output":
             parg = token["value"]["var"]
             bindex = token["value"].get("ref", None)
-            self.output(parg, bindex)
+            self._output(parg, bindex)
         elif keyword == "if":
             cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token["block"])
-            self.new_if(cond, block)
+            self._new_if(cond, block)
 
         # Directives
         elif keyword == "directive":
             directive = token["directive"]
             args = token.get("args", None)
             block = token.get("block", None)
-            self.directive(directive, args, block)
+            self._directive(directive, args, block)
         elif keyword == "barrier":
             pass
 
@@ -803,7 +902,7 @@ class CodeBlock:
             else:
                 size = token["arg"]["ref"]
             size = self.parse_range(size)
-            self.new_variable(argName, size, True)
+            self._new_variable(argName, size, True)
         elif keyword in ["qbit", "qreg"]:
 
             argName = token["arg"]["var"]
@@ -813,45 +912,45 @@ class CodeBlock:
             else:
                 size = token["arg"]["ref"]
             size = self.parse_range(size)
-            self.new_variable(argName, size, False)
+            self._new_variable(argName, size, False)
         elif keyword == "val":
             var = token["var"]
             val = token["val"]
             argType = token["type"]
-            self.let((var, argType), (val, None))
+            self._let((var, argType), (val, None))
         elif keyword == "defAlias":
             name = token["alias"]["var"]
             index = self.parse_range(token["alias"]["ref"])
-            self.new_alias(name, index)
+            self._new_alias(name, index)
         elif keyword == "alias":
             name = token["alias"]["var"]
             index = token["alias"].get("ref", None)
             qarg = token["target"]["var"]
             qindex = token["target"].get("ref", None)
-            self.alias(name, index, qarg, qindex)
+            self._alias(name, index, qarg, qindex)
 
         # Loop routines
         elif keyword == "for":
             var = token["var"]
             start, end = self.parse_range(token["range"])
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.loop(var, block, start, end) # Handle "<" ending one early
+            self._loop(var, block, start, end) # Handle "<" ending one early
         elif keyword == "while":
             cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.new_while(block, cond)
+            self._new_while(block, cond)
         elif keyword == "next":
             var = token["loopVar"]
-            self.cycle(var)
+            self._cycle(var)
         elif keyword == "escape":
             var = token["loopVar"]
-            self.escape(var)
+            self._escape(var)
         elif keyword == "exit":
-            self.leave()
+            self._leave()
 
         elif keyword == "end":
             var = token["process"]
-            self.end()
+            self._end()
 
         # Gate declaration routines
         elif keyword == "gate":
@@ -861,7 +960,7 @@ class CodeBlock:
             unitary = token.get("unitary", False)
             recursive = token.get("recursive", False)
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.gate(gateName, block, pargs, qargs, unitary=unitary, recursive=recursive)
+            self._gate(gateName, block, pargs, qargs, unitary=unitary, recursive=recursive)
 
         elif keyword == "circuit":
             gateName = token["gateName"]
@@ -872,8 +971,8 @@ class CodeBlock:
             unitary = token.get("unitary", False)
             recursive = token.get("recursive", False)
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self.gate(gateName, block,
-                      pargs, qargs, spargs, byprod=byprod, unitary=unitary, recursive=recursive, argType="circuit")
+            self._gate(gateName, block,
+                       pargs, qargs, spargs, byprod=byprod, unitary=unitary, recursive=recursive, argType="circuit")
 
         elif keyword == "opaque":
 
@@ -885,20 +984,20 @@ class CodeBlock:
             gateInfo['byprod'] = token.get("byprod", [])
             gateInfo['unitary'] = token.get("unitary", False)
             gateInfo['recursive'] = token.get("recursive", False)
-            self.gate(**gateInfo)
+            self._gate(**gateInfo)
 
 
         # Whole line comment
         elif keyword is None:
-            self.comment(comment)
+            self._comment(comment)
         else:
             self._error(instructionWarning.format(keyword,
                                                   self.currentFile.QASMType,
                                                   self.currentFile.versionNumber))
 
-        if not self.code:
-            self.code.append(Comment(self, ""))
-        lastLine = self.code[-1]
+        if not self._code:
+            self._code.append(Comment(self, ""))
+        lastLine = self._code[-1]
         if hasattr(token, "original") and token.original:
             original = token.original
             if not hasattr(lastLine, "original") or keyword not in nonCode:
@@ -1005,11 +1104,9 @@ class CodeBlock:
         """
         return MathsBlock(self, maths, topLevel=True)
 
-    to_lang = to_lang_error
-
 # Maths Parsing
 
-class MathsBlock:
+class MathsBlock(CoreOp):
     """ Block for handling maths as returned from the parser """
 
     def __init__(self, parent, maths, topLevel=False):
@@ -1022,7 +1119,7 @@ class MathsBlock:
         :rtype:
 
         """
-        self.parent = parent
+        CoreOp.__init__(self, parent)
         self.topLevel = topLevel
         elem = copy.deepcopy(maths)
 
@@ -1068,8 +1165,6 @@ class MathsBlock:
     def __mul__(self, val):
         return MathsBlock(self.parent, Binary([[self.maths, "*", val]]))
 
-    to_lang = to_lang_error
-
 
 # Variable types
 
@@ -1092,7 +1187,7 @@ class Constant(Referencable):
         self.val = val[0]
         self.cast = val[1]
         self.loopVar = False
-        self.parent = parent
+        self._parent = parent
 
     def __add__(self, val):
         return MathsBlock(self.parent, Binary([[self, "+", val]]))
@@ -1208,19 +1303,16 @@ class DeferredClassicalRegister(ClassicalRegister):
     """
     Classical register whose size is unknown until execution of the code,
     e.g. size is a function variable
+
+    :param parent: Parent block defining object
+    :param name: Reference name of the object
+    :param size: Size of register to initialise
     """
     def __init__(self, parent, name, size):
         """Initialise a deferred classical register
-
-        :param parent: Parent block defining object
-        :param name: Reference name of the object
-        :param size:
-        :returns:
-        :rtype:
-
         """
         ClassicalRegister.__init__(self, parent, name, size)
-        self.argType = "ClassicalRegister"
+        self._argType = "ClassicalRegister"
 
 class Alias(Register):
     """
@@ -1238,7 +1330,6 @@ class Alias(Register):
 
         """
         Register.__init__(self, parent, name, inter)
-        self.argType = "Alias"
         self.targets = [(None, None)]*self.size
         self.allSet = False
 
@@ -1272,7 +1363,7 @@ class Argument(Register):
         """
         Register.__init__(self, parent, name, size)
         self.name = name
-        self.argType = "QuantumRegister"
+        self._argType = "QuantumRegister"
         self.start = name
         self.end = self.size
 
@@ -1301,13 +1392,13 @@ class Comment:
         :rtype:
 
         """
-        self.parent = parent
+        self._parent = parent
         self.name = comment
         self.comment = comment
 
     to_lang = to_lang_error
 
-class Let(Operation):
+class Let(CoreOp):
     """ Set a variable """
     def __init__(self, parent, var, val=None):
         """Initialise a let
@@ -1319,7 +1410,8 @@ class Let(Operation):
         :rtype:
 
         """
-        self.parent = parent
+        CoreOp.__init__(self, parent)
+
         if isinstance(var, Constant):
             self.const = var
         elif isinstance(var, (tuple, list)):
@@ -1342,6 +1434,7 @@ class CallGate(Operation):
         :rtype:
 
         """
+
         self.name = gate
         Operation.__init__(self, parent, qargs, pargs, gargs, spargs)
 
@@ -1370,7 +1463,7 @@ class CallGate(Operation):
                 place = "call to {}".format(self.name)
                 expect = "{} {}".format(len(expect), name)
                 received = len(args)
-                self.parent._error(argWarning.format(place, expect, received))
+                self._error(argWarning.format(place, expect, received))
 
         parsedSparg = zip((sparg.name for sparg in self.callee.spargs), spargs)
 
@@ -1404,12 +1497,12 @@ class CallGate(Operation):
                 place = "call to {} in qarg {}".format(self.name, index+1)
                 expect = "multiple of {}".format(expect)
                 received = nArg
-                self.parent._error(argWarning.format(place, expect, received))
+                self._error(argWarning.format(place, expect, received))
             elif nArg // expect != self.nLoops:
                 place = "call to {} in qarg {} for implicit {} loops".format(self.name, index+1, self.nLoops)
                 expect = "{} qubits".format(self.nLoops*expect)
                 received = nArg
-                self.parent._error(argWarning.format(place, expect, received))
+                self._error(argWarning.format(place, expect, received))
 
     def handle_loops(self, pargs):
         """
@@ -1426,10 +1519,6 @@ class CallGate(Operation):
         :rtype: None
 
         """
-
-        """
-        """
-
         # Gates need special loop handling for multi-args
         if all(qarg[1] == 1 for qarg in self.resolvedQargs): # Can use regular loop if everyone only takes 1 arg
             Operation.handle_loops(self, pargs)
@@ -1461,17 +1550,14 @@ class SetAlias(Operation):
         self.alias.set_target(alias[1], target[0], target[1])
 
 class Measure(Operation):
-    """ Measure a qubit and assign to a classical register """
+    """ Measure a qubit and assign to a classical register
+
+    :param parent: Parent block defining object
+    :param qarg: Quantum register to measure
+    :param parg: Classical register to measure
+    """
     def __init__(self, parent, qarg, parg):
-        """FIXME! briefly describe function
-
-        :param parent: Parent block defining object
-        :param qarg:
-        :param parg:
-        :returns:
-        :rtype:
-
-        """
+        """ Initialise a measure operation  """
         Operation.__init__(self, parent, qarg, parg)
         self.handle_loops([self.pargs, self.qargs])
         parg, bindex = self.pargs
@@ -1484,47 +1570,40 @@ class Measure(Operation):
             if parg.size > qarg.size:
                 raise IOError(argSizeWarning.format(Req=parg.size, Var=qarg.name, Var2=parg.name, Max=qarg.size))
             self.pargs[1] = self.qargs[1]
-        self.finalise_loops()
+        self._finalise_loops()
 
 class Reset(Operation):
-    """ Reset a quantum register """
+    """ Reset a quantum register to the zero state
+
+    :param parent: Parent block defining object
+    :param qarg: Argument to reset
+    """
     def __init__(self, parent, qarg):
-        """FIXME! briefly describe function
-
-        :param parent: Parent block defining object
-        :param qarg:
-        :returns:
-        :rtype:
-
-        """
+        """Initialise a reset """
         Operation.__init__(self, parent, qarg)
         self.handle_loops([self.qargs])
 
 class Output(Operation):
     """ Write a classical register to screen """
     def __init__(self, parent, parg):
-        """FIXME! briefly describe function
+        """Initialise an output statement
 
         :param parent: Parent block defining object
-        :param parg:
-        :returns:
-        :rtype:
+        :param parg: Register to be written
 
         """
         Operation.__init__(self, parent, pargs=parg)
         self.handle_loops([self.pargs])
 
 class EntryExit(CoreOp):
-    """ Exit block? """
+    """ Exit recursive routine
+
+    :param parent: Parent block defining object
+
+    """
     def __init__(self, parent):
-        """FIXME! briefly describe function
-
-        :param parent: Parent block defining object
-        :returns:
-        :rtype:
-
-        """
-        self.parent = parent
+        """ Initialise entry-exit construct """
+        CoreOp.__init__(self, parent)
         self.depth = 1
 
     def exited(self):
@@ -1532,93 +1611,78 @@ class EntryExit(CoreOp):
         self.depth = 0
 
 class While(CodeBlock):
-    """ Define a while loop """
+    """ Define a while loop
+
+    :param parent: Parent block defining object
+    :param block: Code block of operations
+    :param cond: Condition of if statement
+    """
     def __init__(self, parent, block, cond):
-        """FIXME! briefly describe function
-
-        :param parent: Parent block defining object
-        :param block:Code block of operations
-        :param cond:
-        :returns:
-        :rtype:
-
-        """
+        """Initalise a while construct """
         self.cond = cond
-        CodeBlock.__init__(self, block, parent=parent)
+        CodeBlock.__init__(self, parent, block)
         self.parse_instructions()
 
 class IfBlock(CodeBlock):
-    """ Define an if statement """
-    def __init__(self, parent, cond, block):
-        """Initialise the if statement
+    """ Define an if statement
+    :param parent: Parent block defining object
+    :param block: Code block of operations
+    :param cond: Condition of if statement
 
-        :param parent: Parent block defining object
-        :param cond:
-        :param block:Code block of operations
-        :returns:
-        :rtype:
-
-        """
+    """
+    def __init__(self, parent, block, cond):
+        """Initialise an if construct """
         self.cond = cond
-        CodeBlock.__init__(self, block, parent=parent)
+        CodeBlock.__init__(self, parent, block)
         self.parse_instructions()
 
 class Gate(Referencable, CodeBlock):
     """
     Type to handle general general gates and their extensions (circuit, procedure, etc.)
 
-    Attributes:
-
+    :param parent: Parent block defining object
+    :param name: Reference name of the object
+    :param block: Code block of operations
+    :param pargs: Input parameter arguments
+    :param qargs: Input quantum arguments
+    :param spargs: Input special arguments
+    :param gargs: Input gate arguments
+    :param byprod: Output classical bit
+    :param recursive: Gate allowed to recurse
+    :param unitary: Gate allowed to contain non-unitaries
+    :param returnType: Type of return of function
     """
     internalGates = {}
 
     def __init__(self, parent, name, block,
                  pargs=(), qargs=(), spargs=(), gargs=(), byprod=(),
                  recursive=False, unitary=False, returnType=None):
-        """Initialises the gate object
-
-        :param parent: Parent block defining object
-        :param name: Reference name of the object
-        :param block: Code block of operations
-        :param pargs: Input parameter arguments
-        :param qargs: Input quantum arguments
-        :param spargs: Input special arguments
-        :param gargs: Input gate arguments
-        :param byprod: Output classical bit
-        :param recursive: Gate allowed to recurse
-        :param unitary: Gate allowed to contain non-unitaries
-        :param returnType: Type of return of function
-        :returns: New gate object
-        :rtype: Gate
-
-        """
-
+        """Initialises the gate object """
+        CodeBlock.__init__(self, parent, block)
         Referencable.__init__(self, parent)
         self.name = name
-        self.spargs = []
-        self.gargs = []
-
-        CodeBlock.__init__(self, block, parent=parent)
         self.unitary = unitary
 
         self._inverse = None
 
         if recursive:
-            self.gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
-            self.code = []
+            self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
+            self._code = []
             self.entry = EntryExit(self.name)
+        else:
+            self.entry = None
 
-        self.parse_gate_args(pargs, "ClassicalArgument")
-        self.parse_gate_args(spargs, "SpecialArgument")
-        self.parse_gate_args(qargs, "QuantumArgument")
-        self.parse_gate_args(gargs, "Gates")
+        self.spargs = spargs
+        self.qargs = qargs
+        self.pargs = pargs
+        self.gargs = gargs
 
         self.parse_instructions()
 
         if not byprod:
             self.returnType = None
         else:
-            self.code.append(Return(self, byprod))
+            self._code.append(Return(self, byprod))
             self.returnType = "listint"
 
         if returnType is not None:
@@ -1627,7 +1691,12 @@ class Gate(Referencable, CodeBlock):
         if recursive and self.entry.depth > 0:
             self._error(noExitWarning.format(self.name))
 
-    def invert(self, pargs, qargs):
+    @property
+    def inverse(self):
+        """ Inverse getter """
+        return self._inverse
+
+    def invert(self): #, pargs, qargs):
         """Calculates the inverse of the gate and called gates and assigns it to self._inverse
 
         :param pargs: Input parameter arguments Call's parameter arguments for inversion
@@ -1640,7 +1709,7 @@ class Gate(Referencable, CodeBlock):
             return self._inverse
         self._inverse = []
 
-        for line in reversed(self.code):
+        for line in reversed(self._code):
             if isinstance(line, CallGate):
                 self._inverse += self._objs[line.name].invert(pargs=line.pargs, qargs=line.qargs)
             else:
@@ -1648,50 +1717,76 @@ class Gate(Referencable, CodeBlock):
 
         return self._inverse
 
-    def parse_gate_args(self, args, argType):
-        """
-        Parse classes of arguments and assign them in scope
-        """
+    @property
+    def qargs(self):
+        """ qargs getter """
+        return self._qargs
 
-        if not args:
-            return
+    @property
+    def pargs(self):
+        """ pargs getter """
+        return self._pargs
 
-        if argType in ["ClassicalArgument"]:
-            for arg in args:
-                self._objs[arg] = Constant(self, (arg, "float"), (MathsBlock(self, arg), None))
-                self.pargs.append(self._objs[arg])
-        elif argType in ["SpecialArgument"]:
-            for arg in args:
-                self._objs[arg] = Constant(self, (arg, "int"), (MathsBlock(self, arg), None))
-                self.spargs.append(self._objs[arg])
-        elif argType in ["QuantumArgument"]:
-            for argTok in args:
-                arg = argTok["var"]
-                size = argTok.get("ref", {"index":1})
-                if size is not None:
-                    size = self.parse_range(size)
-                self._objs[arg] = Argument(self, arg, size)
-                self.qargs.append(self._objs[arg])
-        elif argType in ["Gates"]:
-            for arg in args:
-                self.gate(arg, NullBlock(self), unitary=self.unitary)
+    @property
+    def spargs(self):
+        """ spargs getter """
+        return self._spargs
 
-    def new_variable(self, argName, size, classical):
+    @property
+    def gargs(self):
+        """ gargs getter """
+        return self._gargs
+
+    @qargs.setter
+    def qargs(self, args):
+        for argTok in args:
+            arg = argTok["var"]
+            size = argTok.get("ref", {"index":1})
+            if size is not None:
+                size = self.parse_range(size)
+            self._objs[arg] = Argument(self, arg, size)
+            self.qargs.append(self._objs[arg])
+
+    @pargs.setter
+    def pargs(self, args):
+        for arg in args:
+            self._objs[arg] = Constant(self, (arg, "float"), (MathsBlock(self, arg), None))
+            self.pargs.append(self._objs[arg])
+
+    @spargs.setter
+    def spargs(self, args):
+        for arg in args:
+            self._objs[arg] = Constant(self, (arg, "int"), (MathsBlock(self, arg), None))
+            self.spargs.append(self._objs[arg])
+
+    @gargs.setter
+    def gargs(self, args):
+        for arg in args:
+            self._gate(arg, NullBlock(self), unitary=self.unitary)
+
+    def _new_variable(self, argName, size, classical):
         if not classical:
             self._error(declareGateWarning.format("carg", type(self).__name__))
         else:
             self._error(declareGateWarning.format("qarg", type(self).__name__))
 
-    def call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers=()):
+    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers=()):
         self._is_def(gateName, create=False, argType="Gate")
         # Perform unitary checks
         if self.unitary and not self._objs[gateName].unitary:
             self._error(unitaryWarning.format(gateName, self.name))
 
-        CodeBlock.call_gate(self, gateName, pargs, qargs, gargs, spargs, modifiers)
+        CodeBlock._call_gate(self, gateName, pargs, qargs, gargs, spargs, modifiers)
 
-    def measurement(self, qarg, qindex, parg, bindex):
+    def _measurement(self, qarg, qindex, parg, bindex):
         self._error("Cannot perform measure in gate")
+
+    def _leave(self):
+        """ Leave loop """
+        if self.entry is not None:
+            self.entry.exited()
+        else:
+            self._error("Cannot exit from a non-recursive gate")
 
 class Circuit(Gate):
     """
@@ -1700,10 +1795,9 @@ class Circuit(Gate):
 
     def __init__(self, *args, **kwargs):
         Gate.__init__(self, *args, **kwargs)
-        self.argType = "Gate"
-        self.measurement = CodeBlock.measurement
+        self._argType = "Gate"
 
-    def new_variable(self, argName, size, classical):
+    def _new_variable(self, argName, size, classical):
         """ Override new variable of gate to allow classical variables """
         self._is_def(argName, create=True)
 
@@ -1713,9 +1807,32 @@ class Circuit(Gate):
         else:
             self._error(declareGateWarning.format("qarg", type(self).__name__))
 
-        self.code += [variable]
+        self._code += [variable]
 
-    measurement = CodeBlock.measurement
+    _measurement = CodeBlock._measurement
+
+class Procedure(Circuit):
+    """ Defines a circuit as according to REQASM """
+    def __init__(self, *args, **kwargs):
+        Circuit.__init__(self, *args, **kwargs)
+        self._argType = "Procedure"
+
+class MainProg(Gate):
+    """ Class to handle main program of code """
+    def __init__(self, parent, name, code):
+        Gate.__init__(self, parent, name, NullBlock(parent.currentFile), returnType="int")
+        self._init_env()
+        # Hoist qregs
+        regs = [x for x in code if type(x).__name__ == "QuantumRegister"]
+        for reg in regs:
+            self._comment(f'{reg.name}[{reg.start}:{reg.end-1}]')
+            self._code += [Let(self, (reg.name, "const listint"),
+                               (list(range(reg.start, reg.end)), None))]
+
+        # Remove qreg declarations
+        code = [x for x in code if type(x).__name__ != "QuantumRegister"]
+        self._code += [QuantumRegister(self, "qreg", QuantumRegister.numQubits)]
+        self._code += code
 
 class Opaque(Gate):
     """
@@ -1725,44 +1842,34 @@ class Opaque(Gate):
     def __init__(self, parent, name,
                  pargs=(), qargs=(), spargs=(), gargs=(), byprod=(),
                  recursive=False, unitary=False, returnType=None):
-        self.argType = "Gate"
-        self.name = name
-        self.inverse = None
-        self.parent = parent
         self.parentFile = parent.currentFile
-        self.returnType = returnType
-        self.set_block(NullBlock(self.parentFile))
-        self.unitary = unitary
+        Gate.__init__(self, parent, name, NullBlock(self.parentFile),
+                      pargs, qargs, spargs, gargs, byprod,
+                      recursive, unitary, returnType)
+        self._argType = "Gate"
 
-        self.pargs = []
-        self.qargs = []
-        self.spargs = []
-        self.gargs = []
-        self.parse_gate_args(pargs, "ClassicalArgument")
-        self.parse_gate_args(spargs, "SpecialArgument")
-        self.parse_gate_args(qargs, "QuantumArgument")
-        self.parse_gate_args(gargs, "Gates")
+        self._inverse = None
 
     def set_block(self, block):
         """ Set the block of the opaque gate """
-        CodeBlock.__init__(self, block, parent=self.parent)
+        CodeBlock.__init__(self, self.parent, block)
         self.parse_instructions()
 
     def set_inverse(self, block):
         """ Set the inverse of the opaque gate """
-        CodeBlock.__init__(self, block, parent=self.parent)
+        CodeBlock.__init__(self, self.parent, block)
         self.inverse = block
 
 class CBlock:
     """ Classical block """
     def __init__(self, parent, block):
-        self.parent = parent
+        self._parent = parent
         self.block = block
 
 class Loop(CodeBlock):
     """ Loop structure """
     def __init__(self, parent, block, var, start, end, step=None):
-        CodeBlock.__init__(self, block, parent=parent)
+        CodeBlock.__init__(self, parent, block)
         self._objs[var] = Constant(self, (var, "int"), (0, None)) # Value is 0 for disambiguating resolution
         self._objs[var].loopVar = True
         self.loopVar = self._objs[var]
@@ -1787,7 +1894,7 @@ class Loop(CodeBlock):
 class NestLoop(Loop):
     """ Nested loop structure """
     def __init__(self, block, var, start, end, step=1):
-        self.code = [block]
+        self._code = [block]
         self.depth = 1
         if not isinstance(var, (list, tuple)):
             var = [var]
@@ -1805,8 +1912,8 @@ class NestLoop(Loop):
 
 class InitEnv(CoreOp):
     """ Initialise QuESTEnv """
-    def __init__(self):
-        pass
+    def __init__(self, parent):
+        CoreOp.__init__(self, parent)
 
 class Verbatim:
     """ Literal text """
@@ -1820,24 +1927,24 @@ class Verbatim:
 class Include(CoreOp):
     """ Import other QASM files """
     def __init__(self, parent, filename, code):
-        self.parent = parent
+        CoreOp.__init__(self, parent)
         self.filename = filename
-        self.code = code
+        self._code = code
 
 class Cycle(CoreOp):
     """ Jump to end of loop """
     def __init__(self, parent, var):
-        self.parent = parent
+        CoreOp.__init__(self, parent)
         self.var = var
 
 class Escape(CoreOp):
     """ Break out of loop """
     def __init__(self, parent, var):
-        self.parent = parent
+        CoreOp.__init__(self, parent)
         self.var = var
 
 class TheEnd(CoreOp):
     """ Kill running process """
     def __init__(self, parent, process):
-        self.parent = parent
+        CoreOp.__init__(self, parent)
         self.process = process

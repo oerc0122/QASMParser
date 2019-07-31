@@ -5,9 +5,10 @@ Module containing main file for parsing
 from importlib import import_module
 import sys
 import os.path
-from .QASMTypes import (CodeBlock, Constant, Comment, Gate, Include, CBlock, Verbatim,
-                        InitEnv, Let, QuantumRegister)
-from .FileHandle import (QASMFile, NullBlock)
+from .QASMTypes import (CodeBlock, Constant, Comment, Gate, MainProg, Include, CBlock, Verbatim)
+#,
+#                        InitEnv, Let, QuantumRegister)
+from .FileHandle import (QASMFile) #, NullBlock
 from .QASMErrors import (langNotDefWarning, langMismatchWarning, includeWarning)
 
 langConstants = ["e", "pi", "T", "F"]
@@ -21,8 +22,8 @@ class ProgFile(CodeBlock):
     def __init__(self, filename):
         self.filename = filename
         self.name = filename
-        CodeBlock.__init__(self, QASMFile(filename), None, False)
-        self.parent = self
+        self.classLang = None
+        CodeBlock.__init__(self, self, QASMFile(filename), False)
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
         for constant in ["e", "pi"]:
@@ -31,7 +32,6 @@ class ProgFile(CodeBlock):
             self._objs[name] = Constant(self, (name, "bool"), (val, None))
         self.parse_instructions()
         self.depth = 0
-        self.classLang = None
 
     def to_lang(self, filename=None, module=False, includes=None, langOut="C", verbose=False):
         """
@@ -57,7 +57,7 @@ class ProgFile(CodeBlock):
             raise NotImplementedError(langNotDefWarning.format(lang))
 
         indent = lang.indent
-        if hasattr(self, "classLang") and self.classLang is not langOut:
+        if self.classLang is not None and self.classLang is not langOut:
             raise NotImplementedError(langMismatchWarning.format(self.classLang, langOut))
 
         def print_code(self, code, outputFile):
@@ -148,22 +148,9 @@ class ProgFile(CodeBlock):
             print_code(self, reversed(gate), outputFile)
 
         if any([not isinstance(line, Comment) for line in codeToWrite]):
-            if not lang.bareCode:
-                temp = Gate(self, funcName, NullBlock(self.currentFile), returnType="int")
-                temp.code = [InitEnv()]
-                # Hoist qregs
-                regs = [x for x in codeToWrite if type(x).__name__ == "QuantumRegister"]
-                for reg in regs:
-                    temp.code += [Comment(self, f'{reg.name}[{reg.start}:{reg.end-1}]')]
-                    temp.code += [Let(self, (reg.name, "const listint"),
-                                      (list(range(reg.start, reg.end)), None))]
-                # Remove qreg declarations
-                codeToWrite = [x for x in codeToWrite if type(x).__name__ != "QuantumRegister"]
-                temp.code += [QuantumRegister(self, "qreg", QuantumRegister.numQubits)]
-                temp.code += codeToWrite
-                codeToWrite = [temp]
+            codeToWrite = MainProg(self, funcName, codeToWrite)
 
-        print_code(self, codeToWrite, outputFile)
+        print_code(self, [codeToWrite], outputFile)
 
         if filename:
             outputFile.close()
@@ -186,7 +173,7 @@ class ProgFile(CodeBlock):
 
         """
         other = ProgFile(filename)
-        self.code += [Include(self, filename, other.code)]
+        self._code += [Include(self, filename, other.code)]
         for objName, obj in other.get_objs():
             if objName in Gate.internalGates:
                 continue

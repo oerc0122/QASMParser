@@ -13,7 +13,7 @@ def setup_QASM_gates():
     dummy = QASMString("Internal")
 
     unitary = Opaque(dummy, "U", pargs=["theta", "phi", "lambda"], qargs=[{"var":"a"}], unitary=True)
-    unitary.code = [CBlock(
+    unitary._code = [CBlock(
         None,
         """
         rotateZ(qreg,a_index,lambda);
@@ -43,7 +43,7 @@ def setup_QASM_gates():
     unitary.invert = invert_unitary
 
     controlledNot = Opaque(dummy, "CX", pargs=[], qargs=[{"var":"a"}, {"var":"b"}], unitary=True)
-    controlledNot.code = [CBlock(
+    controlledNot._code = [CBlock(
         None,
         """
         controlledNot(qreg, a_index, b_index);

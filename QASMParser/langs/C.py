@@ -2,9 +2,9 @@
 Module to supply functions to write C from given QASM types
 """
 # pylint: disable=C0103,W0613
-from QASMParser.QASMTypes import (ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
-                                  Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate,
-                                  Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
+from QASMParser.QASMTypes import (MainProg, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
+                                  Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
+                                  Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                   Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
                                   MathOp, Register)
 from QASMParser.QASMTokens import (Binary, Function)
@@ -27,7 +27,10 @@ def set_lang():
     Measure.to_lang = Measure_to_c
     IfBlock.to_lang = IfBlock_to_c
     While.to_lang = While_to_c
+    MainProg.to_lang = CreateGate_to_c
     Gate.to_lang = CreateGate_to_c
+    Circuit.to_lang = CreateGate_to_c
+    Procedure.to_lang = CreateGate_to_c
     Opaque.to_lang = CreateGate_to_c
     CBlock.to_lang = CBlock_to_c
     Loop.to_lang = Loop_to_c
@@ -115,7 +118,14 @@ def Maths_to_c(parent, maths: MathsBlock):
     return outStr
 
 def resolve_maths(self, elem):
-    """Resolve mathematical element into C."""
+    """Resolve mathematical element into C.
+
+    :param elem: Mathematical element to transpile
+    :returns: Parsed maths in C
+    :rtype: str
+    """
+
+
     if isinstance(elem, MathsBlock):
         value = Maths_to_c(self, elem)
     elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
@@ -143,7 +153,14 @@ def resolve_maths(self, elem):
     return value
 
 def resolve_arg(arg):
-    """Resolve quantum arguments into their appropriate references or indices."""
+    """Resolve quantum arguments into their appropriate references or indices.
+
+    :param arg: List consisting of [register, index] to resolve
+    :returns: C-resolved array reference in register
+    :rtype: str
+    """
+
+
     obj, index = arg
 
     if isinstance(index, (list, tuple)):
@@ -176,7 +193,13 @@ def Include_to_c(self):
     return f'#include "{self.filename}"'
 
 def inc_c(filename):
-    """Shorthand for C imports."""
+    """Shorthand for C imports.
+
+    :param filename: File to include
+    :returns: Include line
+    :rtype: str
+
+    """
     return f'#include "{filename}"'
 
 header = [inc_c("QuEST.h"), inc_c("stdio.h"), inc_c("reqasm.h")]
@@ -257,8 +280,8 @@ def SetAlias_to_c(self):
         else:
             outStr += f"\n  {self.alias.name}[{aliasIndex}] = {targetIndex};"
     else:
-        self.qargs = (self.qargs[0], self.qargs[1][0])
-        outStr = f"{self.alias.name}[{self.pargs[1][0]}] = {resolve_arg(self.qargs)};"
+        qargs = (self.qargs[0], self.qargs[1][0])
+        outStr = f"{self.alias.name}[{self.pargs[1][0]}] = {resolve_arg(qargs)};"
     return outStr
 
 def Let_to_c(self):

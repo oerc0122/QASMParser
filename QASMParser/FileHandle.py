@@ -12,6 +12,9 @@ from .QASMErrors import (headerVerWarning, QASMVerWarning, fileWarning, recursio
 class QASMFile:
     """
     Main class to handle QASM text files and sensibly handle errors.
+
+    :param filename: File to load and parse
+    :param reqVersion: Needs to be at least this version
     """
     _QASMFiles = []
     depth_limit = 10
@@ -31,6 +34,8 @@ class QASMFile:
         QASMFile._QASMFiles.append(self.name)
         self.nLine = 0
         self.header = []
+        self.classLang = None
+
         for line in self.read_instruction():
             if line.get('keyword', None) is None:
                 if line.get("comment", None) is not None:
@@ -164,6 +169,7 @@ class QASMString(QASMFile):
     def __init__(self, block):
         import io
         self.parent = self
+        self.classLang = None
         self.version = (2, 2, 0)
         self.versionNumber = 2.0
         self.QASMType = "REQASM"
@@ -172,6 +178,9 @@ class QASMString(QASMFile):
         self.currentFile = self
         self.nLine = 0
         self._objs = {}
+
+    def get_objs(self, _):
+        return self._objs
 
     def __del__(self):
         pass
@@ -214,7 +223,7 @@ class NullBlock(QASMFile):
         """ Return null """
         if not self.read:
             self.read = True
-            return "// "
+            return " "
         return None
 
     def __del__(self):
