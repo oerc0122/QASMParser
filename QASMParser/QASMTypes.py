@@ -152,8 +152,8 @@ class Operation(CoreOp):
         """ Dealias references of self if self has changed to avoid infinite loops """
 
         if self.loops:
-            self.innermost.code = [copy.copy(self)]
-            self.innermost.code[0].loops = []
+            self.innermost._code = [copy.copy(self)]
+            self.innermost._code[0].loops = []
 
     def handle_loops(self, pargs):
         """ Handle loop rules according to modified REQASM rules

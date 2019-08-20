@@ -4,19 +4,53 @@ Module for building adjacency list and firing that through METIS for partitionin
 
 import metis
 import numpy as np
+from .QASMTypes import (QuantumRegister)
 from .CodeGraph import (BaseGraphBuilder, range_inclusive, parse_code)
 
 class AdjListBuilder(BaseGraphBuilder):
     """ Class for building tensor network adjacency list """
     def __init__(self, size):
         BaseGraphBuilder.__init__(self, size)
-        self.lastUpdated = [None]*size
-        self.adjList = []
+        # Set initialise (entry) statements
+        self.lastUpdated = [i for i in range(size)]
+        self._adjList = [[] for i in range(size)]
+        self.remap = {}
+        self.unmap = {}
 
-    def process(self):
-        start, end = min(np.where(self._involved == 1)), max(np.where(self._involved == 1))
+    nVerts = property(lambda self: len(self._adjList))
+    adjList = property(lambda self: self._adjList)
+
+    def finalise(self):
+        """ Lock in vertices """
+        self._adjList = list(map(tuple, self._adjList))
+    
+    def process(self, **kwargs):
+        start, end = min(np.flatnonzero(self._involved == 1)), max(np.flatnonzero(self._involved == 1))
         for qubit in range_inclusive(start, end):
-            pass
+            prev = self.lastUpdated[qubit]
+            # Add new state as vertex
+            self._adjList.append([])
+            current = self.nVerts-1
+            # Link last updated vertex to current
+            self._link(prev, current)
+            self.lastUpdated[qubit] = current
+            # Set mappings
+            self.remap[kwargs['lineNo']] = current
+            self.unmap[current] = kwargs['lineNo']
+            if qubit != start: # Skip if initial qubit (nothing to link to)
+                self._link(lastVertex, current)
+            # Link to previous qubit in operation
+            lastVertex = current
+
+        self.set_qubits()
+
+    def _link(self, a, b):
+        self._adjList[a].append(b)
+        self._adjList[b].append(a)
+
+    def handle_measure(self, **kwargs):
+        self.set_qubits(1)
+        self.process(**kwargs)
 
 class Tree:
     """ Class defining tree head """
@@ -24,7 +58,6 @@ class Tree:
         self.parent = None
         self.tier = 0
         self.child = []
-        self.done = False
         self._adjList = graph
         self.remap = dict((i, i) for i, _ in enumerate(graph))
         self.unmap = self.remap
@@ -107,7 +140,6 @@ class Tree:
     def split_graph(self):
         """ Recursively split the graph and build the resulting binary tree """
         if self.nVerts < 2:
-            self.done = True
             return
         graph = adjlist_to_metis(self.adjListMap)
         cut = np.asarray(metis.part_graph(graph, nparts=2)[1])
@@ -118,7 +150,6 @@ class Tree:
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph()
         childR.split_graph()
-        self.done = True
 
 
 class Node(Tree):
@@ -129,7 +160,6 @@ class Node(Tree):
         parent += self
         self.tier = self.parent.tier + 1
         self.child = []
-        self.done = False
         self._adjList = parent.adjList[cut]
         self.remap = dict((old, new) for new, old in enumerate(cut))
         self.unmap = dict((new, parent.unmap[old]) for new, old in enumerate(cut))
@@ -148,21 +178,30 @@ def adjlist_to_metis(adjList):
     """ Actually add the 1 weights in """
     return metis.adjlist_to_metis(add_weights(adjList))
 
-myGraph = np.asarray([(4,),           #  0
-                      (5,),           #  1
-                      (9,),           #  2
-                      (6,),           #  3
-                      (0, 7,),        #  4
-                      (1, 8,),        #  5
-                      (3, 13,),       #  6
-                      (4, 8, 10,),    #  7
-                      (5, 7, 9, 11,), #  8
-                      (2, 8, 12,),    #  9
-                      (7,),           # 10
-                      (8,),           # 11
-                      (9,),           # 12
-                      (6,)])          # 13
+def run():
+    myGraph = np.asarray([(4,),           #  0
+                          (5,),           #  1
+                          (9,),           #  2
+                          (6,),           #  3
+                          (0, 7,),        #  4
+                          (1, 8,),        #  5
+                          (3, 13,),       #  6
+                          (4, 8, 10,),    #  7
+                          (5, 7, 9, 11,), #  8
+                          (2, 8, 12,),    #  9
+                          (7,),           # 10
+                          (8,),           # 11
+                          (9,),           # 12
+                          (6,)])          # 13
+
+    treeHead = Tree(myGraph)
+    treeHead.split_graph()
+    print(treeHead.tree_form("vertices"))
 
 
-treeHead = Tree(myGraph)
-treeHead.split_graph()
+def calculate_adjlist(code, maxDepth=999):
+    adjList = AdjListBuilder(QuantumRegister.numQubits)
+    parse_code(code, adjList, maxDepth=maxDepth)
+    adjList.finalise()
+    return adjList
+run()

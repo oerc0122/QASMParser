@@ -44,7 +44,7 @@ class AdjMat(np.ndarray, BaseGraphBuilder):
         return it.chain.from_iterable(it.combinations(range(self.nQubits), i)
                                       for i in range_inclusive(1, self.nQubits))
 
-    def process(self):
+    def process(self, **kwargs):
         """ Set the appropriate elements of the adjacency matrix """
         for i, j in it.permutations(*self._involved.nonzero(), 2):
             self[i, j] += 1

@@ -3,7 +3,7 @@ Contains routines to traverse the parsed code and build graphs
 """
 
 import numpy as np
-from .QASMTypes import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measurement)
+from .QASMTypes import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
 
 class BaseGraphBuilder():
     """ Quantum circuit adjacency matrix """
@@ -34,14 +34,14 @@ class BaseGraphBuilder():
             for i in ranges:
                 self._involved[i] = value
 
-    def process(self):
+    def process(self, **kwargs):
         """ Perform necessary processing of set qubits """
 
-    def handle_classical(self):
-        """ Dummy to ignore classical blocks """
+    def handle_classical(self, **kwargs):
+        """ Perform actions based on classical blocks """
 
-    def handle_measure(self):
-        """ Dummy to ignore measurement blocks """
+    def handle_measure(self, **kwargs):
+        """ Handle measurements """
 
 def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1):
     """ Traverse code recursively updating the builder accordingly """
@@ -55,7 +55,7 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
                                        depth=depth+1, maxDepth=maxDepth)
     maths = lambda x: codeObject.resolve_maths(x, additionalVars=spargs)
 
-    for line in codeObject.code:
+    for lineNo, line in enumerate(codeObject.code):
         builder.currOp = line.name
         if isinstance(line, CallGate):
             if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
@@ -81,11 +81,11 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
                 for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])+1):
                     for qarg in qargs:
                         builder.set_qubits(1, resolve_arg(codeObject, qarg, args, spargs, loopVar))
-                    builder.process()
+                    builder.process(lineNo=lineNo, lineObj=line)
             else:
                 for qarg in qargs:
                     builder.set_qubits(1, resolve_arg(codeObject, qarg, args, spargs))
-                builder.process()
+                builder.process(lineNo=lineNo, lineObj=line)
 
         elif isinstance(line, SetAlias):
             a = range_inclusive(*line.pargs[1])
@@ -106,10 +106,10 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
             del spargsSend
 
         elif isinstance(line, CBlock):
-            builder.handle_classical()
+            builder.handle_classical(lineNo=lineNo, lineObj=line)
 
-        elif isinstance(line, Measurement):
-            builder.handle_measure()
+        elif isinstance(line, Measure):
+            builder.handle_measure(lineNo=lineNo, lineObj=line)
 
 def range_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop like anything sensible would """

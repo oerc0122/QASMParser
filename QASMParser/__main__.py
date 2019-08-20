@@ -10,6 +10,7 @@ from QASMParser.CircuitDiag import (print_circuit_diag)
 from QASMParser.AdjMat import (calculate_adjmat, best_slice_adjmat)
 from QASMParser.QASMErrors import (noSpecWarning)
 from QASMParser.Partitioning import (partition)
+from QASMParser.METISPartition import (calculate_adjlist, Tree)
 
 def main():
     """ Run main program """
@@ -25,14 +26,24 @@ def main():
         return
 
     if argList.analyse:
+        # for source in argList.sources:
+        #     myProg = ProgFile(source)
+        #     print(source)
+        #     mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
+        #     regNames = ["{reg.name:.5}" for reg in myProg.quantumRegisters]
+        #     bestSlice = best_slice_adjmat(mat)
+
+        #     print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
         for source in argList.sources:
             myProg = ProgFile(source)
             print(source)
-            mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
-            regNames = ["{reg.name:.5}" for reg in myProg.quantumRegisters]
-            bestSlice = best_slice_adjmat(mat)
-
-            print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
+            adj = calculate_adjlist(myProg, maxDepth=argList.max_depth)
+            for i, vert in enumerate(adj.adjList):
+                print(vert, "# ",i)
+            tree = Tree(adj.adjList)
+            tree.split_graph()
+            print(tree.tree_form("vertices"))
+            print(adj.nVerts)
         return
 
     lang = None
