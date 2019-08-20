@@ -1,30 +1,38 @@
 #!/usr/bin/env python3
+"""
+Main program for transpiling QASM scripts into QuEST input format
+"""
 
-from QASMParser.QASMParser import *
-import QASMParser.QASMQuESTGate
-from QASMParser.cli import get_command_args
-from QASMParser.partition import quickDispl, calculate_adjmat, print_adjmat, slice_adjmat
-import numpy
+from QASMParser.QASMParser import ProgFile
+from QASMParser.QASMQuESTGate import setup_QASM_gates
+from QASMParser.Cli import get_command_args
+from QASMParser.CircuitDiag import (print_circuit_diag)
+from QASMParser.AdjMat import (calculate_adjmat, best_slice_adjmat)
+from QASMParser.QASMErrors import (noSpecWarning)
+from QASMParser.Partitioning import (partition)
 
 def main():
+    """ Run main program """
     argList = get_command_args()
-    
+
+    # Set up the core internal gates
+    setup_QASM_gates()
     if argList.print:
         for source in argList.sources:
             myProg = ProgFile(source)
             print(source)
-            quickDispl(myProg, topLevel = True)
+            print_circuit_diag(myProg, maxDepth=argList.max_depth)
         return
 
     if argList.analyse:
         for source in argList.sources:
             myProg = ProgFile(source)
             print(source)
-            mat = calculate_adjmat(myProg)
-            regNames = [ f"{reg.name:.5}[{i}]" for reg in myProg._code if type(reg).__name__ == "QuantumRegister" for i in range(reg.size) ]
-            print_adjmat(regNames, mat)
-            print_adjmat(regNames, numpy.triu(mat))
-            slice_adjmat(mat)
+            mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
+            regNames = ["{reg.name:.5}" for reg in myProg.quantumRegisters]
+            bestSlice = best_slice_adjmat(mat)
+
+            print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
         return
 
     lang = None
@@ -35,9 +43,10 @@ def main():
     elif argList.output.endswith('.c'):
         lang = "C"
     elif not argList.output:
-        raise IOError('Neither language nor output specified')
+        raise IOError(noSpecWarning)
 
-    if not lang: raise IOError('No language specified')
+    if not lang:
+        raise IOError(noSpecWarning)
 
     if argList.output:
         outputFile = argList.output
@@ -46,7 +55,8 @@ def main():
 
     for source in argList.sources:
         myProg = ProgFile(source)
-        myProg.to_lang(outputFile, argList.to_module, lang, includes= argList.include, verbose=argList.debug)
+        partition(myProg, argList.partition)
+        myProg.to_lang(outputFile, argList.to_module, argList.include, lang, argList.debug)
 
 if __name__ == "__main__":
     main()

@@ -1,51 +1,63 @@
-from .QASMTypes import *# Gate, Opaque, CBlock
-from .FileHandle import QASMString
+"""
+Module to set up inbuilt QASM gates in QuEST format.
+"""
 import copy
+
+from .QASMTypes import (Gate, Opaque, CBlock, MathsBlock, Constant, CallGate)
+from .QASMTokens import (Binary)
+from .FileHandle import QASMString
 # Core gates
-dummy = QASMString("Internal")
 
-_U = Opaque(dummy, "U", pargs = ["theta","phi","lambda"], qargs = [{"var":"a"}], unitary = True)
-_U._code = [CBlock(
-    None,
-    """
-    rotateZ(qreg,a_index,lambda);
-    rotateX(qreg,a_index,theta);
-    rotateZ(qreg,a_index,phi);
-    """)]
+def setup_QASM_gates():
+    """ Define core QASM gates """
+    dummy = QASMString("Internal")
 
-def _invert_U(**kwargs):
-    new_args = []
-    for parg in kwargs["pargs"]:
-        if isinstance(parg, MathsBlock):
-            parg.topLevel = False
-            arg = MathsBlock(parg.parent, Binary( [[ "-", parg.maths ]] ))
-        elif isinstance(parg, Constant):
-            arg = copy.copy(parg)
-            if arg.name.startswith("-"): arg.name = arg.name.lstrip("-")
-            else:                        arg.name = "-" + arg.name
-        new_args.append(arg)
+    unitary = Opaque(dummy, "U", pargs=["theta", "phi", "lambda"], qargs=[{"var":"a"}], unitary=True)
+    unitary._code = [CBlock(
+        None,
+        """
+        rotateZ(qreg,a_index,lambda);
+        rotateX(qreg,a_index,theta);
+        rotateZ(qreg,a_index,phi);
+        """)]
 
-    qargs = kwargs["qargs"]
-    qargs[0][1] = (None, None)
-    return [CallGate(None, "U", new_args, qargs)]
+    def invert_unitary(**kwargs):
+        """ Inverse U gate (opposite rotation) """
+        newArgs = []
+        for parg in kwargs["pargs"]:
+            if isinstance(parg, MathsBlock):
+                parg.topLevel = False
+                arg = MathsBlock(parg.parent, Binary([["-", parg.maths]]))
+            elif isinstance(parg, Constant):
+                arg = copy.copy(parg)
+                if arg.name.startswith("-"):
+                    arg.name = arg.name.lstrip("-")
+                else:
+                    arg.name = "-" + arg.name
+            newArgs.append(arg)
 
-_U.invert = _invert_U
+        qargs = kwargs["qargs"]
+        qargs[0][1] = (None, None)
+        return [CallGate(None, "U", newArgs, qargs, **kwargs)]
 
-_CX = Opaque(dummy, "CX", pargs = [], qargs = [{"var":"a"}, {"var":"b"}], unitary = True)
-_CX._code = [CBlock(
-    None,
-    """
-    controlledNot(qreg, a_index, b_index);
-    """)]
+    unitary.invert = invert_unitary
 
-def _invert_CX(**kwargs):
-    pargs = kwargs["pargs"]
-    qargs = kwargs["qargs"]
-    for qarg in qargs:
-        qarg[1] = (None, None)
-    return [CallGate(None, "CX", **kwargs)]
+    controlledNot = Opaque(dummy, "CX", pargs=[], qargs=[{"var":"a"}, {"var":"b"}], unitary=True)
+    controlledNot._code = [CBlock(
+        None,
+        """
+        controlledNot(qreg, a_index, b_index);
+        """)]
 
-_CX.invert = _invert_CX
+    def invert_controlled_not(**kwargs): # 
+        """ inverse CX gate (CX gate) """
+    #    pargs = kwargs["pargs"]
+        qargs = kwargs["qargs"]
+        for qarg in qargs:
+            qarg[1] = (None, None)
+        return [CallGate(None, "CX", **kwargs)]
 
-Gate.internalGates["U"] = _U
-Gate.internalGates["CX"] = _CX
+    controlledNot.invert = invert_controlled_not
+
+    Gate.internalGates["U"] = unitary
+    Gate.internalGates["CX"] = controlledNot
