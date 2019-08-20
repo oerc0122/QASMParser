@@ -7,9 +7,9 @@ from QASMParser.QASMParser import ProgFile
 from QASMParser.QASMQuESTGate import setup_QASM_gates
 from QASMParser.Cli import get_command_args
 from QASMParser.CircuitDiag import (print_circuit_diag)
-from QASMParser.AdjMat import (calculate_adjmat, print_adjmat, slice_adjmat)
+from QASMParser.AdjMat import (calculate_adjmat, best_slice_adjmat)
 from QASMParser.QASMErrors import (noSpecWarning)
-
+from QASMParser.Partitioning import (partition)
 
 def main():
     """ Run main program """
@@ -21,8 +21,7 @@ def main():
         for source in argList.sources:
             myProg = ProgFile(source)
             print(source)
-            print(argList.max_depth)
-            print_circuit_diag(myProg, topLevel=True, maxDepth=argList.max_depth)
+            print_circuit_diag(myProg, maxDepth=argList.max_depth)
         return
 
     if argList.analyse:
@@ -30,12 +29,10 @@ def main():
             myProg = ProgFile(source)
             print(source)
             mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
-            regNames = [f"{reg.name:.5}[{i}]"
-                        for reg in myProg.code
-                        if type(reg).__name__ == "QuantumRegister"
-                        for i in range(reg.size)]
-            print_adjmat(regNames, mat)
-            slice_adjmat(mat)
+            regNames = ["{reg.name:.5}" for reg in myProg.quantumRegisters]
+            bestSlice = best_slice_adjmat(mat)
+
+            print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
         return
 
     lang = None
@@ -58,6 +55,7 @@ def main():
 
     for source in argList.sources:
         myProg = ProgFile(source)
+        partition(myProg, argList.partition)
         myProg.to_lang(outputFile, argList.to_module, argList.include, lang, argList.debug)
 
 if __name__ == "__main__":

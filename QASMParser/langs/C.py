@@ -1,8 +1,7 @@
 """
 Module to supply functions to write C from given QASM types
 """
-# pylint: disable=C0103,W0613
-from QASMParser.QASMTypes import (MainProg, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
+from QASMParser.QASMTypes import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
                                   Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                   Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                   Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
@@ -17,6 +16,7 @@ def set_lang():
     :returns: None
     :rtype: None
     """
+    TensorNetwork.to_lang = TensorNetwork_to_c
     ClassicalRegister.to_lang = ClassicalRegister_to_c
     QuantumRegister.to_lang = QuantumRegister_to_c
     DeferredClassicalRegister.to_lang = DeferredClassicalRegister_to_c
@@ -27,14 +27,13 @@ def set_lang():
     Measure.to_lang = Measure_to_c
     IfBlock.to_lang = IfBlock_to_c
     While.to_lang = While_to_c
-    MainProg.to_lang = CreateGate_to_c
     Gate.to_lang = CreateGate_to_c
     Circuit.to_lang = CreateGate_to_c
     Procedure.to_lang = CreateGate_to_c
     Opaque.to_lang = CreateGate_to_c
     CBlock.to_lang = CBlock_to_c
     Loop.to_lang = Loop_to_c
-    NestLoop.to_lang = Loop_to_c
+    NestLoop.to_lang = NestLoop_to_c
     Reset.to_lang = Reset_to_c
     Output.to_lang = Output_to_c
     InitEnv.to_lang = init_env
@@ -192,7 +191,7 @@ def Include_to_c(self):
     """Syntax conversion for C imports."""
     return f'#include "{self.filename}"'
 
-def inc_c(filename):
+def inc(filename):
     """Shorthand for C imports.
 
     :param filename: File to include
@@ -202,7 +201,8 @@ def inc_c(filename):
     """
     return f'#include "{filename}"'
 
-header = [inc_c("QuEST.h"), inc_c("stdio.h"), inc_c("reqasm.h")]
+header = [inc("QuEST.h"), inc("stdio.h"), inc("reqasm.h")]
+includeTN = inc("QuEST_tn.h") + "\n#define CX tn_controlledNot\n#define U tn_unitary"
 
 def init_env(self):
     """ Syntax conversion for initialising QuEST environment """
@@ -254,6 +254,16 @@ def DeferredClassicalRegister_to_c(self):
 def QuantumRegister_to_c(self):
     """Syntax conversion for creating a quantum register."""
     return f"Qureg {self.name} = createQureg({self.size}, Env);"
+
+def TensorNetwork_to_c(self):
+    """Syntax conversion for creating a TensorNetwork """
+    numTensors = len(self.physicalQubits)
+    numPqPerTensor = Let(self, ("numPqPerTensor", "const listint"), (self.physicalQubits, None)).to_lang()
+    numVqPerTensor = Let(self, ("numVqPerTensor", "const listint"), (self.virtualQubits, None)).to_lang()
+
+    return f"""{numPqPerTensor}
+{numVqPerTensor}
+TensorNetwork {self.name} = createTensorNetwork({numTensors}, numPqPerTensor, numVqPerTensor, Env)"""
 
 def Argument_to_c(self):
     """Syntax conversion for creating a function argument."""
@@ -385,7 +395,7 @@ def CreateGate_to_c(self):
     return outStr
 
 def Loop_to_c(self):
-    """Syntax conversion for declaring a loop."""
+    """Syntax conversion for declaring a loop (inclusive)."""
     resolve = lambda b: resolve_maths(self, b)
     start = map(resolve, self.start)
     end = map(resolve, self.end)
@@ -393,5 +403,17 @@ def Loop_to_c(self):
 
     var = (f"int {var} = {init}" for var, init in zip(self.var, start))
     term = (f"{var} <= {term}"    for var, term in zip(self.var, end))
-    inc = (f"{var} += {inc}"     for var, inc  in zip(self.var, step))
-    return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(inc)} )"
+    incr = (f"{var} += {incr}"     for var, incr  in zip(self.var, step))
+    return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(incr)} )"
+
+def NestLoop_to_c(self):
+    """Syntax conversion for implicit loop (exclusive)."""
+    resolve = lambda b: resolve_maths(self, b)
+    start = map(resolve, self.start)
+    end = map(resolve, self.end)
+    step = map(resolve, self.step)
+
+    var = (f"int {var} = {init}" for var, init in zip(self.var, start))
+    term = (f"{var} < {term}"    for var, term in zip(self.var, end))
+    incr = (f"{var} += {incr}"     for var, incr  in zip(self.var, step))
+    return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(incr)} )"

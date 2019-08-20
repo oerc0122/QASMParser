@@ -7,7 +7,7 @@ from pyparsing import (ParseException)
 from .QASMTokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parseVersion,
                          qops, cops, blocks)
 from .QASMErrors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
-                         unknownParseWarning, instructionWarning)
+                         unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning)
 
 class QASMFile:
     """
@@ -137,7 +137,7 @@ class QASMFile:
         if currentLine.strip(): # Catch remainder
             try:
                 if list(QASMcodeParser.scanString(currentLine))[0][0] != 0:
-                    raise IOError
+                    raise IOError(eofWarning)
                 for inst, start, end in QASMcodeParser.scanString(currentLine):
                     instruction = inst[0]
                     instruction.original = currentLine[start:end]
@@ -180,6 +180,7 @@ class QASMString(QASMFile):
         self._objs = {}
 
     def get_objs(self, _):
+        """ Objs getter to mimic main file """
         return self._objs
 
     def __del__(self):
@@ -204,7 +205,7 @@ class QASMBlock(QASMFile):
 
     def readline(self):
         """ Raise error because readline should not be called for blocks """
-        raise NotImplementedError("Attempted to read line from QASMBlock")
+        raise NotImplementedError(QASMBlockWarning)
 
     def __del__(self):
         pass
