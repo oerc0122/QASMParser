@@ -22,8 +22,8 @@ class AdjListBuilder(BaseGraphBuilder):
 
     def finalise(self):
         """ Lock in vertices """
-        self._adjList = list(map(tuple, self._adjList))
-    
+        self._adjList = np.asarray(list(map(tuple, self._adjList)))
+
     def process(self, **kwargs):
         start, end = min(np.flatnonzero(self._involved == 1)), max(np.flatnonzero(self._involved == 1))
         for qubit in range_inclusive(start, end):
@@ -146,7 +146,9 @@ class Tree:
         if 0 < sum(cut) < len(cut): # Handle METIS not splitting small graphs by taking first value
             cutL, cutR = np.nonzero(cut == 0)[0], np.nonzero(cut == 1)[0]
         else:
-            cutL, cutR = [0], list(range(1, len(cut)))
+            cutL = min(map(len, self.adjList))
+            cutR = [*range(0, cutL), *range(cutL+1, len(cut))]
+            cutL = [cutL]
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph()
         childR.split_graph()
@@ -168,40 +170,17 @@ class Node(Tree):
 
 def add_weights(weights):
     """ Add weights necessary for METIS partitioning """
-    out = []
-    for edge in weights:
-        out.append([(weight, 1) for weight in edge])
-    return out
-
+    return [[(weight, 1) for weight in edge] for edge in weights]
+    
 
 def adjlist_to_metis(adjList):
     """ Actually add the 1 weights in """
     return metis.adjlist_to_metis(add_weights(adjList))
 
-def run():
-    myGraph = np.asarray([(4,),           #  0
-                          (5,),           #  1
-                          (9,),           #  2
-                          (6,),           #  3
-                          (0, 7,),        #  4
-                          (1, 8,),        #  5
-                          (3, 13,),       #  6
-                          (4, 8, 10,),    #  7
-                          (5, 7, 9, 11,), #  8
-                          (2, 8, 12,),    #  9
-                          (7,),           # 10
-                          (8,),           # 11
-                          (9,),           # 12
-                          (6,)])          # 13
-
-    treeHead = Tree(myGraph)
-    treeHead.split_graph()
-    print(treeHead.tree_form("vertices"))
-
 
 def calculate_adjlist(code, maxDepth=999):
+    """ Calculate adjacency list for METIS partitioner """
     adjList = AdjListBuilder(QuantumRegister.numQubits)
     parse_code(code, adjList, maxDepth=maxDepth)
     adjList.finalise()
     return adjList
-run()

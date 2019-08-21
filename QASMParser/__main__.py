@@ -39,12 +39,11 @@ def main():
             print(source)
             adj = calculate_adjlist(myProg, maxDepth=argList.max_depth)
             for i, vert in enumerate(adj.adjList):
-                print(vert, "# ",i)
+                print(vert, "# ", i)
             tree = Tree(adj.adjList)
             tree.split_graph()
             print(tree.tree_form("vertices"))
-            print(adj.nVerts)
-        return
+        return 
 
     lang = None
     if argList.language:
