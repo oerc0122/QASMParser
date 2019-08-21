@@ -48,8 +48,8 @@ def set_lang():
 # Several details pertaining to the language in question
 hoistFuncs = True    # Move functions to front of program
 hoistIncludes = True # Move includes  to front of program
-hoistVars = False   # Move variables to front of program
-bareCode = False   # Can code be bare or does it need to be in function
+hoistVars = False    # Move variables to front of program
+bareCode = False     # Can code be bare or does it need to be in function
 blockOpen = "{"      # Block delimiters
 blockClose = "}"     #  ""      ""
 indent = "  "        # Standard indent depth
@@ -109,7 +109,7 @@ def Maths_to_c(parent, maths: MathsBlock):
             args = []
             for arg in element.args:
                 args.append(resolve_maths(parent, arg))
-                outStr += f"{elem}({', '.join(args)})"
+            outStr += f"{elem}({', '.join(args)})"
         elif isinstance(element, str):
             outStr += element
         else: raise NotImplementedError("Maths cannot parse type {} {}".format(type(element).__name__, element))
@@ -297,8 +297,8 @@ def SetAlias_to_c(self):
 def Let_to_c(self):
     """Syntax conversion for creating a variable."""
     var = self.const
-
     assignee = var.name
+
     if var.varType:
         assignee = f"{_typesTranslation[var.varType]} {assignee}"
         if var.varType in ["const listint", "listint", "listfloat"]:

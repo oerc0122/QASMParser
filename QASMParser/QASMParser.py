@@ -61,7 +61,7 @@ class ProgFile(CodeBlock):
             raise NotImplementedError(langNotDefWarning.format(langOut))
 
         indent = lang.indent
-        if self.classLang is not None and self.classLang is not langOut:
+        if self.classLang is not None and self.classLang != langOut:
             raise NotImplementedError(langMismatchWarning.format(self.classLang, langOut))
 
         def print_code(self, code, outputFile):

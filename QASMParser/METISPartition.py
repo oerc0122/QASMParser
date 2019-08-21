@@ -143,9 +143,9 @@ class Tree:
             return
         graph = adjlist_to_metis(self.adjListMap)
         cut = np.asarray(metis.part_graph(graph, nparts=2)[1])
-        if 0 < sum(cut) < len(cut): # Handle METIS not splitting small graphs by taking first value
+        if 0 < sum(cut) < len(cut):
             cutL, cutR = np.nonzero(cut == 0)[0], np.nonzero(cut == 1)[0]
-        else:
+        else: # Handle METIS not splitting small graphs by taking least-connected value
             cutL = min(map(len, self.adjList))
             cutR = [*range(0, cutL), *range(cutL+1, len(cut))]
             cutL = [cutL]
