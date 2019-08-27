@@ -349,7 +349,7 @@ def Loop_to_Python(self):
     if len(self.var) == 1:
         return f"for {''.join(self.var)} in range({''.join(start)}, {''.join(end)}+1, {''.join(step)})"
 
-    ranges = [f"range({init}, {term}, {incr})" for init, term, incr in zip(start, end, step)]
+    ranges = [f"range({init}, {term}+1, {incr})" for init, term, incr in zip(start, end, step)]
     return f"for {', '.join(self.var)} in zip({', '.join(ranges)})"
 
 def NestLoop_to_Python(self):
