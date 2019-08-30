@@ -29,6 +29,9 @@ class QubitLine(BaseGraphBuilder):
         """ Print an appropriately scaled classical line """
         print("{:*^{width}}".format(' Classical ', width=3*self.nQubits))
 
+    def handle_measure(self, **kwargs):
+        print("{:*^{width}}".format(' Measure ', width=3*self.nQubits))
+        
 
 def print_circuit_diag(codeObject, maxDepth=-1):
     """ Recursively traverse the code to print a quick entanglement graph/circuit diagram """

@@ -26,24 +26,46 @@ def main():
         return
 
     if argList.analyse:
-        # for source in argList.sources:
-        #     myProg = ProgFile(source)
-        #     print(source)
-        #     mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
-        #     regNames = ["{reg.name:.5}" for reg in myProg.quantumRegisters]
-        #     bestSlice = best_slice_adjmat(mat)
+        if argList.partition == 0:
+            pass
+        if argList.partition == 1:
+            for source in argList.sources:
+                myProg = ProgFile(source)
+                print(source)
+                mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
+                bestSlice = [reg.end-1 for reg in myProg.quantumRegisters]
 
-        #     print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
-        for source in argList.sources:
-            myProg = ProgFile(source)
-            print(source)
-            adj = calculate_adjlist(myProg, maxDepth=argList.max_depth)
-            for i, vert in enumerate(adj.adjList):
-                print(vert, "# ", i)
-            tree = Tree(adj.adjList)
-            tree.split_graph()
-            print(tree.tree_form("vertices"))
-        return 
+                print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
+        if argList.partition == 2:
+            for source in argList.sources:
+                myProg = ProgFile(source)
+                print(source)
+                mat = calculate_adjmat(myProg, maxDepth=argList.max_depth)
+                bestSlice = best_slice_adjmat(mat)
+
+                print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
+        elif argList.partition == 3:
+            for source in argList.sources:
+
+                myProg = ProgFile(source)
+                print(source)
+                adj = calculate_adjlist(myProg, maxDepth=argList.max_depth)
+
+                ### Drawing
+                import pygraphviz as pg
+                edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
+                graph = pg.AGraph()
+                for edge in edgeList:
+                    graph.add_edge(*edge)
+                graph.draw('graph.png', prog='neato')
+                ### EndDraw
+
+                tree = Tree(adj.adjList)
+                print(adj.edges)
+                tree.split_graph()
+                print(tree.tree_form("vertIDs"))
+                tree.contract()
+        return
 
     lang = None
     if argList.language:

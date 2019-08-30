@@ -1,52 +1,133 @@
 """
 Module for building adjacency list and firing that through METIS for partitioning
 """
-
+import sys
+sys.path += ['/home/jacob/QuEST-TN/utilities/']#,'/home/jacob/QuEST-TN/TNPy']
+print(sys.path)
+from itertools import chain
 import metis
 import numpy as np
 from .QASMTypes import (QuantumRegister)
-from .CodeGraph import (BaseGraphBuilder, range_inclusive, parse_code)
+from .CodeGraph import (BaseGraphBuilder, parse_code)
+import QuESTPy
+import TNPy
+
+class Vertex():
+    """ Class defining a single tensor node vertex """
+    def __init__(self, ID, operation=None):
+        self._ID = ID
+        self._edges = []
+        self._indices = []
+        self._op = operation
+        self._contracted = []
+        
+    ID = property(lambda self: self._ID)
+    contracted = property(lambda self: self._contracted)
+    edgeIn = property(lambda self: self._edges[1])
+    edgeOut = property(lambda self: self._edges[0])
+    edges = property(lambda self: tuple(edge for edge in self._edges))
+    nEdges = property(lambda self: len(self._edges))
+    indices = property(lambda self: self._indices)
+    op = property(lambda self: self._op)
+
+    def link(self, other, prepend=False):
+        """ Link two vertices together """
+        if prepend:
+            self._edges.insert(0, other.ID)
+            other._edges.insert(0, self.ID)
+            self._indices.insert(0, (other.ID, other.nEdges-1))
+            other._indices.insert(0, (self.ID, self.nEdges-1))
+        else:
+            self._edges.append(other.ID)
+            other._edges.append(self.ID)
+            self._indices.append((other.ID, other.nEdges-1))
+            other._indices.append((self.ID, self.nEdges-1))
+
+    def update(self, remap):
+        """ Update indices to new values post contraction """
+        for i, index in enumerate(self.indices):
+            self._indices[i] = remap.get(index, index)
+
+        for i, index in enumerate(self.edges):
+            self._edges[i] = remap.get(index, index)
+
+    def contract(self, right):
+        """ Combine two vertices """
+
+        left = self
+        print("Contracting", left.ID, right.ID)
+        contractionEdges = [[], []]
+        freeIndices = [[], []]
+
+        for localQubit, (targetVertex, targetQubit) in enumerate(left.indices):
+            if targetVertex == right.ID:
+                contractionEdges[0].append(localQubit)
+                contractionEdges[1].append(targetQubit)
+
+        freeIndices[0] = [qubit for qubit in range(left.nEdges) if qubit not in contractionEdges[0]]
+        freeIndices[1] = [qubit for qubit in range(right.nEdges) if qubit not in contractionEdges[1]]
+
+        allMatches = contractionEdges[0] + contractionEdges[1]
+        remap = {right.ID: left.ID}
+        dropped = 0
+        notDropped = 0
+        for ind, cont in enumerate(left.indices):
+            edge = (left.ID, ind)
+            if ind in contractionEdges[0]:
+                remap[edge] = None
+            else:
+                if notDropped != ind:
+                    remap[edge] = left.ID, notDropped
+                notDropped += 1
+
+        for ind, cont in enumerate(right.indices):
+            edge = (right.ID, ind)
+            if ind in contractionEdges[1]:
+                remap[edge] = None
+            else:
+                if notDropped != ind:
+                    remap[edge] = left.ID, notDropped
+                notDropped += 1
+
+        left._edges = ([edge for edge in left.edges if edge != right.ID] +
+                       [edge for edge in right.edges if edge != left.ID])
+        left._indices = ([index for i, index in enumerate(left.indices) if i not in contractionEdges[0]] +
+                         [index for i, index in enumerate(right.indices) if i not in contractionEdges[1]])
+        left._contracted += [right.ID] + right.contracted
+        
+        return contractionEdges, freeIndices, remap
 
 class AdjListBuilder(BaseGraphBuilder):
     """ Class for building tensor network adjacency list """
     def __init__(self, size):
         BaseGraphBuilder.__init__(self, size)
         # Set initialise (entry) statements
-        self.lastUpdated = [i for i in range(size)]
-        self._adjList = [[] for i in range(size)]
-        self.remap = {}
-        self.unmap = {}
+        self._adjList = [Vertex(ID=i) for i in range(size)]
+        self._lastUpdated = self.adjList[:]
 
+    verts = property(lambda self: [vertex.ID for vertex in self.adjList])
     nVerts = property(lambda self: len(self._adjList))
-    adjList = property(lambda self: self._adjList)
-
-    def finalise(self):
-        """ Lock in vertices """
-        self._adjList = np.asarray(list(map(tuple, self._adjList)))
+    adjList = property(lambda self: np.asarray(self._adjList))
+    edges = property(lambda self: [vertex.edges for vertex in self.adjList])
 
     def process(self, **kwargs):
-        start, end = min(np.flatnonzero(self._involved == 1)), max(np.flatnonzero(self._involved == 1))
-        for qubit in range_inclusive(start, end):
-            prev = self.lastUpdated[qubit]
+        start = min(np.flatnonzero(self._involved == 1))
+        # end = max(np.flatnonzero(self._involved == 1))
+        # for qubit in range_inclusive(start, end):
+        for qubit in np.flatnonzero(self._involved == 1):
+            prev = self._lastUpdated[qubit]
             # Add new state as vertex
-            self._adjList.append([])
-            current = self.nVerts-1
+            current = Vertex(ID=self.nVerts, operation=kwargs['lineObj'])
+            self._adjList.append(current)
             # Link last updated vertex to current
-            self._link(prev, current)
-            self.lastUpdated[qubit] = current
-            # Set mappings
-            self.remap[kwargs['lineNo']] = current
-            self.unmap[current] = kwargs['lineNo']
+            current.link(prev)
+            self._lastUpdated[qubit] = current
             if qubit != start: # Skip if initial qubit (nothing to link to)
-                self._link(lastVertex, current)
+                current.link(lastVertex)
             # Link to previous qubit in operation
             lastVertex = current
 
         self.set_qubits()
-
-    def _link(self, a, b):
-        self._adjList[a].append(b)
-        self._adjList[b].append(a)
 
     def handle_measure(self, **kwargs):
         self.set_qubits(1)
@@ -54,14 +135,15 @@ class AdjListBuilder(BaseGraphBuilder):
 
 class Tree:
     """ Class defining tree head """
-    def __init__(self, graph):
-        self.parent = None
-        self.tier = 0
+
+    def __init__(self, graph=None):
+        self._tier = 0
         self.child = []
         self._adjList = graph
-        self.remap = dict((i, i) for i, _ in enumerate(graph))
+        self.remap = {i:i for i, _ in enumerate(graph)}
         self.unmap = self.remap
-        self.vertices = self.remap.values()
+        self.tensor = None
+        self.tree = self
 
     def __add__(self, other):
         if self.nChild < 2:
@@ -69,12 +151,18 @@ class Tree:
             return self
         raise IndexError('Binary tree cannot have more than 2 children')
 
+    tier = property(lambda self: self._tier)
+    isLeaf = property(lambda self: not self.child)
     left = property(lambda self: self.child[0])
     right = property(lambda self: self.child[1])
     nChild = property(lambda self: len(self.child))
     nVerts = property(lambda self: len(self._adjList))
-
+    vertIDs = property(lambda self: [vertex.ID for vertex in self.adjList])
+    vertices = property(lambda self: (vertex for vertex in self.adjList))
+    vertex = property(lambda self: self.adjList[0])
+    nEdge = property(lambda self: len(self._adjList[0]) if self.nVerts == 1 else 0)
     adjList = property(lambda self: self._adjList)
+    neighbours = property(lambda self: set(edge for vertex in self.vertices for edge in vertex.edges))
 
     def to_local(self, edge):
         """ find local index of vertex """
@@ -84,17 +172,79 @@ class Tree:
         """ Find global index of vertex """
         return self.unmap[edge]
 
+    def leaves(self):
+        """ Return leaves """
+        if not self.child:
+            yield self
+        else:
+            for child in self.child:
+                yield from child.leaves()
+
     @property
     def adjListMap(self):
         """ Return the adjacency list mapped to local context, removing adjacencies outside local space """
-        out = []
-        for vertex in self._adjList:
-            out.append(tuple(self.remap[edge] for edge in vertex if edge in self.remap))
-        out = np.asarray(out)
-        return out
+        out = [tuple(self.remap[edge] for edge in vertex.edges if edge in self.remap) for vertex in self._adjList]
+        return np.asarray(out)
 
     def __str__(self):
-        return self.tree_form("adjList")
+        return self.tree_form("vertIDs")
+
+
+    def resolve(self):
+        """
+        Initialise tensor/qureg
+        Call our operation on qubits
+        Update self resolved
+
+        Return TensorObject
+        """
+
+        self.tensor = createTensor(1, self.nEdge, Env)
+        # Entangle first virtual with physical qubit
+        TN_controlledGateTargetHalf(gate, self.tensor, 1, 0)
+
+        args = None
+        for vertex in self.vertices:
+            if vertex.op.control:
+                if self.qubitID == vertex.op.control:
+                    TN_controlledGateControlHalf(vertex.op, self.tensor, args)
+                else:
+                    TN_controlledGateTargetHalf(vertex.op, self.tensor, args)
+            else:
+                TN_singleQubitGate(vertex.op, self.tensor, args)
+
+
+    def contract(self):
+        """ Contract entire tree  """
+        if self.isLeaf:
+            self.resolve()
+            return
+
+        for child in self.child:
+            child.contract()
+
+        contractionEdges, freeIndices, remap = self.left.vertex.contract(self.right.vertex)
+
+        # self.tensor = QuESTTN.contractIndices(self.left.tensor, self.right.tensor,
+        #                                       *contractionEdges, *freeIndices, *map(len, freeIndices))
+        print("contractionEdges", contractionEdges, "\n free", freeIndices,"\nremap", remap)
+
+        # My vertex becomes child's merged vertex
+        self._adjList = self.left.adjList
+        verts = list(self.tree.vertices)
+        neighbours = [verts[neighbour] for neighbour in self.neighbours]
+        print("Neigh", self.neighbours)
+        print("Hi, I'm ", self.vertex.ID, self.vertex.indices, "I ate ", self.vertex.contracted)
+        for neighbour in neighbours:
+            print("Howdy", neighbour.ID, neighbour.indices)
+            neighbour.update(remap)
+            print("Doody", neighbour.ID, neighbour.indices)
+
+        if self.tier == 0:
+            return
+        # Remove global reference to child
+        self.tree._adjList[self.right.vertex.ID] = None
+        self.child = []
 
     def tree_form(self, prop):
         """ Return printout tree displaying property """
@@ -112,16 +262,6 @@ class Tree:
             height = 1
             middle = width // 2
             return [asStr], width, height, middle
-
-        # Only left child.
-        if self.nChild == 1:
-            lines, width, height, middle = self.left.display_aux(prop)
-            strLen = len(asStr)
-            offset = width - middle - 1
-            firstLine = (middle + 1) * ' ' + (offset) * '_' + asStr
-            secondLine = middle * ' ' + '/' + (offset + strLen) * ' '
-            shiftedLines = [line + strLen * ' ' for line in lines]
-            return [firstLine, secondLine] + shiftedLines, width + strLen, height + 2, width + strLen // 2
 
         # Two children.
         left, widthL, heightL, middleL = self.left.display_aux(prop)
@@ -146,7 +286,8 @@ class Tree:
         if 0 < sum(cut) < len(cut):
             cutL, cutR = np.nonzero(cut == 0)[0], np.nonzero(cut == 1)[0]
         else: # Handle METIS not splitting small graphs by taking least-connected value
-            cutL = min(map(len, self.adjList))
+            cutL = np.argmin(map(len, self.adjList))
+            print(cutL)
             cutR = [*range(0, cutL), *range(cutL+1, len(cut))]
             cutL = [cutL]
         childL, childR = Node(self, cutL), Node(self, cutR)
@@ -157,21 +298,21 @@ class Tree:
 class Node(Tree):
     """ Tree node class """
     def __init__(self, parent, cut):
-        Tree.__init__(self, [])
+        Tree.__init__(self, graph=[])
         self.parent = parent
         parent += self
-        self.tier = self.parent.tier + 1
+        self.tree = parent.tree
+        self._tier = self.parent.tier + 1
         self.child = []
         self._adjList = parent.adjList[cut]
-        self.remap = dict((old, new) for new, old in enumerate(cut))
-        self.unmap = dict((new, parent.unmap[old]) for new, old in enumerate(cut))
-        *self.vertices, = map(parent.to_global, cut)
+        self.remap = {old:new for new, old in enumerate(cut)}
+        self.unmap = {new:parent.unmap[old] for new, old in enumerate(cut)}
 
 
 def add_weights(weights):
     """ Add weights necessary for METIS partitioning """
     return [[(weight, 1) for weight in edge] for edge in weights]
-    
+
 
 def adjlist_to_metis(adjList):
     """ Actually add the 1 weights in """
@@ -182,5 +323,4 @@ def calculate_adjlist(code, maxDepth=999):
     """ Calculate adjacency list for METIS partitioner """
     adjList = AdjListBuilder(QuantumRegister.numQubits)
     parse_code(code, adjList, maxDepth=maxDepth)
-    adjList.finalise()
     return adjList

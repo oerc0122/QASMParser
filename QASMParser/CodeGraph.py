@@ -54,8 +54,7 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
                                        args=qargsSend, spargs=spargsSend,
                                        depth=depth+1, maxDepth=maxDepth)
     maths = lambda x: codeObject.resolve_maths(x, additionalVars=spargs)
-
-    for lineNo, line in enumerate(codeObject.code):
+    for line in codeObject.code:
         builder.currOp = line.name
         if isinstance(line, CallGate):
             if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
@@ -78,14 +77,14 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
             qargs = line.qargs
 
             if line.loops is not None:
-                for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])+1):
+                for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])):
                     for qarg in qargs:
                         builder.set_qubits(1, resolve_arg(codeObject, qarg, args, spargs, loopVar))
-                    builder.process(lineNo=lineNo, lineObj=line)
+                    builder.process(lineObj=line)
             else:
                 for qarg in qargs:
                     builder.set_qubits(1, resolve_arg(codeObject, qarg, args, spargs))
-                builder.process(lineNo=lineNo, lineObj=line)
+                builder.process(lineObj=line)
 
         elif isinstance(line, SetAlias):
             a = range_inclusive(*line.pargs[1])
@@ -106,10 +105,10 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
             del spargsSend
 
         elif isinstance(line, CBlock):
-            builder.handle_classical(lineNo=lineNo, lineObj=line)
+            builder.handle_classical(lineObj=line)
 
         elif isinstance(line, Measure):
-            builder.handle_measure(lineNo=lineNo, lineObj=line)
+            builder.handle_measure(lineObj=line)
 
 def range_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop like anything sensible would """

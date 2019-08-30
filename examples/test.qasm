@@ -3,7 +3,6 @@ REQASM 1.0;
 gate H x {
   U(0.,0.,pi) x;
 }
-
 qreg a[4];
 creg Q[4];
 H a[0];
