@@ -5,6 +5,15 @@ import sys
 import metis
 import numpy as np
 sys.path += ['/home/jacob/QuEST-TN/utilities/']
+import ctypes
+
+# Find QuEST and TN libraries 
+from QuESTPy.QuESTBase import init_QuESTLib
+from TNPy.TNBase import init_TNLib
+QuESTPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/QuEST"
+TNPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/"
+init_QuESTLib(QuESTPath)
+init_TNLib(TNPath)
 
 import QuESTPy
 import TNPy
@@ -25,6 +34,7 @@ class Vertex():
         self._indices = []
         self._op = operation
         self._contracted = []
+        self.lastQubit = True
 
     ID = property(lambda self: self._ID)
     qubitID = property(lambda self: self._qubitID)
@@ -106,7 +116,7 @@ class AdjListBuilder(BaseGraphBuilder):
     def __init__(self, size):
         BaseGraphBuilder.__init__(self, size)
         # Set initialise (entry) statements
-        self._adjList = [Vertex(ID=i) for i in range(size)]
+        self._adjList = [Vertex(ID=i, qubitID=i) for i in range(size)]
         self._lastUpdated = self.adjList[:]
 
     verts = property(lambda self: [vertex.ID for vertex in self.adjList])
@@ -121,6 +131,7 @@ class AdjListBuilder(BaseGraphBuilder):
         for qubit in np.flatnonzero(self._involved == 1):
             prev = self._lastUpdated[qubit]
             # Add new state as vertex
+            prev.lastQubit = False
             current = Vertex(ID=self.nVerts, qubitID=qubit, operation=kwargs['lineObj'])
             self._adjList.append(current)
             # Link last updated vertex to current
@@ -164,7 +175,7 @@ class Tree:
     vertIDs = property(lambda self: [vertex.ID for vertex in self.adjList])
     vertices = property(lambda self: (vertex for vertex in self.adjList))
     vertex = property(lambda self: self.adjList[0])
-    nEdge = property(lambda self: len(self._adjList[0]) if self.nVerts == 1 else 0)
+    nEdge = property(lambda self: len(self._adjList))
     adjList = property(lambda self: self._adjList)
     neighbours = property(lambda self: set(edge for vertex in self.vertices for edge in vertex.edges))
 
@@ -202,9 +213,16 @@ class Tree:
 
         Return TensorObject
         """
-        self.tensor = TNFunc.createTensor(1, self.nEdge, env)
         vertex = self.vertex
+        nVirtQubit = vertex.nEdges if vertex.lastQubit else vertex.nEdges - 1
+        print(f"Hi,I'm {vertex.ID}, I have {vertex.nEdges} edges and 1 physical qubit")
+        self.tensor = TNFunc.createTensor(1, nVirtQubit, env)
         # Entangle first virtual with physical qubit
+
+        # If we're initialise -- createTensor => |0>
+        if vertex.op is None:
+            return
+
         TNAdd.TN_controlledGateTargetHalf(QuESTFunc.controlledNot, self.tensor, 1, 0)
 
         if vertex.op.name == "CX":
@@ -215,20 +233,20 @@ class Tree:
             args = [0]
 
         for vertex in self.vertices:
-            if vertex.op.control:
-                if vertex.qubitID == vertex.op.control:
-                    TNAdd.TN_controlledGateControlHalf(gate, self.tensor, args)
+            if gate.control:
+                if vertex.qubitID == gate.control:
+                    TNAdd.TN_controlledGateControlHalf(gate, self.tensor, *args)
                 else:
-                    TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, args)
+                    TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, *args)
             else:
-                TNAdd.TN_singleQubitGate(gate, self.tensor, args)
+                TNAdd.TN_singleQubitGate(gate, self.tensor, *args)
 
 
     def contract(self):
         """ Contract entire tree  """
         if isinstance(self, Tree):
             global env
-            env = QuESTFunc.InitQuESTEnv()
+            env = QuESTFunc.createQuESTEnv()
 
 
         if self.isLeaf:
@@ -239,9 +257,13 @@ class Tree:
             child.contract()
 
         contractionEdges, freeIndices, remap = self.left.vertex.contract(self.right.vertex)
+        *contPass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), contractionEdges)
+        *freePass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), freeIndices)
 
         self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
-                                             *contractionEdges, *freeIndices, *map(len, freeIndices))
+                                             contPass[0], contPass[1], ctypes.c_int(len(contractionEdges[0])), 
+                                             freePass[0], ctypes.c_int(len(freeIndices[0])),
+                                             freePass[1], ctypes.c_int(len(freeIndices[1])), env)
         print("contractionEdges", contractionEdges, "\n free", freeIndices, "\nremap", remap)
 
         # My vertex becomes child's merged vertex

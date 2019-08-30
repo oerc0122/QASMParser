@@ -52,12 +52,12 @@ def main():
                 adj = calculate_adjlist(myProg, maxDepth=argList.max_depth)
 
                 ### Drawing
-                import pygraphviz as pg
-                edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
-                graph = pg.AGraph()
-                for edge in edgeList:
-                    graph.add_edge(*edge)
-                graph.draw('graph.png', prog='neato')
+                #import pygraphviz as pg
+                #edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
+                #graph = pg.AGraph()
+                #for edge in edgeList:
+                #    graph.add_edge(*edge)
+                #graph.draw('graph.png', prog='neato')
                 ### EndDraw
 
                 tree = Tree(adj.adjList)
