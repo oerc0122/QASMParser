@@ -2,26 +2,32 @@
 Module for building adjacency list and firing that through METIS for partitioning
 """
 import sys
-sys.path += ['/home/jacob/QuEST-TN/utilities/']#,'/home/jacob/QuEST-TN/TNPy']
-print(sys.path)
-from itertools import chain
 import metis
 import numpy as np
-from .QASMTypes import (QuantumRegister)
-from .CodeGraph import (BaseGraphBuilder, parse_code)
+sys.path += ['/home/jacob/QuEST-TN/utilities/']
+
 import QuESTPy
 import TNPy
+import TNPy.TNFunc as TNFunc
+import TNPy.TNAdditionalGates as TNAdd
+import QuESTPy.QuESTFunc as QuESTFunc
+
+from .QASMTypes import (QuantumRegister)
+from .CodeGraph import (BaseGraphBuilder, parse_code)
+
 
 class Vertex():
     """ Class defining a single tensor node vertex """
-    def __init__(self, ID, operation=None):
+    def __init__(self, ID, qubitID, operation=None):
         self._ID = ID
+        self._qubitID = qubitID
         self._edges = []
         self._indices = []
         self._op = operation
         self._contracted = []
-        
+
     ID = property(lambda self: self._ID)
+    qubitID = property(lambda self: self._qubitID)
     contracted = property(lambda self: self._contracted)
     edgeIn = property(lambda self: self._edges[1])
     edgeOut = property(lambda self: self._edges[0])
@@ -67,11 +73,9 @@ class Vertex():
         freeIndices[0] = [qubit for qubit in range(left.nEdges) if qubit not in contractionEdges[0]]
         freeIndices[1] = [qubit for qubit in range(right.nEdges) if qubit not in contractionEdges[1]]
 
-        allMatches = contractionEdges[0] + contractionEdges[1]
         remap = {right.ID: left.ID}
-        dropped = 0
         notDropped = 0
-        for ind, cont in enumerate(left.indices):
+        for ind, _ in enumerate(left.indices):
             edge = (left.ID, ind)
             if ind in contractionEdges[0]:
                 remap[edge] = None
@@ -80,7 +84,7 @@ class Vertex():
                     remap[edge] = left.ID, notDropped
                 notDropped += 1
 
-        for ind, cont in enumerate(right.indices):
+        for ind, _ in enumerate(right.indices):
             edge = (right.ID, ind)
             if ind in contractionEdges[1]:
                 remap[edge] = None
@@ -94,7 +98,7 @@ class Vertex():
         left._indices = ([index for i, index in enumerate(left.indices) if i not in contractionEdges[0]] +
                          [index for i, index in enumerate(right.indices) if i not in contractionEdges[1]])
         left._contracted += [right.ID] + right.contracted
-        
+
         return contractionEdges, freeIndices, remap
 
 class AdjListBuilder(BaseGraphBuilder):
@@ -117,7 +121,7 @@ class AdjListBuilder(BaseGraphBuilder):
         for qubit in np.flatnonzero(self._involved == 1):
             prev = self._lastUpdated[qubit]
             # Add new state as vertex
-            current = Vertex(ID=self.nVerts, operation=kwargs['lineObj'])
+            current = Vertex(ID=self.nVerts, qubitID=qubit, operation=kwargs['lineObj'])
             self._adjList.append(current)
             # Link last updated vertex to current
             current.link(prev)
@@ -198,24 +202,35 @@ class Tree:
 
         Return TensorObject
         """
-
-        self.tensor = createTensor(1, self.nEdge, Env)
+        self.tensor = TNFunc.createTensor(1, self.nEdge, env)
+        vertex = self.vertex
         # Entangle first virtual with physical qubit
-        TN_controlledGateTargetHalf(gate, self.tensor, 1, 0)
+        TNAdd.TN_controlledGateTargetHalf(QuESTFunc.controlledNot, self.tensor, 1, 0)
 
-        args = None
+        if vertex.op.name == "CX":
+            gate = QuESTFunc.controlledNot
+            args = [2, 0]
+        elif vertex.op.name == "U":
+            gate = QuESTFunc.hadamard
+            args = [0]
+
         for vertex in self.vertices:
             if vertex.op.control:
-                if self.qubitID == vertex.op.control:
-                    TN_controlledGateControlHalf(vertex.op, self.tensor, args)
+                if vertex.qubitID == vertex.op.control:
+                    TNAdd.TN_controlledGateControlHalf(gate, self.tensor, args)
                 else:
-                    TN_controlledGateTargetHalf(vertex.op, self.tensor, args)
+                    TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, args)
             else:
-                TN_singleQubitGate(vertex.op, self.tensor, args)
+                TNAdd.TN_singleQubitGate(gate, self.tensor, args)
 
 
     def contract(self):
         """ Contract entire tree  """
+        if isinstance(self, Tree):
+            global env
+            env = QuESTFunc.InitQuESTEnv()
+
+
         if self.isLeaf:
             self.resolve()
             return
@@ -225,9 +240,9 @@ class Tree:
 
         contractionEdges, freeIndices, remap = self.left.vertex.contract(self.right.vertex)
 
-        # self.tensor = QuESTTN.contractIndices(self.left.tensor, self.right.tensor,
-        #                                       *contractionEdges, *freeIndices, *map(len, freeIndices))
-        print("contractionEdges", contractionEdges, "\n free", freeIndices,"\nremap", remap)
+        self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
+                                             *contractionEdges, *freeIndices, *map(len, freeIndices))
+        print("contractionEdges", contractionEdges, "\n free", freeIndices, "\nremap", remap)
 
         # My vertex becomes child's merged vertex
         self._adjList = self.left.adjList
@@ -324,3 +339,5 @@ def calculate_adjlist(code, maxDepth=999):
     adjList = AdjListBuilder(QuantumRegister.numQubits)
     parse_code(code, adjList, maxDepth=maxDepth)
     return adjList
+
+Env = None

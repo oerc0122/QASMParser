@@ -54,7 +54,7 @@ bareCode = False      # Can code be bare or does it need to be in function
 blockOpen = ":"       # Block delimiters
 blockClose = ""       #  ""      ""
 indent = "    "       # Standard indent depth
-
+includeTN = include_to_Python("TNPy")
 
 def Maths_to_Python(parent, maths: MathsBlock):
     """Resolve mathematical operations into C.
@@ -107,7 +107,6 @@ def resolve_maths(self, elem):
     :returns: Parsed maths in C
     :rtype: str
     """
-
 
     if isinstance(elem, MathsBlock):
         value = Maths_to_Python(self, elem)
