@@ -6,6 +6,17 @@
 # include <stdlib.h>
 # include <string.h>
 
+void U(Qureg qreg, int a, float theta, float phi, float lambda) {
+  
+  rotateZ(qreg,a_index,lambda);
+  rotateX(qreg,a_index,theta);
+  rotateZ(qreg,a_index,phi);
+          
+}
+void CX(Qureg qreg, int a, int b) {
+  controlledNot(qreg, a_index, b_index);
+}
+
 bitstr toBitstr(int *bits, int nBits) {
   bitstr outBits;
   outBits.str = (char*) malloc(sizeof(outBits.str) * nBits);

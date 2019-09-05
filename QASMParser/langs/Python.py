@@ -54,7 +54,6 @@ bareCode = False      # Can code be bare or does it need to be in function
 blockOpen = ":"       # Block delimiters
 blockClose = ""       #  ""      ""
 indent = "    "       # Standard indent depth
-includeTN = include_to_Python("TNPy")
 
 def Maths_to_Python(parent, maths: MathsBlock):
     """Resolve mathematical operations into C.
@@ -174,6 +173,7 @@ def python_include(filename: str):
     """
     return f'from {filename} import *'
 header = [python_include("QuESTLibs"), python_include("math")]
+includeTN = python_include("TNPy")
 
 def Include_to_Python(self):
     """Syntax conversion for Python imports."""

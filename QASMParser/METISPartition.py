@@ -2,24 +2,24 @@
 Module for building adjacency list and firing that through METIS for partitioning
 """
 import sys
+import ctypes
 import metis
 import numpy as np
 sys.path += ['/home/jacob/QuEST-TN/utilities/']
-import ctypes
 
-# Find QuEST and TN libraries 
-from QuESTPy.QuESTBase import init_QuESTLib
-from TNPy.TNBase import init_TNLib
-QuESTPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/QuEST"
-TNPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/"
-init_QuESTLib(QuESTPath)
-init_TNLib(TNPath)
+# Find QuEST and TN libraries
+# from QuESTPy.QuESTBase import init_QuESTLib
+# from TNPy.TNBase import init_TNLib
+# QuESTPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/QuEST"
+# TNPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/"
+# init_QuESTLib(QuESTPath)
+# init_TNLib(TNPath)
 
-import QuESTPy
-import TNPy
-import TNPy.TNFunc as TNFunc
-import TNPy.TNAdditionalGates as TNAdd
-import QuESTPy.QuESTFunc as QuESTFunc
+# import QuESTPy
+# import TNPy
+# import TNPy.TNFunc as TNFunc
+# import TNPy.TNAdditionalGates as TNAdd
+# import QuESTPy.QuESTFunc as QuESTFunc
 
 from .QASMTypes import (QuantumRegister)
 from .CodeGraph import (BaseGraphBuilder, parse_code)
@@ -213,6 +213,7 @@ class Tree:
 
         Return TensorObject
         """
+        return
         vertex = self.vertex
         nVirtQubit = vertex.nEdges if vertex.lastQubit else vertex.nEdges - 1
         print(f"Hi,I'm {vertex.ID}, I have {vertex.nEdges} edges and 1 physical qubit")
@@ -244,9 +245,9 @@ class Tree:
 
     def contract(self):
         """ Contract entire tree  """
-        if isinstance(self, Tree):
-            global env
-            env = QuESTFunc.createQuESTEnv()
+        # if isinstance(self, Tree):
+            # global env
+            # env = QuESTFunc.createQuESTEnv()
 
 
         if self.isLeaf:
@@ -260,10 +261,10 @@ class Tree:
         *contPass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), contractionEdges)
         *freePass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), freeIndices)
 
-        self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
-                                             contPass[0], contPass[1], ctypes.c_int(len(contractionEdges[0])), 
-                                             freePass[0], ctypes.c_int(len(freeIndices[0])),
-                                             freePass[1], ctypes.c_int(len(freeIndices[1])), env)
+        # self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
+        #                                      contPass[0], contPass[1], ctypes.c_int(len(contractionEdges[0])),
+        #                                      freePass[0], ctypes.c_int(len(freeIndices[0])),
+        #                                      freePass[1], ctypes.c_int(len(freeIndices[1])), env)
         print("contractionEdges", contractionEdges, "\n free", freeIndices, "\nremap", remap)
 
         # My vertex becomes child's merged vertex
@@ -324,9 +325,9 @@ class Tree:
             cutL, cutR = np.nonzero(cut == 0)[0], np.nonzero(cut == 1)[0]
         else: # Handle METIS not splitting small graphs by taking least-connected value
             cutL = np.argmin(map(len, self.adjList))
-            print(cutL)
             cutR = [*range(0, cutL), *range(cutL+1, len(cut))]
             cutL = [cutL]
+            print("MY", *map(lambda x: x.ID, self.adjList[cutL]), *map(lambda x: x.ID, self.adjList[cutR]))
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph()
         childR.split_graph()
@@ -362,4 +363,4 @@ def calculate_adjlist(code, maxDepth=999):
     parse_code(code, adjList, maxDepth=maxDepth)
     return adjList
 
-Env = None
+env = None

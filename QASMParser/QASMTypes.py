@@ -217,10 +217,7 @@ class CodeBlock(CoreOp):
         self._pargs = []
         self._spargs = []
         self._gargs = []
-        if copyObjs:
-            self._objs = copy.copy(parent.get_objs("Copy"))
-        else:
-            self._objs = {}
+        self._objs = copy.copy(parent.get_objs("Copy")) if copyObjs else {}
         self.currentFile = block
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile.error
@@ -243,6 +240,7 @@ class CodeBlock(CoreOp):
             out = self._objs[obj]
         else:
             out = self._objs.items()
+
         return out
 
     def dump_line(self):
@@ -264,6 +262,7 @@ class CodeBlock(CoreOp):
         if argType in ["ClassicalRegister", "QuantumRegister"]:
             if self._check_def(var, create=False, argType=argType):
                 var = self._objs[var]
+
             elif self._check_def(var, create=False, argType="Alias"):
                 var = self._objs[var]
 
@@ -271,15 +270,11 @@ class CodeBlock(CoreOp):
                 self._is_def(var, create=False, argType=argType)
 
             if index or index is None: # If index or implicit loop
-
                 index = self.parse_range(index, var)
-
                 out = [var, index]
 
             elif isinstance(var, Argument):
-
                 out = [var, var.name]
-
 
         elif argType == "Alias":
 
@@ -292,7 +287,6 @@ class CodeBlock(CoreOp):
         elif argType == "Constant":
             if isinstance(var, ParseResults):
                 var = var.pop()
-
             if var is None:
                 out = None
             elif isinstance(var, (list, tuple)):
@@ -312,7 +306,6 @@ class CodeBlock(CoreOp):
                 out = self._objs[var] #.name
 
         elif argType == "Maths":
-
             if isinstance(var, (tuple, list)):
                 if len(var) == 1:
                     var = var.pop()
@@ -343,31 +336,25 @@ class CodeBlock(CoreOp):
                 var = self._objs[var]
 
                 if isinstance(var, Argument):
-
                     out = [var, var.name]
-
                 elif isinstance(var, Constant):
-
                     out = var.name
-
                 elif isinstance(var, ClassicalRegister):
-
                     if index or index is None: # If index or implicit loop
                         index = self.parse_range(index, var)
 
                         out = [var, index]
                     else:
                         out = [var, None]
+
                 elif isinstance(var, QuantumRegister):
                     self._error(failedOpWarning.format("use quantum register "+var.name, "resolve_maths"))
-
                 else:
                     self._error(failedOpWarning.format("resolve type "+var.trueType, "resolve_maths"))
 
         elif argType == "Gate":
             self._is_def(var, create=False, argType=argType)
             out = self._objs[var]
-
         else:
             self._error(argParseWarning.format(argType))
 
@@ -623,7 +610,7 @@ class CodeBlock(CoreOp):
     def _leave(self):
         """ Leave loop """
         self._error(failedOpWarning.format("exit", "non-recursive " + self.trueType))
-                    
+
     def _let(self, var, val):
         """ Define and set variable in scope
 
@@ -665,13 +652,10 @@ class CodeBlock(CoreOp):
 
 
         if "INV" in modifiers.asList():
-            orig = self._resolve(gateName, argType="Gate")
+            # If inverse doesn't exist, make it
             if self._check_def("inv_"+gateName, create=True, argType="Gate"):
-                inv = copy.copy(orig)
-                inv._code = orig.invert(pargs, qargs)
-                inv._name = "inv_"+inv.name
-                orig.inverse = inv
-                self._code += [inv]
+                orig = self._resolve(gateName, argType="Gate")
+                orig.invert(self)
             gateName = "inv_"+gateName
 
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs)
@@ -1421,8 +1405,8 @@ class CallGate(Operation):
         :param gargs: Input gate arguments
         :param spargs: Input special arguments
         """
-
         Operation.__init__(self, parent, qargs, pargs, gargs, spargs)
+
         self._name = gate
 
         self.resolvedQargs = None
@@ -1452,9 +1436,7 @@ class CallGate(Operation):
                 received = len(args)
                 self._error(argWarning.format(place, expect, received))
 
-        parsedSparg = zip((sparg.name for sparg in self.callee.spargs), spargs)
-
-        newSpargs = dict(parsedSparg)
+        newSpargs = {sparg.name: spargs for sparg in self.callee.spargs}
         newQargs = []
 
         for sparg in spargs: # Disambiguate?
@@ -1681,25 +1663,33 @@ class Gate(Referencable, CodeBlock):
         if recursive and self.entry.depth > 0:
             self._error(noExitWarning.format(self.name))
 
-    def invert(self): #, pargs, qargs):
-        """Calculates the inverse of the gate and called gates and assigns it to self._inverse
-
-        :param pargs: Input parameter arguments Call's parameter arguments for inversion
-        :param qargs: Input quantum arguments Input quantum arguments Call's quantum arguments for inversion
-
-        """
+    def invert(self, parent):
+        """Calculates the inverse of the gate and called gates and assigns it to self._inverse """
         if not self.unitary:
             self._error(failedOpWarning.format("invert", "non unitary "+self.trueType))
+
         if self._inverse:
             return self._inverse
-        self._inverse = []
 
-        for line in reversed(self._code):
+        inverse = copy.copy(self)
+        inverse._name = "inv_"+self.name
+        inverse._code = []
+        
+        for line in reversed(self.code):
             if isinstance(line, CallGate):
-                self._inverse += self._objs[line.name].invert(pargs=line.pargs, qargs=line.qargs)
+                gateName = line.name
+                if parent._check_def("inv_"+gateName, create=True, argType="Gate"):
+                    gate = parent._resolve(gateName, argType="Gate")
+                    gate.invert(parent)
+                line.qargs[0][1] = (0, 0)
+                inverse._code.append(CallGate(self, "inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+
             else:
                 self._error(failedOpWarning.format("invert "+line.name, self.name + " invert"))
 
+        self._inverse = inverse
+        parent._code += [inverse]
+        parent._objs[inverse.name] = inverse
         return self._inverse
 
     def qargs_setter(self, args):

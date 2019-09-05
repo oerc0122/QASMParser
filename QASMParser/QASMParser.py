@@ -37,7 +37,7 @@ class ProgFile(CodeBlock):
         self.useTN = False
         self.partition = None
 
-    def to_lang(self, filename=None, module=False, includes=None, langOut="C", verbose=False):
+    def to_lang(self, filename=None, langOut="C", **options):
         """
         Translate file into provided language.
         If filename is provided write translation to file.
@@ -51,8 +51,7 @@ class ProgFile(CodeBlock):
         :returns: None
         :rtype: None
         """
-        if includes is None:
-            includes = {}
+        includes = options.get("includes", {})
 
         try:
             lang = import_module(f"QASMParser.langs.{langOut}")
@@ -69,7 +68,7 @@ class ProgFile(CodeBlock):
             depth += 1
             for line in code:
 
-                if verbose and hasattr(line, 'original') and not isinstance(line, Comment): # Verbose -- Print original
+                if options["verbose"] and hasattr(line, 'original') and not isinstance(line, Comment): # Verbose -- Print original
                     writeln(Comment(self, line.original).to_lang() + "\n")
 
                 if hasattr(line, "inlineComment"): # Inline comments
@@ -116,7 +115,7 @@ class ProgFile(CodeBlock):
             writeln(Comment(self, line).to_lang())
 
         # If our language needs to add things to the header
-        if module:
+        if options["module"]:
             if filename:
                 funcName = os.path.splitext(os.path.basename(filename))[0]
             else:
@@ -146,6 +145,9 @@ class ProgFile(CodeBlock):
             while isinstance(codeToWrite[-1], Include):
                 print_code(self, [codeToWrite.pop()], outputFile)
 
+        if options["include_internals"]:
+            codeToWrite += list(Gate.internalGates.values())
+                
         if lang.hoistFuncs:
             codeToWrite = sorted(codeToWrite, key=lambda x: issubclass(type(x), Gate))
             gate = []

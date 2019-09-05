@@ -59,16 +59,15 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
         if isinstance(line, CallGate):
             if not isinstance(line.callee, Opaque) and (maxDepth < 0 or depth < maxDepth):
                 # Prepare args and enter function
-                spargsSend = dict(((arg.name, maths(sparg.val))
-                                   for arg, sparg in zip(line.callee.spargs, line.spargs)))
+                spargsSend = {arg.name: maths(sparg.val) for arg, sparg in zip(line.callee.spargs, line.spargs)}
                 if line.loops is not None:
                     for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])):
-                        qargsSend = dict((arg.name, resolve_arg(codeObject, qarg, args, spargs, loopVar))
-                                         for arg, qarg in zip(line.callee.qargs, line.qargs))
+                        qargsSend = {arg.name: resolve_arg(codeObject, qarg, args, spargs, loopVar)
+                                     for arg, qarg in zip(line.callee.qargs, line.qargs)}
                         recurse(line.callee)
                 else:
-                    qargsSend = dict((arg.name, resolve_arg(codeObject, qarg, args, spargs))
-                                     for arg, qarg in zip(line.callee.qargs, line.qargs))
+                    qargsSend = {arg.name: resolve_arg(codeObject, qarg, args, spargs)
+                                 for arg, qarg in zip(line.callee.qargs, line.qargs)}
                     recurse(line.callee)
 
                 del spargsSend

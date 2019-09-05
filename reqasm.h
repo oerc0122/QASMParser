@@ -14,6 +14,12 @@ const qreal e  = 2.718281828459;
 const _Bool T  = 1;
 const _Bool F  = 0;
 
+// Basic gates
+void U(Qureg qreg, int a, float theta, float phi, float lambda);
+void CX(Qureg qreg, int a, int b);
+void inv_U(Qureg qreg, int a, float theta, float phi, float lambda);
+
+
 bitstr toBitstr(int *bits, int nBits);
 _Bool orOf(int *bits, int nBits);
 _Bool xorOf(int *bits, int nBits);

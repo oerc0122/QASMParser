@@ -16,48 +16,46 @@ def setup_QASM_gates():
     unitary._code = [CBlock(
         None,
         """
-        rotateZ(qreg,a_index,lambda);
-        rotateX(qreg,a_index,theta);
-        rotateZ(qreg,a_index,phi);
-        """)]
+rotateZ(qreg,a_index,lambda);
+rotateX(qreg,a_index,theta);
+rotateZ(qreg,a_index,phi);
+        """.splitlines())]
 
-    def invert_unitary(**kwargs):
-        """ Inverse U gate (opposite rotation) """
-        newArgs = []
-        for parg in kwargs["pargs"]:
-            if isinstance(parg, MathsBlock):
-                parg.topLevel = False
-                arg = MathsBlock(parg.parent, Binary([["-", parg.maths]]))
-            elif isinstance(parg, Constant):
-                arg = copy.copy(parg)
-                if arg.name.startswith("-"):
-                    arg.name = arg.name.lstrip("-")
-                else:
-                    arg.name = "-" + arg.name
-            newArgs.append(arg)
+    unitary_inverse = Opaque(dummy, "inv_U", pargs=["theta", "phi", "lambda"], qargs=[{"var":"a"}], unitary=True)
+    unitary_inverse._code = [CBlock(
+        None,
+        """
+rotateZ(qreg,a_index,-lambda);
+rotateX(qreg,a_index,-theta);
+rotateZ(qreg,a_index,-phi);
+        """.splitlines())]
+    unitary._inverse = unitary_inverse
+    unitary.invert = lambda parent, pargs, qargs, gargs, spargs: [CallGate(parent, "inv_U", pargs, qargs, gargs, spargs)]
+    # def invert_unitary(parent, pargs, qargs, gargs, spargs):
+    #     """ Inverse U gate (opposite rotation) """
+    #     newArgs = []
+    #     print(pargs)
+    #     for parg in pargs:
+    #         if isinstance(parg, MathsBlock):
+    #             parg.topLevel = False
+    #             arg = MathsBlock(parg.parent, Binary([["-", parg.maths]]))
+    #         elif isinstance(parg, Constant):
+    #             arg = MathsBlock(parg.parent, Binary([["-", parg]]))
+    #         else:
+    #             arg = parg
+    #         newArgs.append(arg)
+    #     qargs[0][1] = (0, 0)
+    #     return [CallGate(parent, "U", newArgs, qargs, gargs, spargs)]
 
-        qargs = kwargs["qargs"]
-        qargs[0][1] = (None, None)
-        return [CallGate(None, "U", newArgs, qargs, **kwargs)]
-
-    unitary.invert = invert_unitary
+    # unitary.invert = invert_unitary
 
     controlledNot = Opaque(dummy, "CX", pargs=[], qargs=[{"var":"a"}, {"var":"b"}], unitary=True)
     controlledNot._code = [CBlock(
         None,
-        """
-        controlledNot(qreg, a_index, b_index);
-        """)]
+        """controlledNot(qreg, a_index, b_index);""".splitlines())]
 
-    def invert_controlled_not(**kwargs): # 
-        """ inverse CX gate (CX gate) """
-    #    pargs = kwargs["pargs"]
-        qargs = kwargs["qargs"]
-        for qarg in qargs:
-            qarg[1] = (None, None)
-        return [CallGate(None, "CX", **kwargs)]
-
-    controlledNot.invert = invert_controlled_not
+    controlledNot.invert = controlledNot
 
     Gate.internalGates["U"] = unitary
     Gate.internalGates["CX"] = controlledNot
+    Gate.internalGates["inv_U"] = unitary_inverse

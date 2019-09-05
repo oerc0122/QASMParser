@@ -35,6 +35,7 @@ _parser.add_argument("-I", "--include", help='Include a pre-transpiled source',
 _parser.add_argument('-a', '--analyse', help="Print adjacency matrix info", action="store_true")
 _parser.add_argument('-p', '--print', help="Print graphical summary of circuit", action="store_true")
 _parser.add_argument('--max-depth', help="Max depth for analysis and printing", type=int, default=-1)
+_parser.add_argument('--include-internals', help="Include internal gates explicitly", action="store_true")
 _parser.add_argument('-P', '--partition', help=
                      """R|Set partitioning optimisation type: 
     0 = None  -- Do not attempt to partition,

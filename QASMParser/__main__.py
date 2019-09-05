@@ -88,7 +88,11 @@ def main():
     for source in argList.sources:
         myProg = ProgFile(source)
         partition(myProg, argList.partition)
-        myProg.to_lang(outputFile, argList.to_module, argList.include, lang, argList.debug)
+        myProg.to_lang(outputFile, lang,
+                       include_internals=argList.include_internals,
+                       includes=argList.include,
+                       module=argList.to_module,
+                       verbose=argList.debug)
 
 if __name__ == "__main__":
     main()
