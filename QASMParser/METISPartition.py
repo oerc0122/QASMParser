@@ -8,18 +8,18 @@ import numpy as np
 sys.path += ['/home/jacob/QuEST-TN/utilities/']
 
 # Find QuEST and TN libraries
-# from QuESTPy.QuESTBase import init_QuESTLib
-# from TNPy.TNBase import init_TNLib
-# QuESTPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/QuEST"
-# TNPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/"
-# init_QuESTLib(QuESTPath)
-# init_TNLib(TNPath)
+from QuESTPy.QuESTBase import init_QuESTLib
+from TNPy.TNBase import init_TNLib
+QuESTPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/QuEST"
+TNPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/"
+init_QuESTLib(QuESTPath)
+init_TNLib(TNPath)
 
-# import QuESTPy
-# import TNPy
-# import TNPy.TNFunc as TNFunc
-# import TNPy.TNAdditionalGates as TNAdd
-# import QuESTPy.QuESTFunc as QuESTFunc
+import QuESTPy
+import TNPy
+import TNPy.TNFunc as TNFunc
+import TNPy.TNAdditionalGates as TNAdd
+import QuESTPy.QuESTFunc as QuESTFunc
 
 from .QASMTypes import (QuantumRegister)
 from .CodeGraph import (BaseGraphBuilder, parse_code)
@@ -48,16 +48,17 @@ class Vertex():
 
     def link(self, other, prepend=False):
         """ Link two vertices together """
+        # Add one because we know always prepended with next node or null
         if prepend:
             self._edges.insert(0, other.ID)
             other._edges.insert(0, self.ID)
-            self._indices.insert(0, (other.ID, other.nEdges-1))
-            other._indices.insert(0, (self.ID, self.nEdges-1))
+            self._indices.insert(0, (other.ID, 0))
+            other._indices.insert(0, (self.ID, self.nEdges))
         else:
             self._edges.append(other.ID)
             other._edges.append(self.ID)
-            self._indices.append((other.ID, other.nEdges-1))
-            other._indices.append((self.ID, self.nEdges-1))
+            self._indices.append((other.ID, other.nEdges))
+            other._indices.append((self.ID, self.nEdges))
 
     def update(self, remap):
         """ Update indices to new values post contraction """
@@ -99,8 +100,7 @@ class Vertex():
             if ind in contractionEdges[1]:
                 remap[edge] = None
             else:
-                if notDropped != ind:
-                    remap[edge] = left.ID, notDropped
+                remap[edge] = left.ID, notDropped
                 notDropped += 1
 
         left._edges = ([edge for edge in left.edges if edge != right.ID] +
@@ -135,15 +135,21 @@ class AdjListBuilder(BaseGraphBuilder):
             current = Vertex(ID=self.nVerts, qubitID=qubit, operation=kwargs['lineObj'])
             self._adjList.append(current)
             # Link last updated vertex to current
-            current.link(prev)
+            current.link(prev, True)
             self._lastUpdated[qubit] = current
             if qubit != start: # Skip if initial qubit (nothing to link to)
                 current.link(lastVertex)
             # Link to previous qubit in operation
             lastVertex = current
-
         self.set_qubits()
 
+    def finalise(self):
+        for node in self._lastUpdated:
+            node._edges.insert(0, None)
+            node._indices.insert(0, (None, None))
+        # for vertex in self.adjList:
+        #     print(vertex.ID, vertex.indices)
+            
     def handle_measure(self, **kwargs):
         self.set_qubits(1)
         self.process(**kwargs)
@@ -177,7 +183,7 @@ class Tree:
     vertex = property(lambda self: self.adjList[0])
     nEdge = property(lambda self: len(self._adjList))
     adjList = property(lambda self: self._adjList)
-    neighbours = property(lambda self: set(edge for vertex in self.vertices for edge in vertex.edges))
+    neighbours = property(lambda self: set(edge for vertex in self.vertices for edge in vertex.edges if edge is not None))
 
     def to_local(self, edge):
         """ find local index of vertex """
@@ -213,9 +219,8 @@ class Tree:
 
         Return TensorObject
         """
-        return
         vertex = self.vertex
-        nVirtQubit = vertex.nEdges if vertex.lastQubit else vertex.nEdges - 1
+        nVirtQubit = vertex.nEdges - 1
         print(f"Hi,I'm {vertex.ID}, I have {vertex.nEdges} edges and 1 physical qubit")
         self.tensor = TNFunc.createTensor(1, nVirtQubit, env)
         # Entangle first virtual with physical qubit
@@ -226,18 +231,23 @@ class Tree:
 
         TNAdd.TN_controlledGateTargetHalf(QuESTFunc.controlledNot, self.tensor, 1, 0)
 
+        print("HONK:", self.tensor.qureg)
+        
         if vertex.op.name == "CX":
             gate = QuESTFunc.controlledNot
-            args = [2, 0]
+            args = [0, 2]
         elif vertex.op.name == "U":
             gate = QuESTFunc.hadamard
             args = [0]
 
         for vertex in self.vertices:
             if gate.control:
-                if vertex.qubitID == gate.control:
+                print(vertex.qubitID, vertex.op.qargs)
+                if vertex.qubitID == vertex.op.qargs[gate.control-1][1]:
+                    print("Control")
                     TNAdd.TN_controlledGateControlHalf(gate, self.tensor, *args)
                 else:
+                    print("Target")
                     TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, *args)
             else:
                 TNAdd.TN_singleQubitGate(gate, self.tensor, *args)
@@ -245,9 +255,9 @@ class Tree:
 
     def contract(self):
         """ Contract entire tree  """
-        # if isinstance(self, Tree):
-            # global env
-            # env = QuESTFunc.createQuESTEnv()
+        if isinstance(self, Tree):
+            global env
+            env = QuESTFunc.createQuESTEnv()
 
 
         if self.isLeaf:
@@ -257,16 +267,26 @@ class Tree:
         for child in self.child:
             child.contract()
 
+        print(self.left.vertex.ID, self.left.vertex.indices)
+        print(self.right.vertex.ID, self.right.vertex.indices)
         contractionEdges, freeIndices, remap = self.left.vertex.contract(self.right.vertex)
         *contPass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), contractionEdges)
         *freePass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), freeIndices)
 
-        # self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
-        #                                      contPass[0], contPass[1], ctypes.c_int(len(contractionEdges[0])),
-        #                                      freePass[0], ctypes.c_int(len(freeIndices[0])),
-        #                                      freePass[1], ctypes.c_int(len(freeIndices[1])), env)
-        print("contractionEdges", contractionEdges, "\n free", freeIndices, "\nremap", remap)
+        print("Left")
+        print(self.left.tensor.qureg)
+        print("Right")
+        print(self.right.tensor.qureg)
 
+        print("contractionEdges", contractionEdges, "\n free", freeIndices, "\nremap", remap)
+        
+        self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
+                                             contPass[0], contPass[1], ctypes.c_int(len(contractionEdges[0])),
+                                             freePass[0], ctypes.c_int(len(freeIndices[0])),
+                                             freePass[1], ctypes.c_int(len(freeIndices[1])), env)
+
+        print("Output qureg")
+        print(self.tensor.qureg)
         # My vertex becomes child's merged vertex
         self._adjList = self.left.adjList
         verts = list(self.tree.vertices)
@@ -361,6 +381,7 @@ def calculate_adjlist(code, maxDepth=999):
     """ Calculate adjacency list for METIS partitioner """
     adjList = AdjListBuilder(QuantumRegister.numQubits)
     parse_code(code, adjList, maxDepth=maxDepth)
+    adjList.finalise()
     return adjList
 
 env = None

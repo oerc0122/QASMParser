@@ -65,6 +65,7 @@ def main():
                 tree.split_graph()
                 print(tree.tree_form("vertIDs"))
                 tree.contract()
+                print(tree.tensor.qureg)
         return
 
     lang = None
