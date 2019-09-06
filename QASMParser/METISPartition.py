@@ -242,13 +242,17 @@ class Tree:
 
         for vertex in self.vertices:
             if gate.control:
-                print(vertex.qubitID, vertex.op.qargs)
+                print(vertex.qubitID, vertex.op.qargs[gate.control])
                 if vertex.qubitID == vertex.op.qargs[gate.control-1][1]:
                     print("Control")
+                    # physical qubit is the control, virtual qubit is the target
+                    print(args)
                     TNAdd.TN_controlledGateControlHalf(gate, self.tensor, *args)
                 else:
                     print("Target")
-                    TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, *args)
+                    # virtual qubit is the control, physical qubit is the target
+                    print(*args[::-1])
+                    TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, *args[::-1])
             else:
                 TNAdd.TN_singleQubitGate(gate, self.tensor, *args)
 
