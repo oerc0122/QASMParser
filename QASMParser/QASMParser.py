@@ -67,8 +67,8 @@ class ProgFile(CodeBlock):
             nonlocal depth
             depth += 1
             for line in code:
-
-                if options["verbose"] and hasattr(line, 'original') and not isinstance(line, Comment): # Verbose -- Print original
+                # Verbose -- Print original
+                if options["verbose"] and hasattr(line, 'original') and not isinstance(line, Comment):
                     writeln(Comment(self, line.original).to_lang() + "\n")
 
                 if hasattr(line, "inlineComment"): # Inline comments
@@ -146,8 +146,8 @@ class ProgFile(CodeBlock):
                 print_code(self, [codeToWrite.pop()], outputFile)
 
         if options["include_internals"]:
-            codeToWrite += list(Gate.internalGates.values())
-                
+            codeToWrite = list(Gate.internalGates.values()) + codeToWrite 
+
         if lang.hoistFuncs:
             codeToWrite = sorted(codeToWrite, key=lambda x: issubclass(type(x), Gate))
             gate = []
@@ -160,8 +160,8 @@ class ProgFile(CodeBlock):
         codeToWrite = self.fix_qureg() + codeToWrite
 
         if any([not isinstance(line, Comment) for line in codeToWrite]):
-            mainProg = Gate(self, funcName, NullBlock(self.currentFile), returnType="int")
-            mainProg._code = codeToWrite
+            mainProg = Opaque(self, funcName, returnType="int")
+            mainProg.set_code(codeToWrite)
 
         print_code(self, [mainProg], outputFile)
 

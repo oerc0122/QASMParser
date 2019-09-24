@@ -4,7 +4,7 @@ Module to handle reading of QASM files, blocks and perform error handling with u
 
 import os.path
 from pyparsing import (ParseException)
-from .QASMTokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parseVersion,
+from .QASMTokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parse_version,
                          qops, cops, blocks)
 from .QASMErrors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
                          unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning)
@@ -23,7 +23,7 @@ class QASMFile:
         if filename in QASMFile._QASMFiles:
             raise IOError('Circular dependency in includes')
         if os.path.isfile(filename):
-            self.File = open(filename, 'r')
+            self.openFile = open(filename, 'r')
         else:
             raise FileNotFoundError(fnfWarning.format(filename))
 
@@ -43,7 +43,7 @@ class QASMFile:
                 else:
                     pass
             elif line.get('keyword') == "version":
-                self.version = parseVersion(line["version"][0])
+                self.version = parse_version(line["version"][0])
                 self.QASMType = line["version"]["type"]
                 self.versionNumber = line["version"]["versionNumber"]
                 break
@@ -65,7 +65,7 @@ class QASMFile:
         try:
             openFiles = QASMFile._QASMFiles
             del openFiles[openFiles.index(self.name)]
-            self.File.close()
+            self.openFile.close()
         except AttributeError:
             return
 
@@ -150,7 +150,7 @@ class QASMFile:
 
     def readline(self):
         """ Reads a line from a file """
-        for line in self.File:
+        for line in self.openFile:
             self.nLine += 1
             if not line.strip():
                 continue
@@ -174,7 +174,7 @@ class QASMString(QASMFile):
         self.versionNumber = 2.0
         self.QASMType = "REQASM"
         self.name = "Internal"
-        self.File = io.StringIO(block)
+        self.openFile = io.StringIO(block)
         self.currentFile = self
         self.nLine = 0
         self._objs = {}
@@ -192,14 +192,14 @@ class QASMBlock(QASMFile):
         self._parent_file(parent)
         if startline:
             self.nLine = startline
-        self.File = block
+        self.openFile = block
 
     def __len__(self):
-        return len(self.File)
+        return len(self.openFile)
 
     def read_instruction(self):
         """ Generator to read a single instruction from the block """
-        for instruction in self.File[0]:
+        for instruction in self.openFile[0]:
             self.nLine += 1
             yield instruction
 
@@ -214,7 +214,7 @@ class NullBlock(QASMFile):
     """ Class to serve as dummy block in case of opaque gates """
     def __init__(self, parent):
         self._parent_file(parent)
-        self.File = [';']
+        self.openFile = [';']
         self.read = False
 
     def __len__(self):

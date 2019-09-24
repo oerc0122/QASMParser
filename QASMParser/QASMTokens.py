@@ -22,7 +22,7 @@ versions = ("OPENQASM", "REQASM", "OMEQASM")
 versionDict = dict((index, version) for version, index in enumerate(versions, 1))
 versionDict[None] = 0
 
-def parseVersion(versionIn):
+def parse_version(versionIn):
     """Translate version string into tuple."""
     if isinstance(versionIn, str):
         QASM, versionNo = versionIn.split()
@@ -41,10 +41,10 @@ qops = {}
 blocks = {}
 _reservedKeys = []
 
-def _overrideKeyword(toks, name):
+def _override_keyword(toks, name):
     """Set returned keyword to be name instead of the parser key."""
     toks["keyword"] = name
-def _setVersion(toks, version):
+def _set_version(toks, version):
     """ Apply version to parsing tokens. """
     toks["reqVersion"] = version
 
@@ -97,12 +97,12 @@ def _setup_QASMParser():
                 raise IOError(dupTokenWarning.format("Operation", name))
             self.operation = name
             if keyOverride is not None:
-                self.parser = (keyOverride + argParser).addParseAction(lambda s, l, t: _overrideKeyword(t, name))
+                self.parser = (keyOverride + argParser).addParseAction(lambda s, l, t: _override_keyword(t, name))
             else:
                 self.parser = CaselessKeyword(name)("keyword") + argParser
 
-            self.version = parseVersion(version)
-            self.parser.addParseAction(lambda s, l, t: _setVersion(t, self.version))
+            self.version = parse_version(version)
+            self.parser.addParseAction(lambda s, l, t: _set_version(t, self.version))
 
             _reservedKeys.append(name)
             if qop:
@@ -124,7 +124,7 @@ def _setup_QASMParser():
 
 
             if prefixes:
-                localPrefixParser = Each(map(Optional, map(Keyword, prefixes))).addParseAction(prefixSetter)
+                localPrefixParser = Each(map(Optional, map(Keyword, prefixes))).addParseAction(prefix_setter)
             else:
                 localPrefixParser = prefixParser
             self.parser = localPrefixParser + self.parser
@@ -143,8 +143,8 @@ def _setup_QASMParser():
             if returnables:
                 self.parser = self.parser + Optional(returnParser)
 
-            self.version = parseVersion(version)
-            self.parser.addParseAction(lambda s, l, t: _setVersion(t, self.version))
+            self.version = parse_version(version)
+            self.parser.addParseAction(lambda s, l, t: _set_version(t, self.version))
 
             _reservedKeys.append(name)
             blocks[name] = self
@@ -157,8 +157,8 @@ def _setup_QASMParser():
             self.operation = name
             self.parser = Keyword(name)("keyword") + detParser
 
-            self.version = parseVersion(version)
-            self.parser.addParseAction(lambda s, l, t: _setVersion(t, self.version))
+            self.version = parse_version(version)
+            self.parser.addParseAction(lambda s, l, t: _set_version(t, self.version))
 
             _reservedKeys.append(name)
             blocks[name] = self
@@ -217,8 +217,9 @@ def _setup_QASMParser():
     regListNoRef = Group(delimitedList(regNoRef))
     regListRef = Group(delimitedList(regRef))
 
-    def setMathType(toks, type_):
-        toks["type"] = type_
+    def set_maths_type(toks, mathsType):
+        """ Set logical or integer or floating point """
+        toks["type"] = mathsType
 
     intVar = integer | regRef
     realVar = real | integer | pi | e | regRef
@@ -241,21 +242,22 @@ def _setup_QASMParser():
         (oneOf("in"), 2, opAssoc.LEFT, Binary)
     ]
 
-    intExp <<= infixNotation(intFuncVar | intVar, mathOp).setParseAction(lambda s, l, t: setMathType(t, "int"))
+    intExp <<= infixNotation(intFuncVar | intVar, mathOp).setParseAction(lambda s, l, t: set_maths_type(t, "int"))
 
-    realExp <<= infixNotation(realFuncVar | realVar, mathOp).setParseAction(lambda s, l, t: setMathType(t, "float"))
+    realExp <<= infixNotation(realFuncVar | realVar, mathOp).setParseAction(lambda s, l, t: set_maths_type(t, "float"))
 
-    boolExp <<= infixNotation(boolFuncVar | boolVar, logOp).setParseAction(lambda s, l, t: setMathType(t, "bool"))
+    boolExp <<= infixNotation(boolFuncVar | boolVar, logOp).setParseAction(lambda s, l, t: set_maths_type(t, "bool"))
 
     mathExp = intExp ^ realExp ^ boolExp
 
     prefixes = ["unitary", "recursive"]
     callMods = ["CTRL", "INV"]
 
-    def prefixSetter(toks):
+    def prefix_setter(toks):
+        """ Pull out prefixes of gate calls and add them into list """
         for prefix in prefixes:
             toks[prefix] = prefix in toks.asList()
-    prefixParser = Each(map(Optional, map(Keyword, prefixes))).addParseAction(prefixSetter)
+    prefixParser = Each(map(Optional, map(Keyword, prefixes))).addParseAction(prefix_setter)
 
 
     pargParser = brL + delimitedList(validName)("pargs") + brR
@@ -281,7 +283,7 @@ def _setup_QASMParser():
     commentLine = Literal(commentSyntax).suppress() + restOfLine("comment")
     commentBlock = cStyleComment("comment").addParseAction(removeQuotes).addParseAction(removeQuotes)
     comment = commentLine | commentBlock
-    comment.addParseAction(lambda s, l, t: _setVersion(t, (0, 0, 0)))
+    comment.addParseAction(lambda s, l, t: _set_version(t, (0, 0, 0)))
 
     directiveName = Word(alphas).setParseAction(downcaseTokens)
     directiveArgs = CharsNotIn(";")
@@ -291,7 +293,8 @@ def _setup_QASMParser():
         version="REQASM 1.0",
         keyOverride=(~dirOpenSyntax + ~dirCloseSyntax + dirSyntax))
 
-    def splitArgs(toks):
+    def split_args(toks):
+        """ Split directive arguments out """
         toks[0]["keyword"] = "directive"
         toks[0]["args"] = toks[0]["args"].strip().split(" ")
 
@@ -302,8 +305,8 @@ def _setup_QASMParser():
                                         dirCloseSyntax,
                                         content=directiveStatement,
                                         ignoreExpr=(comment | quotedString))
-                             .setWhitespaceChars("\n").setParseAction(splitArgs))
-    directiveBlock.addParseAction(lambda s, l, t: _setVersion(t, (2, 1, 0)))
+                             .setWhitespaceChars("\n").setParseAction(split_args))
+    directiveBlock.addParseAction(lambda s, l, t: _set_version(t, (2, 1, 0)))
 
     # Programming lines
     _Op("version", Empty(),
@@ -341,9 +344,9 @@ def _setup_QASMParser():
     callGate = Combine(Group(modifiers)("mods") + \
                        validName("gate")) + \
                        callArgParser + \
-                       regListRef("qargs").addParseAction(lambda s, l, t: _overrideKeyword(t, "call")) + \
+                       regListRef("qargs").addParseAction(lambda s, l, t: _override_keyword(t, "call")) + \
                        returnParser
-    callGate.addParseAction(lambda s, l, t: _setVersion(t, (1, 2, 0)))
+    callGate.addParseAction(lambda s, l, t: _set_version(t, (1, 2, 0)))
 
     # Block structures
     _Block("for", validName("var") + _in_ + interRef("range"), version="REQASM 1.0")
@@ -389,7 +392,8 @@ def _setup_QASMParser():
         (ignoreSpecialBlocks +  CharsNotIn("{") + dummyCodeBlock) | \
         (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd)
 
-    testKeyword = dirSyntax.setParseAction(lambda s, l, t: _overrideKeyword(t, "directive")) | Word(alphas)("keyword")
+    testKeyword = (dirSyntax.setParseAction(lambda s, l, t: _override_keyword(t, "directive")) |
+                   Word(alphas)("keyword"))
 
     code = (Group(directiveBlock)) | Group(validLine)
 

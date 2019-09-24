@@ -7,11 +7,14 @@ import metis
 import numpy as np
 sys.path += ['/home/jacob/QuEST-TN/utilities/']
 
+from .QASMTypes import (QuantumRegister)
+from .CodeGraph import (BaseGraphBuilder, parse_code)
+
 # Find QuEST and TN libraries
 from QuESTPy.QuESTBase import init_QuESTLib
 from TNPy.TNBase import init_TNLib
-QuESTPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/QuEST"
-TNPath = "/home/ania/Documents/no_sync/git_QuEST-TN/build/TN/"
+QuESTPath = "/home/jacob/QuEST-TN/build/TN/QuEST"
+TNPath = "/home/jacob/QuEST-TN/build/TN/"
 init_QuESTLib(QuESTPath)
 init_TNLib(TNPath)
 
@@ -21,8 +24,6 @@ import TNPy.TNFunc as TNFunc
 import TNPy.TNAdditionalGates as TNAdd
 import QuESTPy.QuESTFunc as QuESTFunc
 
-from .QASMTypes import (QuantumRegister)
-from .CodeGraph import (BaseGraphBuilder, parse_code)
 
 
 class Vertex():
@@ -126,6 +127,7 @@ class AdjListBuilder(BaseGraphBuilder):
 
     def process(self, **kwargs):
         start = min(np.flatnonzero(self._involved == 1))
+        # Add in to guarantee planar graph
         # end = max(np.flatnonzero(self._involved == 1))
         # for qubit in range_inclusive(start, end):
         for qubit in np.flatnonzero(self._involved == 1):
@@ -144,13 +146,13 @@ class AdjListBuilder(BaseGraphBuilder):
         self.set_qubits()
 
     def finalise(self):
+        """ Add in the final output edges for last vertices """
         for node in self._lastUpdated:
             node._edges.insert(0, None)
             node._indices.insert(0, (None, None))
-        # for vertex in self.adjList:
-        #     print(vertex.ID, vertex.indices)
-            
+
     def handle_measure(self, **kwargs):
+        """ Join measure to treat it as wholly entangling """
         self.set_qubits(1)
         self.process(**kwargs)
 
@@ -183,7 +185,8 @@ class Tree:
     vertex = property(lambda self: self.adjList[0])
     nEdge = property(lambda self: len(self._adjList))
     adjList = property(lambda self: self._adjList)
-    neighbours = property(lambda self: set(edge for vertex in self.vertices for edge in vertex.edges if edge is not None))
+    neighbours = property(lambda self:
+                          set(edge for vertex in self.vertices for edge in vertex.edges if edge is not None))
 
     def to_local(self, edge):
         """ find local index of vertex """
@@ -231,8 +234,6 @@ class Tree:
 
         TNAdd.TN_controlledGateTargetHalf(QuESTFunc.controlledNot, self.tensor, 1, 0)
 
-        print("HONK:", self.tensor.qureg)
-        
         if vertex.op.name == "CX":
             gate = QuESTFunc.controlledNot
             args = [0, 2]
@@ -283,7 +284,7 @@ class Tree:
         print(self.right.tensor.qureg)
 
         print("contractionEdges", contractionEdges, "\n free", freeIndices, "\nremap", remap)
-        
+
         self.tensor = TNFunc.contractIndices(self.left.tensor, self.right.tensor,
                                              contPass[0], contPass[1], ctypes.c_int(len(contractionEdges[0])),
                                              freePass[0], ctypes.c_int(len(freeIndices[0])),

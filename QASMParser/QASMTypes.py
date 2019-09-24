@@ -21,7 +21,7 @@ isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile(r"[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
 
 def slice_inclusive(start=None, stop=None, step=1):
-    """ Actually include the stop like anything sensible would """
+    """ Actually include the stop, like anything sensible would """
     return slice(start, stop+1, step)
 
 def resolve_arg(block, var, args, spargs, loopVar=None):
@@ -150,10 +150,8 @@ class Operation(CoreOp):
 
     def _finalise_loops(self):
         """ Dealias references of self if self has changed to avoid infinite loops """
-
         if self.loops:
-            self.innermost._code = [copy.copy(self)]
-            self.innermost._code[0].loops = []
+            self.innermost.finalise()
 
     def handle_loops(self, pargs):
         """ Handle loop rules according to modified REQASM rules
@@ -247,7 +245,7 @@ class CodeBlock(CoreOp):
         """ Return current line """
         return self.currentFile.nLine
 
-    def _resolve(self, var, argType, index=""):
+    def resolve(self, var, argType, index=""):
         """Resolve an argument and return its corresponding value or location based on current scope.
 
         :param var: Variable to resolve
@@ -290,7 +288,7 @@ class CodeBlock(CoreOp):
             if var is None:
                 out = None
             elif isinstance(var, (list, tuple)):
-                out = [self._resolve(elem, argType="Constant") for elem in var]
+                out = [self.resolve(elem, argType="Constant") for elem in var]
             elif isinstance(var, (int, float)):
                 out = var
             elif isinstance(var, str) and re.fullmatch(isInt, var):
@@ -326,7 +324,7 @@ class CodeBlock(CoreOp):
                 out = self.parse_maths(var)
             elif isinstance(var, ParseResults):
                 if var.get("var", None) is not None:
-                    out = self._resolve(var.get("var"), argType="Maths", index=var.get("ref"))
+                    out = self.resolve(var.get("var"), argType="Maths", index=var.get("ref"))
                 elif var.get("start") or var.get("end"):
                     out = self.parse_range(var)
             elif isinstance(var, MathsBlock):
@@ -424,7 +422,7 @@ class CodeBlock(CoreOp):
             outStr += "{}({})".format(elem, ", ".join(args))
 
         elif isinstance(elem, ParseResults):
-            var = self._resolve(elem, argType="Constant")
+            var = self.resolve(elem, argType="Constant")
             outStr += self.resolve_maths(var, additionalVars, False)
         elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             self._error(failedOpWarning.format("resolve " + elem[0].name + " to constant value", "resolve_maths"))
@@ -552,14 +550,14 @@ class CodeBlock(CoreOp):
         :param refIndex:  Index of register to be aliased
         """
 
-        referee, refInter = self._resolve(referee, argType="QuantumRegister", index=refIndex)
+        referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
         refInter = refInter[0], refInter[1]
         refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
 
         if self._check_def(aliasName, create=True, argType="Alias"):
             self._new_alias(aliasName, refSize)
 
-        alias, aliasInter = self._resolve(aliasName, argType="Alias", index=argIndex)
+        alias, aliasInter = self.resolve(aliasName, argType="Alias", index=argIndex)
         aliasSize = 1 + aliasInter[1] - aliasInter[0]
         if aliasSize != refSize:
             self._error(aliasIndexWarning.format(aliasName, aliasSize, refSize))
@@ -621,12 +619,12 @@ class CodeBlock(CoreOp):
         varName, _ = var # Don't need varType
         value, valType = val
 
-        val = (self._resolve(value, argType="Constant"), valType)
+        val = (self.resolve(value, argType="Constant"), valType)
         if self._check_def(varName, create=True, argType="Constant"):
             letobj = Constant(self, var, val)
             self._objs[letobj.name] = letobj
         else:
-            var = (self._resolve(varName, argType="Constant").name, None)
+            var = (self.resolve(varName, argType="Constant").name, None)
             letobj = Constant(self, var, val)
             self._objs[letobj.name] = letobj
 
@@ -654,7 +652,7 @@ class CodeBlock(CoreOp):
         if "INV" in modifiers.asList():
             # If inverse doesn't exist, make it
             if self._check_def("inv_"+gateName, create=True, argType="Gate"):
-                orig = self._resolve(gateName, argType="Gate")
+                orig = self.resolve(gateName, argType="Gate")
                 orig.invert(self)
             gateName = "inv_"+gateName
 
@@ -671,8 +669,8 @@ class CodeBlock(CoreOp):
         :param bindex: Index of output classical register
 
         """
-        parg = self._resolve(parg, argType="ClassicalRegister", index=bindex)
-        qarg = self._resolve(qarg, argType="QuantumRegister", index=qindex)
+        parg = self.resolve(parg, argType="ClassicalRegister", index=bindex)
+        qarg = self.resolve(qarg, argType="QuantumRegister", index=qindex)
 
         measure = Measure(self, qarg, parg)
 
@@ -685,7 +683,7 @@ class CodeBlock(CoreOp):
         :param qindex:
 
         """
-        qarg = self._resolve(qarg, argType="QuantumRegister", index=qindex)
+        qarg = self.resolve(qarg, argType="QuantumRegister", index=qindex)
         reset = Reset(self, qarg)
 
         self._code += [reset]
@@ -697,7 +695,7 @@ class CodeBlock(CoreOp):
         :param bindex:
 
         """
-        parg = self._resolve(parg, argType="ClassicalRegister", index=bindex)
+        parg = self.resolve(parg, argType="ClassicalRegister", index=bindex)
         output = Output(self, parg)
 
         self._code += [output]
@@ -720,7 +718,7 @@ class CodeBlock(CoreOp):
         :param var:
 
         """
-        var = self._resolve(var, argType="Constant")
+        var = self.resolve(var, argType="Constant")
         if not var.loopVar:
             self._error(failedOpWarning.format("cycle", "non-loop"))
         self._code += [Cycle(self, var)]
@@ -731,7 +729,7 @@ class CodeBlock(CoreOp):
         :param var:
 
         """
-        var = self._resolve(var, argType="Constant")
+        var = self.resolve(var, argType="Constant")
         if not var.loopVar:
             self._error(failedOpWarning.format("escape", "non-loop"))
         self._code += [Escape(self, var)]
@@ -798,8 +796,14 @@ class CodeBlock(CoreOp):
             if not block:
                 self._error(inlineOpaqueWarning)
             gate = args[0]
-            target = self._resolve(gate, argType="Gate")
+            target = self.resolve(gate, argType="Gate")
             target.classical_block(block)
+        elif directive == "inverse":
+            if not block:
+                self._error(inlineOpaqueWarning)
+            gate = args[0]
+            target = self.resolve(gate, argType="Gate")
+            target.set_inverse(block)
         else:
             self._error(badDirectiveWarning.format(directive))
 
@@ -985,10 +989,10 @@ class CodeBlock(CoreOp):
         args = []
         if argType in ["ClassicalRegister", "QuantumRegister"]:
             for arg in argsIn:
-                args.append(self._resolve(arg["var"], argType, arg.get("ref", None)))
+                args.append(self.resolve(arg["var"], argType, arg.get("ref", None)))
         elif argType in ["Constant"]:
             for arg in argsIn:
-                args.append(self._resolve(arg, argType))
+                args.append(self.resolve(arg, argType))
         else:
             self._error(argParseWarning.format(argType))
 
@@ -1032,7 +1036,7 @@ class CodeBlock(CoreOp):
             point = rangeSpec.get("index", None)
             if isinstance(point, ParseResults):
                 point = point.get("var", point)
-            point = self._resolve(point, argType="Constant")
+            point = self.resolve(point, argType="Constant")
             interval = (point, point)
             self._check_bounds(interval, arg)
 
@@ -1041,8 +1045,8 @@ class CodeBlock(CoreOp):
                 self._error(rangeToIndexWarning)
             start, end = rangeSpec.get("start", None), rangeSpec.get("end", None)
 
-            start = self._resolve(start, argType="Constant")
-            end = self._resolve(end, argType="Constant")
+            start = self.resolve(start, argType="Constant")
+            end = self.resolve(end, argType="Constant")
 
             if arg:
                 if not start:
@@ -1103,7 +1107,7 @@ class MathsBlock(CoreOp):
                     operand = MathsBlock(parent, operand)
                     newArgs.append((operator, operand))
                 else:
-                    operand = parent._resolve(operand, argType="Maths")
+                    operand = parent.resolve(operand, argType="Maths")
                     newArgs.append((operator, operand))
             elem.args = newArgs
         elif isinstance(elem, Function):
@@ -1113,7 +1117,7 @@ class MathsBlock(CoreOp):
                     arg = MathsBlock(parent, arg)
                     newArgs.append(arg)
                 else:
-                    arg = parent._resolve(arg, argType="Maths")
+                    arg = parent.resolve(arg, argType="Maths")
                     newArgs.append(arg)
             elem.args = newArgs
 
@@ -1411,7 +1415,7 @@ class CallGate(Operation):
 
         self.resolvedQargs = None
 
-        self.callee = self.parent._resolve(self.name, argType="Gate")
+        self.callee = self.parent.resolve(self.name, argType="Gate")
 
         self._check_args(pargs, qargs, gargs, spargs)
 
@@ -1636,6 +1640,7 @@ class Gate(Referencable, CodeBlock):
         self.unitary = unitary
 
         self._inverse = None
+        self._control = None
 
         if recursive:
             self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
@@ -1674,12 +1679,12 @@ class Gate(Referencable, CodeBlock):
         inverse = copy.copy(self)
         inverse._name = "inv_"+self.name
         inverse._code = []
-        
+
         for line in reversed(self.code):
             if isinstance(line, CallGate):
                 gateName = line.name
                 if parent._check_def("inv_"+gateName, create=True, argType="Gate"):
-                    gate = parent._resolve(gateName, argType="Gate")
+                    gate = parent.resolve(gateName, argType="Gate")
                     gate.invert(parent)
                 line.qargs[0][1] = (0, 0)
                 inverse._code.append(CallGate(self, "inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
@@ -1748,6 +1753,7 @@ class Gate(Referencable, CodeBlock):
     spargs = property(lambda self: self._spargs, spargs_setter)
     gargs = property(lambda self: self._gargs, gargs_setter)
     inverse = property(lambda self: self._inverse)
+    control = property(lambda self: self._control)
 
 class Circuit(Gate):
     """
@@ -1799,15 +1805,22 @@ class Opaque(Gate):
         CodeBlock.__init__(self, self.parent, block)
         self.parse_instructions()
 
+    def set_code(self, code):
+        """ Set the code of the opaque block directly """
+        self._code = code
+
     def set_inverse(self, block):
         """ Set the inverse of the opaque gate """
-        CodeBlock.__init__(self, self.parent, block)
-        self.inverse = block
+        self._inverse = block
+
+    def set_control(self, block):
+        """ Set the control of the opaque gate """
+        self._control = block
 
 class CBlock(CoreOp):
     """ Classical block """
     def __init__(self, parent, block):
-        CoreOp.__init__(self,parent)
+        CoreOp.__init__(self, parent)
         self.block = block
 
 class Loop(CodeBlock):
@@ -1853,6 +1866,13 @@ class NestLoop(Loop):
         self.step = step
         if not isinstance(self.step, (list, tuple)):
             self.step = [step]
+
+    def finalise(self):
+        """ Dereference nested references to self to avoid infinite nesting """
+#        self._code = [# copy.copy(self)
+#        ]
+        self._code[0].loops = []
+
 
 class InitEnv(CoreOp):
     """ Initialise QuESTEnv """

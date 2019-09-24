@@ -12,6 +12,8 @@ class QubitLine(BaseGraphBuilder):
         BaseGraphBuilder.__init__(self, size)
         self._default = "|"
 
+    lineFormat = lambda self, str: "{:*^{width}}".format(str, width=3*self.nQubits)
+
     def process(self, **kwargs):
         """ Print the qubit list """
         for qubitInvolved in self._involved:
@@ -27,11 +29,10 @@ class QubitLine(BaseGraphBuilder):
 
     def handle_classical(self, **kwargs):
         """ Print an appropriately scaled classical line """
-        print("{:*^{width}}".format(' Classical ', width=3*self.nQubits))
+        print(self.lineFormat(' Classical '))
 
     def handle_measure(self, **kwargs):
-        print("{:*^{width}}".format(' Measure ', width=3*self.nQubits))
-        
+        print(self.lineFormat(' Measure '))
 
 def print_circuit_diag(codeObject, maxDepth=-1):
     """ Recursively traverse the code to print a quick entanglement graph/circuit diagram """

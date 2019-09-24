@@ -44,7 +44,7 @@ def set_lang():
     Alias.to_lang = Alias_to_Python
     SetAlias.to_lang = SetAlias_to_Python
     MathsBlock.to_lang = resolve_maths
-
+    init_core_QASM_gates()
 
 # Several details pertaining to the language in question
 hoistFuncs = False    # Move functions to front of program
@@ -52,8 +52,31 @@ hoistIncludes = False # Move includes  to front of program
 hoistVars = False     # Move variables to front of program
 bareCode = False      # Can code be bare or does it need to be in function
 blockOpen = ":"       # Block delimiters
-blockClose = ""       #  ""      ""
+blockClose = "\n"       #  ""      ""
 indent = "    "       # Standard indent depth
+
+def init_core_QASM_gates():
+    """ Set up the core gates in python """
+    unitary = Gate.internalGates["U"]
+    controlledNot = Gate.internalGates["CX"]
+    unitaryInverse = Gate.internalGates["inv_U"]
+
+    controlledNot.set_code([CBlock(
+        None,
+        """controlledNot(qreg, a_index, b_index)""".splitlines())])
+    unitary.set_code([CBlock(
+        None,
+        """rotateZ(qreg,a_index,lambda)
+rotateX(qreg,a_index,theta)
+rotateZ(qreg,a_index,phi)""".splitlines())])
+
+    unitaryInverse.set_code([CBlock(
+        None,
+        """rotateZ(qreg,a_index,-lambda)
+rotateX(qreg,a_index,-theta)
+rotateZ(qreg,a_index,-phi)""".splitlines())])
+
+
 
 def Maths_to_Python(parent, maths: MathsBlock):
     """Resolve mathematical operations into C.
