@@ -110,6 +110,7 @@ class QASMFile:
         currentLine = line
         while line is not None:
             *test, = lineParser.scanString(currentLine.strip())
+
             if test and test[0][1] == 0: # If line looks like valid instruction
                 try:
                     prev = 0
@@ -135,9 +136,10 @@ class QASMFile:
                 currentLine += line
 
         if currentLine.strip(): # Catch remainder
+            print("HEY", currentLine)
             try:
                 if list(QASMcodeParser.scanString(currentLine))[0][0] != 0:
-                    raise IOError(eofWarning)
+                    raise IOError(eofWarning.format("parsing remainder:\n" + currentLine))
                 for inst, start, end in QASMcodeParser.scanString(currentLine):
                     instruction = inst[0]
                     instruction.original = currentLine[start:end]

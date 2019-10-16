@@ -5,7 +5,7 @@ from QASMParser.QASMTypes import (TensorNetwork, ClassicalRegister, QuantumRegis
                                   Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                   Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                   Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
-                                  MathOp, Register)
+                                  MathOp, Register, Dealloc, DeferredAlias)
 from QASMParser.QASMTokens import (Binary, Function)
 from QASMParser.FileHandle import (NullBlock)
 
@@ -44,6 +44,8 @@ def set_lang():
     Alias.to_lang = Alias_to_c
     SetAlias.to_lang = SetAlias_to_c
     MathsBlock.to_lang = resolve_maths
+    Dealloc.to_lang = Dealloc_to_c
+    DeferredAlias.to_lang = DeferredAlias_to_c
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
@@ -238,7 +240,7 @@ def Output_to_c(self):
 
 def Return_to_c(self):
     """Syntax conversion for breaking out of a function."""
-    return f'return {self.pargs[0]};'
+    return f'return {self.pargs};'
 
 def Cycle_to_c(self):
     """Syntax conversion for cycling a loop."""
@@ -274,6 +276,9 @@ def DeferredClassicalRegister_to_c(self):
     return (f'int* {self.name} = malloc(sizeof(int)*{size});''\n'
             f'for (int i = 0; i < {size}; i++) {self.name}[i] = 0;')
 
+def Dealloc_to_c(self):
+    return f'free {self.pargs};'
+
 def QuantumRegister_to_c(self):
     """Syntax conversion for creating a quantum register."""
     return f"Qureg {self.name} = createQureg({self.size}, Env);"
@@ -297,6 +302,18 @@ def Argument_to_c(self):
 def Alias_to_c(self):
     """Syntax conversion for creating an alias."""
     return f"int {self.name}[{self.size}];"
+
+def DeferredAlias_to_c(self):
+    """Syntax conversion for creating a deferred Alias."""
+    if isinstance(self.size, MathsBlock):
+        size = Maths_to_c(self, self.size)
+    elif isinstance(self.size, list):
+        size = f'{{{",".join(self.size)}}}'
+    else:
+        size = f'{self.size}'
+
+    return (f'int* {self.name} = malloc(sizeof(int)*{size});''\n'
+            f'for (int i = 0; i < {size}; i++) {self.name}[i] = 0;')
 
 def SetAlias_to_c(self):
     """Syntax conversion for setting an alias."""

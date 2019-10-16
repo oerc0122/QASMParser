@@ -315,7 +315,7 @@ def _setup_QASMParser():
     _Op("include", quotedString("file").addParseAction(removeQuotes))
 
     # Gate-like structures
-    _Op("opaque", validName("name") + fullArgParser + qargParser("qargs") + returnParser,
+    _Op("opaque", validName("name") + fullArgParser + Optional(qargParser("qargs")) + returnParser,
         keyOverride=prefixParser + "opaque")
     _Routine("gate", pargs=True, qargs=True)
     _Routine("circuit", pargs=True, qargs=True, spargs=True, returnables=True, version="REQASM 1.0")
@@ -372,7 +372,10 @@ def _setup_QASMParser():
 
     copsParsers = list(map(lambda cop: cop.parser, cops.values()))
 
-    operations = (((Or(copsParsers) ^ Or(qopsParsers)) | callGate) + lineEnd.suppress())  ^ directiveBlock
+    operations = (((Or(copsParsers) ^ Or(qopsParsers)) |    # Classical/Quantum Operations
+                   callGate |                               # Gate parsers
+                   White()                                  # Blank Line
+                   ) + lineEnd.suppress()) ^ directiveBlock # ; or Directives
 
     validLine = Forward()
     codeBlock = nestedExpr("{", "}", Suppress(White()) ^ Group(validLine), (quotedString))
@@ -387,16 +390,17 @@ def _setup_QASMParser():
 
     ignoreSpecialBlocks = (~commentOpenSyntax + ~commentCloseSyntax + ~dirOpenSyntax + ~dirCloseSyntax)
 
-    testLine <<= comment | \
-        directiveBlock | \
-        (ignoreSpecialBlocks +  CharsNotIn("{") + dummyCodeBlock) | \
-        (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd)
-
+    testLine <<= (comment |                                                                 # Comments
+                  directiveBlock |                                                          # Directives
+                  (ignoreSpecialBlocks + CharsNotIn("{}") + dummyCodeBlock) |    # Block operations
+                  (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd))            # QASM Instructions
+    
     testKeyword = (dirSyntax.setParseAction(lambda s, l, t: _override_keyword(t, "directive")) |
                    Word(alphas)("keyword"))
 
     code = (Group(directiveBlock)) | Group(validLine)
 
     return code, testLine, testKeyword, reservedNames
+
 
 QASMcodeParser, lineParser, errorKeywordParser, reserved = _setup_QASMParser()

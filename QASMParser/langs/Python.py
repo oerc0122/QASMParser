@@ -5,7 +5,7 @@ from QASMParser.QASMTypes import (TensorNetwork, ClassicalRegister, QuantumRegis
                                   Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                   Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                   Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
-                                  MathOp, Register)
+                                  MathOp, Register, Dealloc, DeferredAlias)
 from QASMParser.QASMTokens import (Binary, Function)
 from QASMParser.FileHandle import (NullBlock)
 
@@ -42,6 +42,8 @@ def set_lang():
     Cycle.to_lang = Cycle_to_Python
     Escape.to_lang = Escape_to_Python
     Alias.to_lang = Alias_to_Python
+    DeferredAlias.to_lang = Alias_to_Python
+    Dealloc.to_lang = lambda: ""
     SetAlias.to_lang = SetAlias_to_Python
     MathsBlock.to_lang = resolve_maths
     init_core_QASM_gates()

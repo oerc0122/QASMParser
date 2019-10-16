@@ -219,7 +219,7 @@ class CodeBlock(CoreOp):
         self.currentFile = block
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile.error
-
+        
     code = property(lambda self: self._code)
     pargs = property(lambda self: self._pargs)
     qargs = property(lambda self: self._qargs)
@@ -797,7 +797,7 @@ class CodeBlock(CoreOp):
                 self._error(inlineOpaqueWarning)
             gate = args[0]
             target = self.resolve(gate, argType="Gate")
-            target.classical_block(block)
+            target.set_code([CBlock(target, block)])
         elif directive == "inverse":
             if not block:
                 self._error(inlineOpaqueWarning)
@@ -1074,6 +1074,12 @@ class CodeBlock(CoreOp):
         """
         return MathsBlock(self, maths, topLevel=True)
 
+class SubBlock(CodeBlock):
+    """ Extending type to inherit overwritten core functions with those of the parent """
+    def __init__(self, parent, block, copyObjs=True):
+        CodeBlock.__init__(self, parent, block, copyObjs)
+
+
 # Maths Parsing
 
 class MathsBlock(CoreOp):
@@ -1308,8 +1314,8 @@ class Alias(Register):
         :param inter: Range of bits
         """
         Register.__init__(self, parent, name, inter)
-        self.targets = [(None, None)]*self.size
         self.allSet = False
+        self.targets = [(None, None)]*self.size
 
     def set_target(self, indices, target, interval):
         """ Aliases target to indices
@@ -1320,6 +1326,40 @@ class Alias(Register):
 
         """
         for index in range(indices[0], indices[1]+1):
+            self.targets[index - self.minIndex] = (target, interval[0] + index)
+
+        self.allSet = all(target != (None, None) for target in self.targets)
+
+class DeferredAlias(Alias):
+    """
+    Alias whose size is unknown until execution of the code,
+    e.g. size is a function variable
+
+    :param parent: Parent block defining object
+    :param name: Reference name of the object
+    :param size: Size of register to initialise
+    """
+    def __init__(self, parent, name, inter):
+        """ Initialise a deferred alias """
+        Register.__init__(self, parent, name, inter)
+        self.allSet = False
+        self.targets = []
+        self._argType = "Alias"
+
+    def set_target(self, indices, target, interval):
+        """ Aliases target to indices
+
+        :param indices:
+        :param target:
+        :param interval:
+
+        """
+        print("HI")
+        for index in range(indices[0], indices[1]+1):
+            print(index, self.minIndex, len(self.targets)-1) 
+            if index - self.minIndex > len(self.targets) - 1:
+                self.targets += [(None, None)] * (len(self.targets) + 1 - index + self.minIndex)
+            print(self.targets)
             self.targets[index - self.minIndex] = (target, interval[0] + index)
 
         self.allSet = all(target != (None, None) for target in self.targets)
@@ -1587,32 +1627,6 @@ class EntryExit(CoreOp):
         """ Depth is defined """
         self.depth = 0
 
-class While(CodeBlock):
-    """ Define a while loop
-
-    :param parent: Parent block defining object
-    :param block: Code block of operations
-    :param cond: Condition of if statement
-    """
-    def __init__(self, parent, block, cond):
-        """Initalise a while construct """
-        self.cond = cond
-        CodeBlock.__init__(self, parent, block)
-        self.parse_instructions()
-
-class IfBlock(CodeBlock):
-    """ Define an if statement
-    :param parent: Parent block defining object
-    :param block: Code block of operations
-    :param cond: Condition of if statement
-
-    """
-    def __init__(self, parent, block, cond):
-        """Initialise an if construct """
-        self.cond = cond
-        CodeBlock.__init__(self, parent, block)
-        self.parse_instructions()
-
 class Gate(Referencable, CodeBlock):
     """
     Type to handle general general gates and their extensions (circuit, procedure, etc.)
@@ -1637,6 +1651,7 @@ class Gate(Referencable, CodeBlock):
         """Initialises the gate object """
         CodeBlock.__init__(self, parent, block)
         Referencable.__init__(self, parent, name)
+        self._to_free = []
         self.unitary = unitary
 
         self._inverse = None
@@ -1656,12 +1671,14 @@ class Gate(Referencable, CodeBlock):
 
         self.parse_instructions()
 
+        # Free temp vars
+        self._code += [Dealloc(self, freeable) for freeable in self._to_free]
+
         if not byprod:
             self.returnType = None
         else:
             self._code.append(Return(self, byprod))
             self.returnType = "listint"
-
         if returnType is not None:
             self.returnType = returnType
 
@@ -1741,6 +1758,41 @@ class Gate(Referencable, CodeBlock):
     def _measurement(self, qarg, qindex, parg, bindex):
         self._error(failedOpWarning.format("measure", self.trueType))
 
+    def _new_alias(self, argName, size):
+        """ Create a new alias in scope of self
+
+        :param argName: Name of alias to create
+        :param size:    Size of alias to create
+
+        """
+        self._is_def(argName, create=True)
+        alias = DeferredAlias(self, argName, size)
+        self._objs[argName] = alias
+        self._code += [alias]
+        self._to_free += [argName]
+
+    def _alias(self, aliasName, argIndex, referee, refIndex):
+        """
+        If an alias called aliasName exists: assign values to this alias
+        If it does not exist:  Create it and if values assign it
+
+        :param aliasName: Name of alias to create
+        :param argIndex:  Index of alias to assign to
+        :param referee:   Register to be aliased
+        :param refIndex:  Index of register to be aliased
+        """
+        print(self._objs)
+        print(self, self._check_def(aliasName, create=True, argType="Alias"), flush=True)
+        referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
+        refInter = refInter[0], refInter[1]
+        refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
+        if self._check_def(aliasName, create=True, argType="Alias"):
+            self._new_alias(aliasName, refSize)
+
+        alias, aliasInter = self.resolve(aliasName, argType="Alias", index=argIndex)
+
+        self._code += [SetAlias(self, (alias, aliasInter), (referee, refInter))]
+
     def _leave(self):
         """ Leave loop """
         if self.entry is not None:
@@ -1770,6 +1822,7 @@ class Circuit(Gate):
 
         if classical:
             variable = DeferredClassicalRegister(self, argName, size)
+            self._to_free += [argName]
             self._objs[argName] = variable
         else:
             self._error(gateDeclareWarning.format("qarg", type(self).__name__))
@@ -1817,16 +1870,48 @@ class Opaque(Gate):
         """ Set the control of the opaque gate """
         self._control = block
 
+class Dealloc(Operation):
+    """ Deallocate assigned memory """
+    def __init__(self, parent, targ):
+        Operation.__init__(self, parent, pargs=targ)
+
 class CBlock(CoreOp):
     """ Classical block """
     def __init__(self, parent, block):
         CoreOp.__init__(self, parent)
         self.block = block
 
-class Loop(CodeBlock):
+class While(SubBlock):
+    """ Define a while loop
+
+    :param parent: Parent block defining object
+    :param block: Code block of operations
+    :param cond: Condition of if statement
+    """
+    def __init__(self, parent, block, cond):
+        """Initalise a while construct """
+        self.cond = cond
+        SubBlock.__init__(self, parent, block)
+        self.parse_instructions()
+
+class IfBlock(SubBlock):
+    """ Define an if statement
+    :param parent: Parent block defining object
+    :param block: Code block of operations
+    :param cond: Condition of if statement
+
+    """
+    def __init__(self, parent, block, cond):
+        """Initialise an if construct """
+        self.cond = cond
+        SubBlock.__init__(self, parent, block)
+        self.parse_instructions()
+
+class Loop(SubBlock):
     """ Loop structure """
     def __init__(self, parent, block, var, start, end, step=None):
-        CodeBlock.__init__(self, parent, block)
+        SubBlock.__init__(self, parent, block)
+
         self._objs[var] = Constant(self, (var, "int"), (0, None)) # Value is 0 for disambiguating resolution
         self._objs[var].loopVar = True
         self.loopVar = self._objs[var]
@@ -1847,7 +1932,6 @@ class Loop(CodeBlock):
         if not isinstance(self.step, (list, tuple)):
             self.step = [step]
         self.parse_instructions()
-
 class NestLoop(Loop):
     """ Nested loop structure """
     def __init__(self, block, var, start, end, step=1):
@@ -1893,7 +1977,8 @@ class Include(CoreOp):
     def __init__(self, parent, filename, code):
         CoreOp.__init__(self, parent)
         self.filename = filename
-        self._code = code
+        self._code = [line for line in code if not isinstance(line, Comment)] # Filter mainprog comments
+    code = property(lambda self: self._code)
 
 class Cycle(CoreOp):
     """ Jump to end of loop """
