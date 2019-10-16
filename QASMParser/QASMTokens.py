@@ -382,18 +382,18 @@ def _setup_QASMParser():
 
     validLine <<= ((
         (operations + Optional(comment)) ^
-        (Or(blocksParsers) + codeBlock("block")) ^
+        (Or(blocksParsers) + codeBlock("block") + Optional(lineEnd)) ^
                 comment))                              # Whole line comment
 
     testLine = Forward()
-    dummyCodeBlock = nestedExpr("{", "}", testLine, (directiveBlock | quotedString | comment))
+    dummyCodeBlock = nestedExpr("{", "}", testLine, (directiveBlock | quotedString | comment)) + Optional(lineEnd)
 
     ignoreSpecialBlocks = (~commentOpenSyntax + ~commentCloseSyntax + ~dirOpenSyntax + ~dirCloseSyntax)
 
     testLine <<= (comment |                                                                 # Comments
                   directiveBlock |                                                          # Directives
-                  (ignoreSpecialBlocks + CharsNotIn("{}") + dummyCodeBlock) |    # Block operations
-                  (ignoreSpecialBlocks + CharsNotIn("{};") + lineEnd))            # QASM Instructions
+                  (ignoreSpecialBlocks + ZeroOrMore(CharsNotIn("{}")) + dummyCodeBlock) |   # Block operations
+                  (ignoreSpecialBlocks + ZeroOrMore(CharsNotIn("{};")) + lineEnd))          # QASM Instructions
     
     testKeyword = (dirSyntax.setParseAction(lambda s, l, t: _override_keyword(t, "directive")) |
                    Word(alphas)("keyword"))
