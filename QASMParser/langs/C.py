@@ -63,7 +63,7 @@ _typesTranslation = {
     "qreg":"Qureg",
     "complex":"Complex",
     "ComplexMatrix2":"ComplexMatrix2",
-    "listint":"int",
+    "listint":"int *",
     "const listint":"const int",
     "listfloat":"float",
     "str":"char",
@@ -240,7 +240,7 @@ def Output_to_c(self):
 
 def Return_to_c(self):
     """Syntax conversion for breaking out of a function."""
-    return f'return {self.pargs};'
+    return f'return {self.pargs.name};'
 
 def Cycle_to_c(self):
     """Syntax conversion for cycling a loop."""
@@ -273,7 +273,7 @@ def DeferredClassicalRegister_to_c(self):
     else:
         size = f'{self.size}'
 
-    return (f'int* {self.name} = malloc(sizeof(int)*{size});''\n'
+    return (f'int* {self.name} = malloc(sizeof(int)*({size}));''\n'
             f'for (int i = 0; i < {size}; i++) {self.name}[i] = 0;')
 
 def Dealloc_to_c(self):
@@ -388,7 +388,10 @@ def CallGate_to_c(self):
 
     printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
     printGate = self.name
-    outString = f"{printGate}({printArgs});"
+    if self.byprod:
+        outString = f"{self.byprod} = {printGate}({printArgs});"
+    else:
+        outString = f"{printGate}({printArgs});"
     return outString
 
 def Comment_to_c(self):

@@ -133,9 +133,9 @@ class ProgFile(CodeBlock):
         for include in incs:
             target = codeToWrite.index(include)
             if include.filename in includes:
-                codeToWrite[target].filename = includes[include.filename]
+                codeToWrite[target].set_import(includes[include.filename])
             else:
-                codeToWrite[target:target+1] = include.code
+                codeToWrite[target:target+1] = include.raw_code
 
         if self.useTN:
             writeln(lang.includeTN)

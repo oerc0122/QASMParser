@@ -164,7 +164,7 @@ class Operation(CoreOp):
 
         if loopable:
             loopVar = pargs[0][0].name + "_loop"
-            self._add_loop(loopVar, baseStart, baseEnd)
+            self._add_loop(loopVar, baseStart, baseEnd+1)
         else:
             loopVar = False
 
@@ -219,7 +219,7 @@ class CodeBlock(CoreOp):
         self.currentFile = block
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile.error
-        
+
     code = property(lambda self: self._code)
     pargs = property(lambda self: self._pargs)
     qargs = property(lambda self: self._qargs)
@@ -273,7 +273,8 @@ class CodeBlock(CoreOp):
 
             elif isinstance(var, Argument):
                 out = [var, var.name]
-
+            else:
+                out = var
         elif argType == "Alias":
 
             self._is_def(var, create=False, argType=argType)
@@ -427,8 +428,10 @@ class CodeBlock(CoreOp):
         elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             self._error(failedOpWarning.format("resolve " + elem[0].name + " to constant value", "resolve_maths"))
         else:
-            raise NotImplementedError(failedOpWarning.format(f"parse {elem.trueType} {elem}", "resolve_maths"))
-
+            if hasattr(elem, "trueType"):
+                raise NotImplementedError(failedOpWarning.format(f"parse {elem.trueType} {elem}", "resolve_maths"))
+            else:
+                raise NotImplementedError(failedOpWarning.format(f"parse {type(elem).__name__} {elem}", "resolve_maths"))
         if not outStr:
             return "0"
 
@@ -630,7 +633,7 @@ class CodeBlock(CoreOp):
 
         self._code += [Let(self, letobj)]
 
-    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers=()):
+    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, byprod=None, modifiers=()):
         """ Check gate exists, if it does, call it, else raise error
 
         :param gateName: Name of gate to call
@@ -648,15 +651,13 @@ class CodeBlock(CoreOp):
         gargs = self.parse_args(gargs, argType="Gate")
         spargs = self.parse_args(spargs, argType="Constant")
 
-
         if "INV" in modifiers.asList():
             # If inverse doesn't exist, make it
             if self._check_def("inv_"+gateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
                 orig.invert(self)
             gateName = "inv_"+gateName
-
-        gate = CallGate(self, gateName, pargs, qargs, gargs, spargs)
+        gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
 
         self._code += [gate]
 
@@ -832,9 +833,10 @@ class CodeBlock(CoreOp):
             qargs = token.get("qargs", [])
             spargs = token.get("spargs", [])
             gargs = token.get("gargs", [])
+            byprod = token.get("byprod", None)
             mods = token.get("mods", [])
 
-            self._call_gate(gateName, pargs, qargs, gargs, spargs, modifiers=mods)
+            self._call_gate(gateName, pargs, qargs, gargs, spargs, byprod, modifiers=mods)
         elif keyword == "measure":
             qarg = token["qreg"]["var"]
             qindex = token["qreg"].get("ref", None)
@@ -1279,7 +1281,6 @@ class ClassicalRegister(Register):
         :param inter:
         :returns:
         :rtype:
-
         """
         Register.__init__(self, parent, name, inter)
 
@@ -1354,12 +1355,9 @@ class DeferredAlias(Alias):
         :param interval:
 
         """
-        print("HI")
         for index in range(indices[0], indices[1]+1):
-            print(index, self.minIndex, len(self.targets)-1) 
             if index - self.minIndex > len(self.targets) - 1:
                 self.targets += [(None, None)] * (len(self.targets) + 1 - index + self.minIndex)
-            print(self.targets)
             self.targets[index - self.minIndex] = (target, interval[0] + index)
 
         self.allSet = all(target != (None, None) for target in self.targets)
@@ -1439,7 +1437,7 @@ class CallGate(Operation):
     """ Call a gate """
     name = property(lambda self: self._name)
 
-    def __init__(self, parent, gate, pargs, qargs, gargs, spargs):
+    def __init__(self, parent, gate, pargs, qargs, gargs, spargs, byprod):
         """Initialise a call to a gate
 
         :param parent: Parent block defining object
@@ -1450,18 +1448,20 @@ class CallGate(Operation):
         :param spargs: Input special arguments
         """
         Operation.__init__(self, parent, qargs, pargs, gargs, spargs)
-
+        self._byprod = byprod
         self._name = gate
 
         self.resolvedQargs = None
 
         self.callee = self.parent.resolve(self.name, argType="Gate")
 
-        self._check_args(pargs, qargs, gargs, spargs)
+        self._check_args(pargs, qargs, gargs, spargs, byprod)
 
         self.handle_loops(self.qargs)
 
-    def _check_args(self, pargs, qargs, gargs, spargs):
+    byprod = property(lambda self: self._byprod)
+
+    def _check_args(self, pargs, qargs, gargs, spargs, byprod):
         """ Check gate arguments are valid and of the right size. Raise error if not
 
         :param pargs: Input parameter arguments
@@ -1471,16 +1471,16 @@ class CallGate(Operation):
 
         """
           # Check number of args matches
-        for name, args, expect in zip(["pargs", "gargs", "spargs"],
-                                      [pargs, gargs, spargs],
-                                      [self.callee.pargs, self.callee.gargs, self.callee.spargs]):
+        for name, args, expect in [("pargs", pargs, self.callee.pargs),
+                                   ("gargs", gargs, self.callee.gargs),
+                                   ("spargs", spargs, self.callee.spargs)]:
             if len(args) != len(expect):
                 place = "call to {}".format(self.name)
                 expect = "{} {}".format(len(expect), name)
                 received = len(args)
                 self._error(argWarning.format(place, expect, received))
 
-        newSpargs = {sparg.name: spargs for sparg in self.callee.spargs}
+        newSpargs = {sparg.name: spargs[i] for i, sparg in enumerate(self.callee.spargs)}
         newQargs = []
 
         for sparg in spargs: # Disambiguate?
@@ -1492,6 +1492,15 @@ class CallGate(Operation):
             newQargs.append([qarg, int(self.parent.resolve_maths(qarg.size, additionalVars=newSpargs))])
 
         self.resolvedQargs = newQargs
+
+        if self.callee.byprod:
+            resolvedByprod = self.parent.resolve(byprod, "ClassicalRegister")
+            received = resolvedByprod.size
+            expect = int(self.parent.resolve_maths(self.callee.byprod.size, additionalVars=newSpargs))
+            if received != expect:
+                place = "call to {}".format(self.name)
+                expect = "{} {}".format(expect, "return")
+                self._error(argWarning.format(place, expect, received))
 
         self.nLoops = 0
         # Implicit loops mean we handle qargs separately
@@ -1651,8 +1660,12 @@ class Gate(Referencable, CodeBlock):
         """Initialises the gate object """
         CodeBlock.__init__(self, parent, block)
         Referencable.__init__(self, parent, name)
-        self._to_free = []
-        self.unitary = unitary
+
+        # Gates are, by definition, unitary
+        if isinstance(self, Gate):
+            self.unitary = True
+        else:
+            self.unitary = unitary
 
         self._inverse = None
         self._control = None
@@ -1668,17 +1681,28 @@ class Gate(Referencable, CodeBlock):
         self.qargs = qargs
         self.pargs = pargs
         self.gargs = gargs
+        # List of vars declared only in scope
+        self._to_free = []
 
         self.parse_instructions()
 
-        # Free temp vars
-        self._code += [Dealloc(self, freeable) for freeable in self._to_free]
+        # Free those vars
+        self._code += [Dealloc(self, freeable) for freeable in self._to_free if freeable != byprod]
 
         if not byprod:
+            self.byprod = None
             self.returnType = None
         else:
-            self._code.append(Return(self, byprod))
-            self.returnType = "listint"
+            # Catches undefined returns
+            self.byprod = self.resolve(byprod, "ClassicalRegister")
+
+            self._code.append(Return(self, self.byprod))
+
+            if self.byprod.size == 1:
+                self.returnType = "int"
+            else:
+                self.returnType = "listint"
+
         if returnType is not None:
             self.returnType = returnType
 
@@ -1747,13 +1771,13 @@ class Gate(Referencable, CodeBlock):
         else:
             self._error(failedOpWarning.format("declare qarg", self.trueType))
 
-    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, modifiers=()):
+    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, byprod=None, modifiers=()):
         self._is_def(gateName, create=False, argType="Gate")
         # Perform unitary checks
         if self.unitary and not self._objs[gateName].unitary:
             self._error(failedOpWarning.format("call non-unitary gate " + gateName, "unitary gate " + self.name))
 
-        CodeBlock._call_gate(self, gateName, pargs, qargs, gargs, spargs, modifiers)
+        CodeBlock._call_gate(self, gateName, pargs, qargs, gargs, spargs, byprod, modifiers)
 
     def _measurement(self, qarg, qindex, parg, bindex):
         self._error(failedOpWarning.format("measure", self.trueType))
@@ -1781,8 +1805,6 @@ class Gate(Referencable, CodeBlock):
         :param referee:   Register to be aliased
         :param refIndex:  Index of register to be aliased
         """
-        print(self._objs)
-        print(self, self._check_def(aliasName, create=True, argType="Alias"), flush=True)
         referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
         refInter = refInter[0], refInter[1]
         refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
@@ -1843,7 +1865,7 @@ class Opaque(Gate):
     Allows the definition of a block through directive extensions
     """
     def __init__(self, parent, name,
-                 pargs=(), qargs=(), spargs=(), gargs=(), byprod=(),
+                 pargs=(), qargs=(), spargs=(), gargs=(), byprod=None,
                  recursive=False, unitary=False, returnType=None):
         self.parentFile = parent.currentFile
         Gate.__init__(self, parent, name, NullBlock(self.parentFile),
@@ -1976,9 +1998,13 @@ class Include(CoreOp):
     """ Import other QASM files """
     def __init__(self, parent, filename, code):
         CoreOp.__init__(self, parent)
-        self.filename = filename
+        self._filename = filename
         self._code = [line for line in code if not isinstance(line, Comment)] # Filter mainprog comments
-    code = property(lambda self: self._code)
+    raw_code = property(lambda self: self._code)
+    filename = property(lambda self: self._filename)
+
+    def set_import(self, filename):
+        self._filename = filename
 
 class Cycle(CoreOp):
     """ Jump to end of loop """

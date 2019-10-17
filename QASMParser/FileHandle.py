@@ -136,7 +136,6 @@ class QASMFile:
                 currentLine += line
 
         if currentLine.strip(): # Catch remainder
-            print("HEY", currentLine)
             try:
                 if list(QASMcodeParser.scanString(currentLine))[0][0] != 0:
                     raise IOError(eofWarning.format("parsing remainder:\n" + currentLine))
