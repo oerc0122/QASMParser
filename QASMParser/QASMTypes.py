@@ -164,7 +164,7 @@ class Operation(CoreOp):
 
         if loopable:
             loopVar = pargs[0][0].name + "_loop"
-            self._add_loop(loopVar, baseStart, baseEnd+1)
+            self._add_loop(loopVar, baseStart, baseEnd)
         else:
             loopVar = False
 
@@ -172,7 +172,7 @@ class Operation(CoreOp):
             for parg in pargs:
                 pargStart, _ = parg[1]
                 if pargStart - baseStart:
-                    parg[1] = loopVar + str(pargStart - baseStart)
+                    parg[1] = loopVar + f" + {pargStart - baseStart}"
                 else:
                     parg[1] = loopVar
         else:
@@ -216,6 +216,7 @@ class CodeBlock(CoreOp):
         self._spargs = []
         self._gargs = []
         self._objs = copy.copy(parent.get_objs("Copy")) if copyObjs else {}
+        self._to_free = []
         self.currentFile = block
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile.error
@@ -739,6 +740,14 @@ class CodeBlock(CoreOp):
         """ End current process """
         self._code += [TheEnd(self, self)]
 
+    def _dealloc(self, target):
+        """ Free deferred objects """
+        targetObj = self.resolve(target, argType="ClassicalRegister")
+        if targetObj not in self._to_free:
+            self._error(freeWarning.format(targetObj.name))
+
+        self._code += [Dealloc(self, targetObj)]
+        
     def _new_while(self, cond, block):
         """ Add while block
 
@@ -1026,9 +1035,9 @@ class CodeBlock(CoreOp):
                     if indexOnly:
                         interval = (arg.size, arg.size)
                     else:
-                        interval = (0, arg.size)
+                        interval = (0, arg.size+"-1")
                 elif isinstance(arg.size, MathsBlock):
-                    return (0, arg.size)
+                    return (0, arg.size-1)
                 else:
                     self._error(failedOpWarning.format("determine arg size", "parse_range"))
             else:
@@ -1300,6 +1309,7 @@ class DeferredClassicalRegister(ClassicalRegister):
         """Initialise a deferred classical register
         """
         ClassicalRegister.__init__(self, parent, name, size)
+        self._end -= 1
         self._argType = "ClassicalRegister"
 
 class Alias(Register):
@@ -1495,7 +1505,7 @@ class CallGate(Operation):
 
         if self.callee.byprod:
             resolvedByprod = self.parent.resolve(byprod, "ClassicalRegister")
-            received = resolvedByprod.size
+            received = int(self.parent.resolve_maths(resolvedByprod.size, additionalVars=newSpargs))
             expect = int(self.parent.resolve_maths(self.callee.byprod.size, additionalVars=newSpargs))
             if received != expect:
                 place = "call to {}".format(self.name)
@@ -1682,7 +1692,6 @@ class Gate(Referencable, CodeBlock):
         self.pargs = pargs
         self.gargs = gargs
         # List of vars declared only in scope
-        self._to_free = []
 
         self.parse_instructions()
 
@@ -1793,7 +1802,7 @@ class Gate(Referencable, CodeBlock):
         alias = DeferredAlias(self, argName, size)
         self._objs[argName] = alias
         self._code += [alias]
-        self._to_free += [argName]
+        self._to_free += [self]
 
     def _alias(self, aliasName, argIndex, referee, refIndex):
         """
@@ -1844,7 +1853,7 @@ class Circuit(Gate):
 
         if classical:
             variable = DeferredClassicalRegister(self, argName, size)
-            self._to_free += [argName]
+            self._to_free += [self]
             self._objs[argName] = variable
         else:
             self._error(gateDeclareWarning.format("qarg", type(self).__name__))

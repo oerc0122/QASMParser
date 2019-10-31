@@ -1,5 +1,8 @@
 // Includes for using REQASM features in C codes
 
+#ifndef REQASM_H
+#define REQASM_H
+
 #include "QuEST.h"
 
 typedef struct bitstr
@@ -44,3 +47,4 @@ ComplexMatrix2 uHadamard = {
 			    .r1c0 = {.real=1/sqrt(2), .imag=0},
 			    .r1c1 = {.real=-1/sqrt(2), .imag=0}
 };
+#endif

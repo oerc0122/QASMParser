@@ -25,6 +25,7 @@ import TNPy.TNFunc as TNFunc
 import TNPy.TNAdditionalGates as TNAdd
 import QuESTPy.QuESTFunc as QuESTFunc
 
+
 class Vertex():
     """ Class defining a single tensor node vertex """
     def __init__(self, ID, qubitID, age, operation=None):

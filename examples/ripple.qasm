@@ -21,9 +21,9 @@ qreg cout[1];
 creg ans[5];
 // set input states
 // a = 0001
-x a[0];
+x a[1:2];
 // b = 1111
-x b;
+x b[0];
 // add a to b, storing result in b
 majority cin[0],b[0],a[0];
 majority a[0],b[1],a[1];

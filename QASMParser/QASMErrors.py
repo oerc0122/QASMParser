@@ -13,6 +13,7 @@ noSpecWarning = "Neither language nor output with recognised language specified"
 opaqueWarning = "Opaque gate cannot have body in {}"
 parseArgWarning = "Issue parsing {} of type {}"
 typeWarning = "Unrecognised type {} requested in function {}"
+freeWarning = "Attempted to free non-allocated object {}"
 
 # File parsing
 fileWarning = "{message} in {file} at line {line}"

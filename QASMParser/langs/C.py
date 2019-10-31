@@ -17,7 +17,7 @@ def set_lang():
     :rtype: None
     """
     TensorNetwork.to_lang = TensorNetwork_to_c
-    ClassicalRegister.to_lang = ClassicalRegister_to_c
+    ClassicalRegister.to_lang = DeferredClassicalRegister_to_c
     QuantumRegister.to_lang = QuantumRegister_to_c
     DeferredClassicalRegister.to_lang = DeferredClassicalRegister_to_c
     Let.to_lang = Let_to_c
@@ -226,7 +226,7 @@ def inc(filename):
     """
     return f'#include "{filename}"'
 
-header = [inc("QuEST.h"), inc("stdio.h"), inc("reqasm.h")]
+header = [inc("stdlib.h"), inc("stdio.h"), inc("QuEST.h"), inc("reqasm.h"), inc("reqasm.c")]
 includeTN = inc("QuEST_tn.h") + "\n#define CX tn_controlledNot\n#define U tn_unitary"
 
 def init_env(self):
@@ -277,7 +277,7 @@ def DeferredClassicalRegister_to_c(self):
             f'for (int i = 0; i < {size}; i++) {self.name}[i] = 0;')
 
 def Dealloc_to_c(self):
-    return f'free {self.pargs};'
+    return f'free({self.pargs});'
 
 def QuantumRegister_to_c(self):
     """Syntax conversion for creating a quantum register."""
@@ -425,12 +425,12 @@ def CreateGate_to_c(self):
     printPargs = ""
     printSpargs = ""
     if self.qargs:
-        printQargs = "Qureg qreg, " + ", ".join(f"int {qarg.name}" if qarg.size == 1
-                                                else f"int* {qarg.name}" for qarg in self.qargs)
+        printQargs = "Qureg qreg, " + ", ".join(f"const int {qarg.name}" if qarg.size == 1
+                                                else f"const int* {qarg.name}" for qarg in self.qargs)
     if self.pargs:
         printPargs = ", ".join(f"{parg.varType} {parg.name}" for parg in self.pargs)
     if self.spargs:
-        printSpargs = ", ".join(f"int {sparg.name}" for sparg in self.spargs)
+        printSpargs = ", ".join(f"const int {sparg.name}" for sparg in self.spargs)
 
     printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
     returnType = _typesTranslation[self.returnType]
@@ -457,6 +457,6 @@ def NestLoop_to_c(self):
     step = map(resolve, self.step)
 
     var = (f"int {var} = {init}" for var, init in zip(self.var, start))
-    term = (f"{var} < {term}"    for var, term in zip(self.var, end))
+    term = (f"{var} <= {term}"    for var, term in zip(self.var, end))
     incr = (f"{var} += {incr}"     for var, incr  in zip(self.var, step))
     return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(incr)} )"

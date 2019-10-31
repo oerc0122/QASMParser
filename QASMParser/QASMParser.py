@@ -5,7 +5,7 @@ Module containing main file for parsing
 from importlib import import_module
 import sys
 import os.path
-from .QASMTypes import (QuantumRegister, CodeBlock, Let, Constant, Comment, Include, CBlock, Verbatim,
+from .QASMTypes import (QuantumRegister, CodeBlock, Let, Constant, Comment, Include, CBlock, Verbatim, InitEnv,
                         Gate, Circuit, Procedure, Opaque)
 from .FileHandle import (QASMFile, NullBlock)
 from .QASMErrors import (langNotDefWarning, langMismatchWarning, includeWarning)
@@ -170,7 +170,7 @@ class ProgFile(CodeBlock):
 
     def fix_qureg(self):
         """ Fix quantum registers to align with QuEST style """
-        code = []
+        code = [InitEnv(self)]
         for reg in self.quantumRegisters:
             code += [Comment(self, f'{reg.name}[{reg.start}:{reg.end-1}]')]
             code += [Let(self, (reg.name, "const listint"),

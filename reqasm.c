@@ -7,14 +7,14 @@
 # include <string.h>
 
 void U(Qureg qreg, int a, float theta, float phi, float lambda) {
-  
-  rotateZ(qreg,a_index,lambda);
-  rotateX(qreg,a_index,theta);
-  rotateZ(qreg,a_index,phi);
-          
+
+  rotateZ(qreg,a,lambda);
+  rotateX(qreg,a,theta);
+  rotateZ(qreg,a,phi);
+
 }
 void CX(Qureg qreg, int a, int b) {
-  controlledNot(qreg, a_index, b_index);
+  controlledNot(qreg, a, b);
 }
 
 bitstr toBitstr(int *bits, int nBits) {
@@ -117,50 +117,4 @@ int powrem(int a, int c) {
     exit(-1);
   }
   return a - pow(c, fllog(a,c));
-}
-
-int main() {
-  int nBits = 10;
-  int bits[10] = {1,0,0,1,1,0,0,1,1};
-  bitstr rand = toBitstr(bits, nBits);
-  for (int i = 0; i < nBits; i++) bits[i] = 0;
-  bitstr zero = toBitstr(bits, nBits);
-  for (int i = 0; i < nBits; i++) bits[i] = 1;
-  bitstr ones = toBitstr(bits, nBits);
-  printBitstr(rand);
-  printBitstr(zero);
-  printBitstr(ones);
-  _Bool a,b,c = 0;
-
-  a = andOfBits(rand);
-  b = orOfBits(rand);
-  c = xorOfBits(rand);
-  printf("%d %d %d\n",a, b, c);
-
-  a = andOfBits(zero);
-  b = orOfBits(zero);
-  c = xorOfBits(zero);
-  printf("%d %d %d\n",a, b, c);
-
-  a = andOfBits(ones);
-  b = orOfBits(ones);
-  c = xorOfBits(ones);
-  printf("%d %d %d\n",a, b, c);
-
-  a = andOfBits(ones) && andOfBits(zero);
-  b = orOfBits(ones)  && orOfBits(zero);
-  c = xorOfBits(ones) && xorOfBits(zero);
-  printf("%d %d %d\n",a, b, c);
-
-  printf("%d %d\n", decOfBits(rand), countOfBits(rand));
-
-  printf("%d %d\n", fllog(154, 2), powrem(154, 2));
-  
-  int bits2[10] = {1,0,0,1,1,0,0,1,1};
-  a = andOf(bits2, nBits);
-  b = orOf(bits2, nBits);
-  c = xorOf(bits2, nBits);
-  printf("%d %d %d\n",a, b, c);
-
-  return 0;
 }
