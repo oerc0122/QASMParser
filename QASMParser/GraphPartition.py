@@ -6,10 +6,9 @@ import ctypes
 from collections import defaultdict
 import metis
 import numpy as np
-sys.path += ['/home/jacob/QuEST-TN/utilities/']
+#import pygraphviz as pg
 
-from .QASMTypes import (QuantumRegister)
-from .CodeGraph import (BaseGraphBuilder, parse_code)
+sys.path += ['/home/jacob/QuEST-TN/utilities/']
 
 # Find QuEST and TN libraries
 from QuESTPy.QuESTBase import init_QuESTLib
@@ -25,7 +24,29 @@ import TNPy.TNFunc as TNFunc
 import TNPy.TNAdditionalGates as TNAdd
 import QuESTPy.QuESTFunc as QuESTFunc
 
+def setup(obj):
+    obj.adjlist = AdjList(obj.nQubits)
 
+def process(obj):
+    obj.adjlist.process(obj)
+
+def finalise(obj):
+    adjList = obj.adjList.adjList
+    ### Drawing
+    #edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
+    #graph = pg.AGraph()
+    #for edge in edgeList:
+    #    graph.add_edge(*edge)
+    #graph.draw('graph.png', prog='neato')
+    ### EndDraw
+
+    tree = Tree(adjList)
+    tree.split_graph()
+    print(tree.tree_form("vertIDs"))
+    tree.contract()
+    print(tree.tensor.qureg)
+
+    
 class Vertex():
     """ Class defining a single tensor node vertex """
     def __init__(self, ID, qubitID, age, operation=None):
@@ -49,6 +70,7 @@ class Vertex():
     indices = property(lambda self: self._indices)
     op = property(lambda self: self._op)
 
+
     def link(self, other, prepend=False):
         """ Link two vertices together """
         # Add one because we know always prepended with next node or null
@@ -60,6 +82,7 @@ class Vertex():
         else:
             self._edges.append(other.ID)
             other._edges.append(self.ID)
+            self._edges.append(other.ID)
             self._indices.append((other.ID, other.nEdges))
             other._indices.append((self.ID, self.nEdges))
 
@@ -114,10 +137,10 @@ class Vertex():
 
         return contractionEdges, freeIndices, remap
 
-class AdjListBuilder(BaseGraphBuilder):
+
+class AdjList():
     """ Class for building tensor network adjacency list """
     def __init__(self, size):
-        BaseGraphBuilder.__init__(self, size)
         # Set initialise (entry) statements
         self._adjList = [Vertex(ID=i, qubitID=i, age=1) for i in range(size)]
         self._lastUpdated = self.adjList[:]
@@ -128,12 +151,11 @@ class AdjListBuilder(BaseGraphBuilder):
     adjList = property(lambda self: np.asarray(self._adjList))
     edges = property(lambda self: [vertex.edges for vertex in self.adjList])
 
-    def process(self, **kwargs):
-        start = min(np.flatnonzero(self._involved == 1))
+    def process(self, obj, **kwargs):
         # Add in to guarantee planar graph
         # end = max(np.flatnonzero(self._involved == 1))
         # for qubit in range_inclusive(start, end):
-        for qubit in np.flatnonzero(self._involved == 1):
+        for qubit in obj.qubitsInvolved:
             prev = self._lastUpdated[qubit]
             self._nGate[qubit] += 1
             # Add new state as vertex
@@ -147,7 +169,6 @@ class AdjListBuilder(BaseGraphBuilder):
                 current.link(lastVertex)
             # Link to previous qubit in operation
             lastVertex = current
-        self.set_qubits()
 
     def finalise(self):
         """ Add in the final output edges for last vertices """
@@ -155,10 +176,6 @@ class AdjListBuilder(BaseGraphBuilder):
             node._edges.insert(0, None)
             node._indices.insert(0, (None, None))
 
-    def handle_measure(self, **kwargs):
-        """ Join measure to treat it as wholly entangling """
-        self.set_qubits(1)
-        self.process(**kwargs)
 
 class Tree:
     """ Class defining tree head """
@@ -431,11 +448,5 @@ class Node(Tree):
         self.remap = defaultdict(lambda: None, {old:new for new, old in enumerate(cut)})
         self.unmap = defaultdict(lambda: None, {new:parent.unmap[old] for new, old in enumerate(cut)})
 
-def calculate_adjlist(code, maxDepth=999):
-    """ Calculate adjacency list for METIS partitioner """
-    adjList = AdjListBuilder(QuantumRegister.numQubits)
-    parse_code(code, adjList, maxDepth=maxDepth)
-    adjList.finalise()
-    return adjList
 
 env = None

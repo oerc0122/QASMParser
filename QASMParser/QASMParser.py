@@ -7,7 +7,7 @@ import sys
 import os.path
 from .QASMTypes import (QuantumRegister, CodeBlock, Let, Constant, Comment, Include, CBlock, Verbatim, InitEnv,
                         Gate, Circuit, Procedure, Opaque)
-from .FileHandle import (QASMFile, NullBlock)
+from .FileHandle import (QASMFile)
 from .QASMErrors import (langNotDefWarning, langMismatchWarning, includeWarning)
 
 langConstants = ["e", "pi", "T", "F"]
@@ -146,7 +146,7 @@ class ProgFile(CodeBlock):
                 print_code(self, [codeToWrite.pop()], outputFile)
 
         if options["include_internals"]:
-            codeToWrite = list(Gate.internalGates.values()) + codeToWrite 
+            codeToWrite = list(Gate.internalGates.values()) + codeToWrite
 
         if lang.hoistFuncs:
             codeToWrite = sorted(codeToWrite, key=lambda x: issubclass(type(x), Gate))

@@ -4,33 +4,51 @@ Module for performing code analytics
 
 import numpy as np
 
-from .QASMTypes import (QuantumRegister)
-from .CodeGraph import (BaseGraphBuilder, parse_code)
+def setup(obj):
+    obj.analysis = Analyser(obj.nQubits)
 
-import matplotlib.pyplot as plt
+def process(obj, **kwargs):
+    obj.analysis.process(obj.nQubits, obj.qubitsInvolved)
 
-class Analyser(BaseGraphBuilder):
+class Analyser():
     """ Type to store graph of entanglement """
     def __init__(self, size):
-        BaseGraphBuilder.__init__(self, size)
+        self._nGates = 0
         self._nEntanglements = []
-        self._nEntanglementsPQubit = [[]]*size
-        self._entanglingOps = np.zeros(size, dtype=int)
+        self._nEntanglementsPQubit = [None]*size
+        for i in range(size):
+            self._nEntanglementsPQubit[i] = []
+        self._entanglingOps = [None]*size
+        for i in range(size):
+            self._entanglingOps[i] = []
+
+        self._currStart, self._longStart, self._longEnd = 0, 0, 0
         self._currentStretch = np.zeros(size, dtype=int)
         self._longestStretch = np.zeros(size, dtype=int)
+
+        self._nInterEntanglingOps = np.zeros((size, size), dtype=int)
+        self._interEntanglingOps = [None]*size
+        for i in range(size):
+            self._interEntanglingOps[i] = [None]*size
+            for j in range(size):
+                self._interEntanglingOps[i][j] = []
+        
+        self._interLongStart, self._interLongEnd = 0, 0
         self._interCurrentStretch = np.zeros((size, size), dtype=int)
         self._interLongestStretch = np.zeros((size, size), dtype=int)
-        self._interEntanglingOps = np.zeros((size, size), dtype=int)
 
     nEntanglements = property(lambda self: self._nEntanglements)
     nEntanglementsPQubit = property(lambda self: self._nEntanglementsPQubit)
     entanglingOps = property(lambda self: self._entanglingOps)
     longestStretch = property(lambda self: self._longestStretch)
+    stretchRange = property(lambda self: range(self._longStart, self._longEnd))
     interLongestStretch = property(lambda self: self._interLongestStretch)
     interEntanglingOps = property(lambda self: self._interEntanglingOps)
+    nGates = property(lambda self: self._nGates)
 
-    def process(self, **kwargs):
-        involved = np.flatnonzero(self._involved == 1)
+    def process(self, nQubits, involved, **kwargs):
+        """ Perform necessary processing of set qubits """
+        self._nGates += 1
         self._nEntanglements.append(len(involved))
 
         for qubit in involved:
@@ -41,40 +59,29 @@ class Analyser(BaseGraphBuilder):
                 self._currentStretch[qubit] += 1
                 break
 
-            self._entanglingOps[qubit] += 1
-            self._longestStretch[qubit] = max(self._currentStretch[qubit], self._longestStretch[qubit])
-            self._currentStretch[qubit] = 0
-            for qubit2 in range(self.nQubits):
+            # Stretch broken
+            if self._currentStretch[qubit] > self._longestStretch[qubit]:
+                self._longestStretch[qubit] = self._currentStretch[qubit]
+                self._longEnd = self.nGates
+                self._longStart = self._currStart
+                self._currStart = self.nGates
+                self._currentStretch[qubit] = 0
+
+            self._entanglingOps[qubit].append(1)
+
+            for qubit2 in range(nQubits):
                 if qubit == qubit2:
                     continue
                 if qubit2 in involved:
-                    self._interEntanglingOps[qubit, qubit2] += 1
-                    self._interLongestStretch[qubit, qubit2] = max(self._interCurrentStretch[qubit, qubit2],
-                                                                   self._interLongestStretch[qubit, qubit2])
-                    self._interCurrentStretch[qubit, qubit2] = 0
+                    self._nInterEntanglingOps[qubit][qubit2] += 1
+                    self._interEntanglingOps[qubit][qubit2].append(1)
+                    self._interLongestStretch[qubit][qubit2] = max(self._interCurrentStretch[qubit][qubit2],
+                                                                   self._interLongestStretch[qubit][qubit2])
+                    self._interCurrentStretch[qubit][qubit2] = 0
                 else:
-                    self._interCurrentStretch[qubit, qubit2] += 1
+                    self._interCurrentStretch[qubit][qubit2] += 1
 
-        self.set_qubits()
-
-    def clean(self):
-        del self._currentStretch
-        del self._interCurrentStretch
-        
-    def handle_classical(self, **kwargs):
-        """ Perform actions based on classical blocks """
-
-    def handle_measure(self, **kwargs):
-        """ Handle measurements """
-
-def analyse(code, maxDepth=999):
-    ""
-    analyser = Analyser(QuantumRegister.numQubits)
-    parse_code(code, analyser, maxDepth=maxDepth)
-    print(analyser.entanglingOps)
+def analyse(analyser):
+    """ Print results of analysis """
     print(analyser.longestStretch)
-    print(analyser.interEntanglingOps)
-    print(analyser.interLongestStretch)
-    plt.show()
-    quit()
-    return analyser
+    print(analyser.stretchRange)

@@ -4,19 +4,47 @@ Contains routines to traverse the parsed code and build graphs
 
 import numpy as np
 from .QASMTypes import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
+import QASMParser.Analytics as Analytics
+import QASMParser.CircuitDiag as CircuitDiag
+import QASMParser.AdjMat as AdjMat
+import QASMParser.GraphPartition as GraphPartition
 
-class BaseGraphBuilder():
-    """ Quantum circuit adjacency matrix """
-    def __init__(self, size):
+
+class GraphBuilder():
+    """ Quantum circuit preprocessing analysis """
+    def __init__(self, size, code, analyse=False, printASCII=False, partition=0, **kwargs):
         self._nQubits = size
         self._involved = np.zeros(self.nQubits, dtype=np.int8)
         self.isIf = False
         self.currOp = None
+        self._code = code
 
-    @property
-    def nQubits(self):
-        """ nQubits getter """
-        return self._nQubits
+        # Options
+        
+        self.codeAnalysis = analyse
+        self.printASCII = printASCII
+        self.adjmatPartition = partition in [1, 2]
+        self.graphPartition = partition == 2
+        self.setup()
+        
+    involvedList = property(lambda self: self._involved)
+    involved = property(lambda self: self._involved.nonzero())
+    qubitsInvolved = property(lambda self: np.flatnonzero(self._involved == 1))
+    nQubits = property(lambda self: self._nQubits)
+    codeLines = property(lambda self: len(self.code._code))
+    code = property(lambda self: self._code)
+
+
+    
+    def setup(self):
+        if self.codeAnalysis:
+            Analytics.setup(self)
+        if self.printASCII:
+            print(CircuitDiag.header(self.nQubits, self.code))
+        if self.adjmatPartition:
+            AdjMat.setup(self)
+        if self.graphPartition:
+            GraphPartition.setup(self)
 
     def set_qubits(self, value=0, ranges=None):
         """ Set labels to qubits """
@@ -36,12 +64,31 @@ class BaseGraphBuilder():
 
     def process(self, **kwargs):
         """ Perform necessary processing of set qubits """
+        if self.codeAnalysis:
+            Analytics.process(self)
+        if self.printASCII:
+            print(CircuitDiag.process(self))
+        if self.adjmatPartition:
+            AdjMat.process(self)
+        if self.graphPartition:
+            GraphPartition.process(self)
+        self.set_qubits()
 
+    def finalise(self):
+        if self.codeAnalysis:
+            Analytics.analyse(self.analysis)
+        if self.graphPartition:
+            GraphPartition.finalise()
+            
     def handle_classical(self, **kwargs):
         """ Perform actions based on classical blocks """
+        if self.printASCII:
+            print(CircuitDiag.handle_classical(self))
 
     def handle_measure(self, **kwargs):
         """ Handle measurements """
+        if self.printASCII:
+            print(CircuitDiag.handle_measure(self))
 
 def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1):
     """ Traverse code recursively updating the builder accordingly """

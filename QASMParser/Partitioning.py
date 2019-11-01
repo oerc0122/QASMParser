@@ -3,7 +3,7 @@ Module which performs the partitioning and set-up of quantum registers based on 
 """
 from enum import (IntEnum)
 from .QASMParser import (ProgFile)
-from .AdjMat import (calculate_adjmat, best_slice_adjmat)
+from .CodeGraph import (GraphBuilder, parse_code)
 from .QASMTypes import (TensorNetwork)
 from .QASMErrors import (partitionWarning)
 
@@ -17,8 +17,10 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1):
         bestSlice = tuple([register.end for register in code.quantumRegisters])
 
     if partitionLevel == partitionTypes.SPACELIKE:
-        adjMat = calculate_adjmat(code, maxDepth=maxDepth)
-        bestSlice = best_slice_adjmat(adjMat)
+        codeGraph = GraphBuilder(code.quantumRegisters.numQubits, code,
+                                 partition=partitionLevel)
+        adjMat = parse_code(code, codeGraph, maxDepth=maxDepth).adjMat
+        bestSlice = adjMat.best_slice_adjmat()
         if not bestSlice:
             print(partitionWarning)
 

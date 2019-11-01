@@ -1,55 +1,40 @@
 """
 Module to perform analysis for partitioning tensor network representation of state for memory optimisation.
 """
-from .QASMTypes import (QuantumRegister)
-from .CodeGraph import (BaseGraphBuilder, parse_code)
+_rowBuild = lambda x: "{0:<2.2s} ".format(str(x))
 
-_rowFormat = lambda x: print("{0:<2.2s}".format(str(x)), end=" ")
-
-class QubitLine(BaseGraphBuilder):
-    """ Type to store graph of entanglement """
-    def __init__(self, size):
-        BaseGraphBuilder.__init__(self, size)
-        self._default = "|"
-
-    lineFormat = lambda self, str: "{:*^{width}}".format(str, width=3*self.nQubits)
-
-    def process(self, **kwargs):
-        """ Print the qubit list """
-        for qubitInvolved in self._involved:
-            if qubitInvolved:
-                _rowFormat(self.currOp)
-            else:
-                _rowFormat(self._default)
-        if self.isIf:
-            print("?")
+def process(obj, **_):
+    """ Print the qubit list """
+    line = ""
+    for qubitInvolved in obj.involvedList:
+        if qubitInvolved:
+            line += _rowBuild(obj.currOp)
         else:
-            print()
-        self.set_qubits()
+            line += _rowBuild("|")
+    if obj.isIf:
+        line += "?"
+    return line
 
-    def handle_classical(self, **kwargs):
-        """ Print an appropriately scaled classical line """
-        print(self.lineFormat(' Classical '))
+def handle_classical(obj, **_):
+    """ Print an appropriately scaled classical line """
+    return "{:*^{width}}".format(' Classical ', width=3*obj.nQubits)
 
-    def handle_measure(self, **kwargs):
-        print(self.lineFormat(' Measure '))
+def handle_measure(obj, **_):
+    """ Print an appropriately scaled measure line """
+    return "{:*^{width}}".format(' Measure ', width=3*obj.nQubits)
 
-def print_circuit_diag(codeObject, maxDepth=-1):
-    """ Recursively traverse the code to print a quick entanglement graph/circuit diagram """
-    nQubits = QuantumRegister.numQubits
-    builder = QubitLine(nQubits)
-
-    # Print header
-
+def header(nQubits, codeObject):
+    """ Return the header for the ASCII graph output """
+    line = ""
     for i in range(nQubits):
-        _rowFormat(i)
-    print()
+        line += _rowBuild(i)
+    line += "\n"
+
     for reg in codeObject.quantumRegisters:
         for i in range(reg.size):
-            _rowFormat(reg.name)
-    print()
+            line += _rowBuild(reg.name)
+    line += "\n"
     for i in range(nQubits):
-        _rowFormat(0)
-    print()
-
-    parse_code(codeObject, builder, maxDepth=maxDepth)
+        line += _rowBuild(0)
+    line += "\n"
+    return line

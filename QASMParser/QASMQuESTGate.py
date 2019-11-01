@@ -2,7 +2,7 @@
 Module to set up inbuilt QASM gates in QuEST format.
 """
 
-from .QASMTypes import (Gate, Opaque, CBlock, CallGate)
+from .QASMTypes import (Gate, Opaque, CallGate)
 from .FileHandle import QASMString
 
 def setup_QASM_gates():

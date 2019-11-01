@@ -39,7 +39,7 @@ _parser.add_argument('-t', '--dummy-partition', help="Calculate effects of parti
 _parser.add_argument('--max-depth', help="Max depth for analysis and printing", type=int, default=-1)
 _parser.add_argument('--include-internals', help="Include internal gates explicitly", action="store_true")
 _parser.add_argument('-P', '--partition', help=
-                     """R|Set partitioning optimisation type: 
+                     """R|Set partitioning optimisation type:
     0 = None  -- Do not attempt to partition,
     1 = Registers -- Partition based on specification of qregs in QASM,
     2 = Space-like -- Slice only in qreg space based on adjacent slice-cost analysis,
