@@ -28,7 +28,7 @@ import QuESTPy.QuESTFunc as QuESTFunc
 def setup(obj):
     """ Call as setup from GraphBuilder """
     obj.adjList = AdjList(obj.nQubits)
-    
+
 def process(obj, *args, **kwargs):
     """ Call as process from GraphBuilder """
     obj.adjList.process(obj, **kwargs)
@@ -36,7 +36,6 @@ def process(obj, *args, **kwargs):
 def finalise(obj):
     """ Call as finalise from GraphBuilder """
     adjList = obj.adjList.adjList
-    print("HI", adjList.edges)
     ### Drawing
     #edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
     #graph = pg.AGraph()
@@ -54,7 +53,7 @@ def finalise(obj):
 
 class Vertex():
     """ Class defining a single tensor node vertex """
-    def __init__(self, ID, qubitID, age, operation=None):
+    def __init__(self, ID, qubitID, age, graph, operation=None):
         self._ID = ID
         self._qubitID = qubitID
         self._age = age
@@ -62,6 +61,7 @@ class Vertex():
         self._indices = []
         self._op = operation
         self._contracted = []
+        self._parent = graph
         self.lastQubit = True
 
     ID = property(lambda self: self._ID)
@@ -70,11 +70,12 @@ class Vertex():
     contracted = property(lambda self: self._contracted)
     edgeIn = property(lambda self: self._edges[1])
     edgeOut = property(lambda self: self._edges[0])
-    edges = property(lambda self: tuple(edge for edge in self._edges))
+    edges = property(lambda self: networkx.edges(self.parent, self))
     nEdges = property(lambda self: len(self._edges))
     indices = property(lambda self: self._indices)
     op = property(lambda self: self._op)
-
+    graph = property(lambda self: self._parent)
+        
     def update(self, remap):
         """ Update indices to new values post contraction """
         for i, index in enumerate(self.indices):
@@ -130,11 +131,12 @@ class AdjList():
     """ Build directed graph using NetworkX """
     def __init__(self, size):
         self._adjList = networkx.DiGraph()
-        self._adjList.add_nodes_from(Vertex(ID=i, qubitID=i, age=1) for i in range(size))
+        for i in range(size):
+            self._adjList.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, graph=self.adjList))
         self._lastUpdated = [node for node in self.adjList]
         self._nGate = [1]*size
 
-    verts = property(lambda self: [vertex.ID for vertex in self.adjList])
+    verts = property(lambda self: [vertex for vertex in self.adjList])
     adjList = property(lambda self: self._adjList)
     nVerts = property(lambda self: len(self.adjList))
     edges = property(lambda self: self.adjList.edges)
@@ -145,15 +147,16 @@ class AdjList():
             prev = self._lastUpdated[qubit]
             self._nGate[qubit] += 1
             # Add new state as vertex
-            prev.lastQubit = False
-            current = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit], operation=kwargs['lineObj'])
-            self._adjList.add_node(current)
+            self.adjList.node[prev]["node"].lastQubit = False
+            current = self.nVerts
+            node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit], graph=self.adjList, operation=kwargs['lineObj'])
+            self._adjList.add_node(current, node=node, weight=1)
             # Link last updated vertex to current
-            self._adjList.add_edge(prev, current)
+            self._adjList.add_edge(prev, current, weight=1)
             self._lastUpdated[qubit] = current
             if qubit != min(obj.qubitsInvolved): # Skip if initial qubit (nothing to link to)
-                self._adjList.add_edge(current, lastVertex)
-                self._adjList.add_edge(lastVertex, current)
+                self._adjList.add_edge(current, lastVertex, weight=1)
+                self._adjList.add_edge(lastVertex, current, weight=1)
             # Link to previous qubit in operation
             lastVertex = current
 
@@ -182,13 +185,13 @@ class Tree:
     right = property(lambda self: self.child[1])
     nChild = property(lambda self: len(self.child))
     nVerts = property(lambda self: len(self._adjList))
-    vertIDs = property(lambda self: [vertex.ID for vertex in self.adjList])
-    vertices = property(lambda self: (vertex for vertex in self.adjList))
-    vertex = property(lambda self: self.adjList[0])
+    vertIDs = property(lambda self: [vertex for vertex in self.adjList])
+    vertices = property(lambda self: (vertex.node for vertex in self.adjList))
     nEdge = property(lambda self: len(self.adjList))
     adjList = property(lambda self: self._adjList)
     neighbours = property(lambda self:
                           set(edge for vertex in self.vertices for edge in vertex.edges if edge is not None))
+
 
     def to_local(self, edge):
         """ find local index of vertex """
@@ -244,10 +247,11 @@ class Tree:
 
         Return TensorObject
         """
-        print("Resolve")
-        quit()
         vertex = self.vertex
-        nVirtQubit = vertex.nEdges - 1
+        print(self.vertex)
+        quit()
+        nVirtQubit = vertex.fullVertex.edges() - 1
+        
         print(f"Hi,I'm {vertex.ID}, I have {vertex.nEdges} edges and 1 physical qubit")
         self.tensor = TNFunc.createTensor(1, nVirtQubit, env)
         # Entangle first virtual with physical qubit
@@ -281,15 +285,11 @@ class Tree:
             else:
                 TNAdd.TN_singleQubitGate(gate, self.tensor, *args)
 
-
     def contract(self):
         """ Contract entire tree  """
-        print("Contract")
-        quit()
         if isinstance(self, Tree):
             global env
             env = QuESTFunc.createQuESTEnv()
-
 
         if self.isLeaf:
             self.resolve()
@@ -371,46 +371,48 @@ class Tree:
         if self.nVerts < 2:
             return
         graph = self.to_metis()
-        cut = np.asarray(metis.part_graph(graph, nparts=2)[1])
-        if 0 < sum(cut) < len(cut):
-            cutL, cutR = np.nonzero(cut == 0)[0], np.nonzero(cut == 1)[0]
+        cutL = np.asarray(metis.part_graph(graph, nparts=2)[1])
+        if 0 < sum(cutL) < len(cutL):
+            pass
         else: # Handle METIS not splitting small graphs by taking least-connected value
-            cutL = np.argmin(map(len, self.adjList))
-            cutR = [*range(0, cutL), *range(cutL+1, len(cut))]
-            cutL = [cutL]
+            leastCon = np.argmin(map(len, self.adjList.edges))
+            cutL = [0 if node != leastCon else 1 for node, _ in enumerate(graph)]
+        cutR = np.logical_not(cutL)
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph()
         childR.split_graph()
 
     @staticmethod
-    def flat_weight(vertex, edge):
+    def flat_weight(vertexA, vertexB, edge):
         """ Flat weighting system """
         return 1
 
     @staticmethod
-    def leftness_weight(vertex, edge):
+    def leftness_weight(vertexA, vertexB, edge):
         """ Favour cuts in a timelike fashion and favour cuts to the left """
-        return vertex.age
+        return vertexA.age
 
     @staticmethod
-    def spacelike_weight(vertex, edge):
+    def spacelike_weight(vertexA, vertexB, edge):
         """ Favour space-like cuts """
 
-    def calc_weight(self, vertex, edge, method):
+    def calc_weight(self, vertexA, vertexB, edge, method):
         """ Return calculated metis weight """
         weightMethod = (self.flat_weight, self.leftness_weight, self.spacelike_weight)
-        return weightMethod[method](vertex, edge)
+        return weightMethod[method](vertexA, vertexB, edge)
 
     def add_weights(self):
         """ Add weights necessary for METIS partitioning """
-        for node in self.adjList.nodes:
-            for edge in node.edges:
-                edge.weight = self.calc_weight(node, edge, 1)
+        for edge in self.adjList.edges:
+            edgeA, edgeB = edge
+            nodeA, nodeB = self.adjList.node[edgeA]["node"], self.adjList.node[edgeB]["node"]
+            self.adjList[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 1)
         return self.adjList
-    
+
     def to_metis(self):
         """ Convert tree's graph into metis structure """
         return metis.networkx_to_metis(self.add_weights())
+
 
 class Node(Tree):
     """ Tree node class """
@@ -421,10 +423,14 @@ class Node(Tree):
         self.tree = parent.tree
         self._tier = self.parent.tier + 1
         self.child = []
-        self._adjList = networkx.subgraph(parent.adjList, (node for i, node in enumerate(parent.adjList) if i in cut))
-        # Default to None if not in current scope
-        # self.remap = defaultdict(lambda: None, {old:new for new, old in enumerate(cut)})
-        # self.unmap = defaultdict(lambda: None, {new:parent.unmap[old] for new, old in enumerate(cut)})
+        self._adjList = networkx.subgraph(parent.adjList,
+                                          (node for i, node in enumerate(parent.adjList) if cut[i]))
 
-
+    @property
+    def vertex(self):
+        """ Vertex getter """
+        for node in self.adjList.nodes:
+            a = node
+        vertex = self.adjList.node[a]["node"]
+        return vertex
 env = None
