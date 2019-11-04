@@ -30,41 +30,6 @@ def main():
 
             parse_code(myProg, codeGraph, maxDepth=argList.max_depth)
             codeGraph.finalise()
-            if argList.dummy_partition:
-
-                if argList.partition == 0:
-                    pass
-                elif argList.partition == 1:
-                    mat = codeGraph.adjMat
-                    bestSlice = [reg.end-1 for reg in myProg.quantumRegisters]
-
-                    print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
-
-                elif argList.partition == 2:
-                    mat = codeGraph.adjMat
-                    bestSlice = mat.best_slice_adjmat()
-
-                    print(bestSlice, mat.nQubits, mat.slice_cost(bestSlice))
-
-                elif argList.partition == 3:
-                    adj = codeGraph.adjList
-
-                    ### Drawing
-                    #import pygraphviz as pg
-                    #edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
-                    #graph = pg.AGraph()
-                    #for edge in edgeList:
-                    #    graph.add_edge(*edge)
-                    #graph.draw('graph.png', prog='neato')
-                    ### EndDraw
-
-                    tree = Tree(adj.adjList)
-                    tree.split_graph()
-                    print(tree.tree_form("vertIDs"))
-                    tree.contract()
-                    print(tree.tensor.qureg)
-                else:
-                    raise IndexError("Unrecognised partition type")
 
 
         else:

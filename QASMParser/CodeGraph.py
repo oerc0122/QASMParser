@@ -20,11 +20,11 @@ class GraphBuilder():
         self._code = code
 
         # Options
-        
+
         self.codeAnalysis = analyse
         self.printASCII = printASCII
         self.adjmatPartition = partition in [1, 2]
-        self.graphPartition = partition == 2
+        self.graphPartition = partition == 3
         self.setup()
         
     involvedList = property(lambda self: self._involved)
@@ -34,8 +34,6 @@ class GraphBuilder():
     codeLines = property(lambda self: len(self.code._code))
     code = property(lambda self: self._code)
 
-
-    
     def setup(self):
         if self.codeAnalysis:
             Analytics.setup(self)
@@ -65,21 +63,21 @@ class GraphBuilder():
     def process(self, **kwargs):
         """ Perform necessary processing of set qubits """
         if self.codeAnalysis:
-            Analytics.process(self)
+            Analytics.process(self, **kwargs)
         if self.printASCII:
-            print(CircuitDiag.process(self))
+            print(CircuitDiag.process(self, **kwargs))
         if self.adjmatPartition:
-            AdjMat.process(self)
+            AdjMat.process(self, **kwargs)
         if self.graphPartition:
-            GraphPartition.process(self)
+            GraphPartition.process(self, **kwargs)
         self.set_qubits()
 
     def finalise(self):
         if self.codeAnalysis:
             Analytics.analyse(self.analysis)
         if self.graphPartition:
-            GraphPartition.finalise()
-            
+            GraphPartition.finalise(self)
+
     def handle_classical(self, **kwargs):
         """ Perform actions based on classical blocks """
         if self.printASCII:

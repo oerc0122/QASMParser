@@ -27,15 +27,16 @@ import QuESTPy.QuESTFunc as QuESTFunc
 
 def setup(obj):
     """ Call as setup from GraphBuilder """
-    obj.adjlist = AdjList(obj.nQubits)
-
-def process(obj):
+    obj.adjList = AdjList(obj.nQubits)
+    
+def process(obj, *args, **kwargs):
     """ Call as process from GraphBuilder """
-    obj.adjlist.process(obj)
+    obj.adjList.process(obj, **kwargs)
 
 def finalise(obj):
     """ Call as finalise from GraphBuilder """
     adjList = obj.adjList.adjList
+    print("HI", adjList.edges)
     ### Drawing
     #edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
     #graph = pg.AGraph()
@@ -73,21 +74,6 @@ class Vertex():
     nEdges = property(lambda self: len(self._edges))
     indices = property(lambda self: self._indices)
     op = property(lambda self: self._op)
-
-
-    def link(self, other, prepend=False):
-        """ Link two vertices together """
-        # Add one because we know always prepended with next node or null
-        if prepend:
-            self._edges.insert(0, other.ID)
-            other._edges.insert(0, self.ID)
-            self._indices.insert(0, (other.ID, 0))
-            other._indices.insert(0, (self.ID, self.nEdges))
-        else:
-            self._edges.append(other.ID)
-            other._edges.append(self.ID)
-            self._indices.append((other.ID, other.nEdges))
-            other._indices.append((self.ID, self.nEdges))
 
     def update(self, remap):
         """ Update indices to new values post contraction """
@@ -140,7 +126,7 @@ class Vertex():
 
         return contractionEdges, freeIndices, remap
 
-class AdjListNetworkX():
+class AdjList():
     """ Build directed graph using NetworkX """
     def __init__(self, size):
         self._adjList = networkx.DiGraph()
@@ -170,48 +156,6 @@ class AdjListNetworkX():
                 self._adjList.add_edge(lastVertex, current)
             # Link to previous qubit in operation
             lastVertex = current
-
-
-class AdjList():
-    """ Class for building tensor network adjacency list """
-    def __init__(self, size):
-        # Set initialise (entry) statements
-        self._adjList = [Vertex(ID=i, qubitID=i, age=1) for i in range(size)]
-        self._lastUpdated = self.adjList[:]
-        self._nGate = [1 for i in range(size)] # 1 to count init
-
-    verts = property(lambda self: [vertex.ID for vertex in self.adjList])
-    nVerts = property(lambda self: len(self._adjList))
-    adjList = property(lambda self: np.asarray(self._adjList))
-    edges = property(lambda self: [vertex.edges for vertex in self.adjList])
-
-    def process(self, obj, **kwargs):
-        """ Build graph from code """
-        start = min(obj.qubitsInvolved)
-        # Add in to guarantee planar graph
-        # end = max(obj.qubitsInvolved)
-        # for qubit in range_inclusive(start, end):
-        for qubit in obj.qubitsInvolved:
-            prev = self._lastUpdated[qubit]
-            self._nGate[qubit] += 1
-            # Add new state as vertex
-            prev.lastQubit = False
-            current = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit], operation=kwargs['lineObj'])
-            self._adjList.append(current)
-            # Link last updated vertex to current
-            current.link(prev, True)
-            self._lastUpdated[qubit] = current
-            if qubit != start: # Skip if initial qubit (nothing to link to)
-                current.link(lastVertex)
-            # Link to previous qubit in operation
-            lastVertex = current
-
-    def finalise(self):
-        """ Add in the final output edges for last vertices """
-        for node in self._lastUpdated:
-            node._edges.insert(0, None)
-            node._indices.insert(0, (None, None))
-
 
 class Tree:
     """ Class defining tree head """
@@ -426,7 +370,6 @@ class Tree:
         """ Recursively split the graph and build the resulting binary tree """
         if self.nVerts < 2:
             return
-        print(self.to_adjlist())
         graph = self.to_metis()
         cut = np.asarray(metis.part_graph(graph, nparts=2)[1])
         if 0 < sum(cut) < len(cut):
@@ -458,17 +401,16 @@ class Tree:
         weightMethod = (self.flat_weight, self.leftness_weight, self.spacelike_weight)
         return weightMethod[method](vertex, edge)
 
-    def to_adjlist(self):
+    def add_weights(self):
         """ Add weights necessary for METIS partitioning """
-        return [
-            [(self.remap[edge], self.calc_weight(vertex, edge, 1))
-             for edge in vertex.edges if self.remap[edge] is not None]
-            for vertex in self.adjList
-        ]
-
+        for node in self.adjList.nodes:
+            for edge in node.edges:
+                edge.weight = self.calc_weight(node, edge, 1)
+        return self.adjList
+    
     def to_metis(self):
         """ Convert tree's graph into metis structure """
-        return metis.adjlist_to_metis(self.to_adjlist())
+        return metis.networkx_to_metis(self.add_weights())
 
 class Node(Tree):
     """ Tree node class """
@@ -479,10 +421,10 @@ class Node(Tree):
         self.tree = parent.tree
         self._tier = self.parent.tier + 1
         self.child = []
-        self._adjList = parent.adjList[cut]
-         # Default to None if not in current scope
-        self.remap = defaultdict(lambda: None, {old:new for new, old in enumerate(cut)})
-        self.unmap = defaultdict(lambda: None, {new:parent.unmap[old] for new, old in enumerate(cut)})
+        self._adjList = networkx.subgraph(parent.adjList, (node for i, node in enumerate(parent.adjList) if i in cut))
+        # Default to None if not in current scope
+        # self.remap = defaultdict(lambda: None, {old:new for new, old in enumerate(cut)})
+        # self.unmap = defaultdict(lambda: None, {new:parent.unmap[old] for new, old in enumerate(cut)})
 
 
 env = None
