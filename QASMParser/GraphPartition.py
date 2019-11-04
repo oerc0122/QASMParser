@@ -6,6 +6,7 @@ import ctypes
 from collections import defaultdict
 import metis
 import numpy as np
+import networkx
 #import pygraphviz as pg
 
 sys.path += ['/home/jacob/QuEST-TN/utilities/']
@@ -25,12 +26,15 @@ import TNPy.TNAdditionalGates as TNAdd
 import QuESTPy.QuESTFunc as QuESTFunc
 
 def setup(obj):
+    """ Call as setup from GraphBuilder """
     obj.adjlist = AdjList(obj.nQubits)
 
 def process(obj):
+    """ Call as process from GraphBuilder """
     obj.adjlist.process(obj)
 
 def finalise(obj):
+    """ Call as finalise from GraphBuilder """
     adjList = obj.adjList.adjList
     ### Drawing
     #edgeList = [tuple([edge, i]) for i, vertex in enumerate(adj.adjList) for edge in vertex.edges]
@@ -46,7 +50,7 @@ def finalise(obj):
     tree.contract()
     print(tree.tensor.qureg)
 
-    
+
 class Vertex():
     """ Class defining a single tensor node vertex """
     def __init__(self, ID, qubitID, age, operation=None):
@@ -82,7 +86,6 @@ class Vertex():
         else:
             self._edges.append(other.ID)
             other._edges.append(self.ID)
-            self._edges.append(other.ID)
             self._indices.append((other.ID, other.nEdges))
             other._indices.append((self.ID, self.nEdges))
 
@@ -137,6 +140,37 @@ class Vertex():
 
         return contractionEdges, freeIndices, remap
 
+class AdjListNetworkX():
+    """ Build directed graph using NetworkX """
+    def __init__(self, size):
+        self._adjList = networkx.DiGraph()
+        self._adjList.add_nodes_from(Vertex(ID=i, qubitID=i, age=1) for i in range(size))
+        self._lastUpdated = [node for node in self.adjList]
+        self._nGate = [1]*size
+
+    verts = property(lambda self: [vertex.ID for vertex in self.adjList])
+    adjList = property(lambda self: self._adjList)
+    nVerts = property(lambda self: len(self.adjList))
+    edges = property(lambda self: self.adjList.edges)
+
+    def process(self, obj, **kwargs):
+        """ Build graph from code """
+        for qubit in obj.qubitsInvolved:
+            prev = self._lastUpdated[qubit]
+            self._nGate[qubit] += 1
+            # Add new state as vertex
+            prev.lastQubit = False
+            current = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit], operation=kwargs['lineObj'])
+            self._adjList.add_node(current)
+            # Link last updated vertex to current
+            self._adjList.add_edge(prev, current)
+            self._lastUpdated[qubit] = current
+            if qubit != min(obj.qubitsInvolved): # Skip if initial qubit (nothing to link to)
+                self._adjList.add_edge(current, lastVertex)
+                self._adjList.add_edge(lastVertex, current)
+            # Link to previous qubit in operation
+            lastVertex = current
+
 
 class AdjList():
     """ Class for building tensor network adjacency list """
@@ -152,8 +186,10 @@ class AdjList():
     edges = property(lambda self: [vertex.edges for vertex in self.adjList])
 
     def process(self, obj, **kwargs):
+        """ Build graph from code """
+        start = min(obj.qubitsInvolved)
         # Add in to guarantee planar graph
-        # end = max(np.flatnonzero(self._involved == 1))
+        # end = max(obj.qubitsInvolved)
         # for qubit in range_inclusive(start, end):
         for qubit in obj.qubitsInvolved:
             prev = self._lastUpdated[qubit]
