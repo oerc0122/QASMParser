@@ -46,11 +46,13 @@ def finalise(obj):
         vertex.fix_edges()
     networkx.nx_agraph.to_agraph(adjList).draw('graph.pdf', prog='dot')
 
+    print(networkx.adjacency_matrix(obj.adjList.entang))
+    networkx.nx_agraph.to_agraph(obj.adjList.entang).draw('entang.pdf', prog='dot')
+    
     tree = Tree(adjList)
     tree.split_graph()
     print(tree.tree_form("vertIDs"))
     tree.contract()
-
 
 class Vertex():
     """ Class defining a single tensor node vertex """
@@ -87,13 +89,16 @@ class AdjList():
     """ Build directed graph using NetworkX """
     def __init__(self, size):
         self._adjList = networkx.DiGraph()
+        self._entang = networkx.MultiGraph()
         for i in range(size):
+            self._entang.add_node(i)
             self._adjList.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, graph=self.adjList))
         self._lastUpdated = [node for node in self.adjList]
         end = Vertex(ID="end", qubitID=None, age=None, graph=self.adjList, operation=None)
         self.adjList.add_node("end", node=end)
         self._nGate = [1]*size
 
+    entang = property(lambda self: self._entang)
     verts = property(lambda self: (self.adjList.nodes[vertex]["node"]
                                    for vertex in self.adjList.nodes if vertex != "end"))
     adjList = property(lambda self: self._adjList)
@@ -105,9 +110,9 @@ class AdjList():
         for qubit in obj.qubitsInvolved:
             prev = self._lastUpdated[qubit]
             self._nGate[qubit] += 1
-            # Add new state as vertex
             self.adjList.node[prev]["node"].lastNode = False
             current = self.nVerts
+            # Add new state as vertex
             node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit],
                           graph=self.adjList, operation=kwargs['lineObj'])
             self._adjList.add_node(current, node=node)
@@ -117,6 +122,8 @@ class AdjList():
             if qubit != min(obj.qubitsInvolved): # Skip if initial qubit (nothing to link to)
                 self._adjList.add_edge(current, lastVertex, weight=1)
                 self._adjList.add_edge(lastVertex, current, weight=1)
+                self._entang.add_edge(self.adjList.node[lastVertex]["node"].qubitID,
+                                      self.adjList.node[current]["node"].qubitID, weight=1)
             # Link to previous qubit in operation
             lastVertex = current
 
@@ -151,11 +158,9 @@ class TensorNode:
         """ Contract two tensor nodes and update the respective properties """
         contPass = [[i for i, edges in enumerate(cont) if edges] for cont in contractionEdges]
         freePass = [[i for i, edges in enumerate(cont) if not edges] for cont in contractionEdges]
-        print("Cont:", contractionEdges)
         # Transform into ctypes arrays
         *contPass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), contPass)
         *freePass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), freePass)
-        print("newEdge", TensorNode.inherit(left, right, 'edges', contractionEdges))
         out = TensorNode(TNFunc.contractIndices(left.tensor, right.tensor,
                                                 contPass[0], contPass[1], ctypes.c_int(len(contPass[0])),
                                                 freePass[0], ctypes.c_int(len(freePass[0])),
