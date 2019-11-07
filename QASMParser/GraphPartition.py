@@ -110,7 +110,7 @@ class AdjList():
         for qubit in obj.qubitsInvolved:
             prev = self._lastUpdated[qubit]
             self._nGate[qubit] += 1
-            self.adjList.node[prev]["node"].lastNode = False
+            self.adjList.nodes[prev]["node"].lastNode = False
             current = self.nVerts
             # Add new state as vertex
             node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit],
@@ -122,8 +122,8 @@ class AdjList():
             if qubit != min(obj.qubitsInvolved): # Skip if initial qubit (nothing to link to)
                 self._adjList.add_edge(current, lastVertex, weight=1)
                 self._adjList.add_edge(lastVertex, current, weight=1)
-                self._entang.add_edge(self.adjList.node[lastVertex]["node"].qubitID,
-                                      self.adjList.node[current]["node"].qubitID, weight=1)
+                self._entang.add_edge(self.adjList.nodes[lastVertex]["node"].qubitID,
+                                      self.adjList.nodes[current]["node"].qubitID, weight=1)
             # Link to previous qubit in operation
             lastVertex = current
 
@@ -215,12 +215,12 @@ class Tree:
     @property
     def vertex(self):
         """ Vertex getter """
-        return self.adjList.node[self.nodeID]["node"]
+        return self.adjList.nodes[self.nodeID]["node"]
 
     @property
     def fullNode(self):
         """ Get full graph's vertex """
-        return self.root.adjList.node[self.nodeID]
+        return self.root.adjList.nodes[self.nodeID]
 
     @property
     def fullEdges(self):
@@ -404,6 +404,7 @@ class Tree:
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph()
         childR.split_graph()
+        
 
     @staticmethod
     def flat_weight(vertexA, vertexB, edge):
@@ -428,7 +429,7 @@ class Tree:
         """ Add weights necessary for METIS partitioning """
         for edge in self.adjList.edges:
             edgeA, edgeB = edge
-            nodeA, nodeB = self.adjList.node[edgeA]["node"], self.adjList.node[edgeB]["node"]
+            nodeA, nodeB = self.adjList.nodes[edgeA]["node"], self.adjList.nodes[edgeB]["node"]
             self.adjList[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 1)
         return self.adjList
 
