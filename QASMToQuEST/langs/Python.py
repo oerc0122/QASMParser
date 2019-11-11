@@ -1,13 +1,13 @@
 """
 Module to supply functions to write Python from given QASM types
 """
-from QASMParser.Parser.Types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
+from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
                                   Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                   Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                   Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
                                   MathOp, Register, Dealloc, DeferredAlias)
-from QASMParser.Parser.Tokens import (Binary, Function)
-from QASMParser.Parser.FileHandle import (NullBlock)
+from QASMParser.parser.tokens import (Binary, Function)
+from QASMParser.parser.filehandle import (NullBlock)
 
 def set_lang():
     """

@@ -2,14 +2,15 @@
 """
 Main program for transpiling QASM scripts into QuEST input format
 """
-
-from .cli import get_command_args
-from QASMParser.parser.parser import ProgFile
+from QASMParser.parser.parser import (ProgFile)
 from QASMParser.parser.coregates import setup_QASM_gates
-from QASMParser.parser.errors import (noSpecWarning)
 from QASMParser.parser.types import (QuantumRegister)
 from QASMParser.codegraph.partitioning import (partition)
 from QASMParser.codegraph.codegraph import (GraphBuilder, parse_code)
+
+from .cli import get_command_args
+from .printer import (to_lang)
+from .errors import (noSpecWarning)
 
 def main():
     """ Run main program """
@@ -52,11 +53,11 @@ def main():
                 outputFile = None
 
             partition(myProg, argList.partition)
-            myProg.to_lang(outputFile, lang,
-                           include_internals=argList.include_internals,
-                           includes=argList.include,
-                           module=argList.to_module,
-                           verbose=argList.debug)
+            to_lang(myProg, outputFile, lang,
+                    include_internals=argList.include_internals,
+                    includes=argList.include,
+                    module=argList.to_module,
+                    verbose=argList.debug)
 
 if __name__ == "__main__":
     main()
