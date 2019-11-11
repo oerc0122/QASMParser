@@ -13,7 +13,7 @@ from pyparsing import (ParserElement,
                        infixNotation, opAssoc, Forward,
                        Suppress)
 
-from .QASMErrors import (QASMWarning, dupTokenWarning)
+from .Errors import (QASMWarning, dupTokenWarning)
 
 ParserElement.enablePackrat()
 

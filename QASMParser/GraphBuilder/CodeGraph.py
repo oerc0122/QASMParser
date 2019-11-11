@@ -3,11 +3,11 @@ Contains routines to traverse the parsed code and build graphs
 """
 
 import numpy as np
-from .QASMTypes import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
-import QASMParser.Analytics as Analytics
-import QASMParser.CircuitDiag as CircuitDiag
-import QASMParser.AdjMat as AdjMat
-import QASMParser.GraphPartition as GraphPartition
+from QASMParser.Parser.Types import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
+import QASMParser.GraphBuilder.Analytics as Analytics
+import QASMParser.GraphBuilder.CircuitDiag as CircuitDiag
+import QASMParser.GraphBuilder.AdjMat as AdjMat
+import QASMParser.GraphBuilder.GraphPartition as GraphPartition
 
 
 class GraphBuilder():

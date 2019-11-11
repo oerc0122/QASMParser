@@ -3,13 +3,13 @@
 Main program for transpiling QASM scripts into QuEST input format
 """
 
-from QASMParser.QASMParser import ProgFile
-from QASMParser.QASMQuESTGate import setup_QASM_gates
-from QASMParser.Cli import get_command_args
-from QASMParser.QASMErrors import (noSpecWarning)
-from QASMParser.Partitioning import (partition)
-from QASMParser.CodeGraph import (GraphBuilder, parse_code)
-from QASMParser.QASMTypes import (QuantumRegister)
+from .Cli import get_command_args
+from QASMParser.Parser.Parser import ProgFile
+from QASMParser.Parser.CoreGates import setup_QASM_gates
+from QASMParser.Parser.Errors import (noSpecWarning)
+from QASMParser.Parser.Types import (QuantumRegister)
+from QASMParser.GraphBuilder.Partitioning import (partition)
+from QASMParser.GraphBuilder.CodeGraph import (GraphBuilder, parse_code)
 
 def main():
     """ Run main program """

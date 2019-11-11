@@ -6,7 +6,7 @@ import re
 import copy
 from pyparsing import (ParseResults)
 
-from .QASMErrors import (argWarning, langWarning,
+from .Errors import (argWarning, langWarning,
                          dupWarning, existWarning, wrongTypeWarning,
                          indexWarning, aliasIndexWarning, argSizeWarning,
                          gateWarning, instructionWarning, includeNotMainWarning,
@@ -14,7 +14,7 @@ from .QASMErrors import (argWarning, langWarning,
                          mathsEvalWarning, failedOpWarning, redefClassLangWarning,
                          inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                          rangeToIndexWarning, gateDeclareWarning)
-from .QASMTokens import (MathOp, Binary, Function)
+from .Tokens import (MathOp, Binary, Function)
 from .FileHandle import (QASMBlock, NullBlock)
 
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")

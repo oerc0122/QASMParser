@@ -5,10 +5,10 @@ Module containing main file for parsing
 from importlib import import_module
 import sys
 import os.path
-from .QASMTypes import (QuantumRegister, CodeBlock, Let, Constant, Comment, Include, CBlock, Verbatim, InitEnv,
+from .Types import (QuantumRegister, CodeBlock, Let, Constant, Comment, Include, CBlock, Verbatim, InitEnv,
                         Gate, Circuit, Procedure, Opaque)
 from .FileHandle import (QASMFile)
-from .QASMErrors import (langNotDefWarning, langMismatchWarning, includeWarning)
+from .Errors import (langNotDefWarning, langMismatchWarning, includeWarning)
 
 langConstants = ["e", "pi", "T", "F"]
 

@@ -4,9 +4,9 @@ Module to handle reading of QASM files, blocks and perform error handling with u
 
 import os.path
 from pyparsing import (ParseException)
-from .QASMTokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parse_version,
+from .Tokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parse_version,
                          qops, cops, blocks)
-from .QASMErrors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
+from .Errors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
                          unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning)
 
 class QASMFile:
