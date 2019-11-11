@@ -27,6 +27,27 @@ import TNPy
 import TNPy.TNFunc as TNFunc
 import TNPy.TNAdditionalGates as TNAdd
 import QuESTPy.QuESTFunc as QuESTFunc
+import random
+
+COLOURS = ["blue", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "darkkhaki",
+           "cornflowerblue", "cornsilk", "crimson", "cyan", "blueviolet", "darkgoldenrod", "darkgreen",
+           "darkolivegreen", "darkorange", "darkorchid", "darksalmon", "darkseagreen", "darkslateblue",
+           "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue",
+           "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "gainsboro",
+           "ghostwhite", "gold", "goldenrod", "green", "greenyellow", "grey", "honeydew", "hotpink",
+           "indianred", "indigo", "invis", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen",
+           "lemonchiffon", "lightblue", "lightcoral", "lightcyan", "lightgoldenrod", "lightgoldenrodyellow",
+           "lightgray", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue",
+           "lightslateblue", "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow",
+           "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid",
+           "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise",
+           "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy",
+           "navyblue", "none", "oldlace", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod",
+           "palegreen", "paleturquoise", "palevioletred", "peachpuff", "peru", "pink", "plum",
+           "powderblue", "purple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown",
+           "seagreen", "seashell", "sienna", "skyblue", "slateblue", "slategray", "slategrey", "snow",
+           "springgreen", "steelblue", "tan", "thistle", "tomato", "transparent", "turquoise", "violet",
+           "violetred", "wheat", "white", "whitesmoke", "yellow", "yellowgreen"]
 
 def setup(obj):
     """ Call as setup from GraphBuilder """
@@ -44,22 +65,69 @@ def finalise(obj):
     adjList = networkx.subgraph(adjList, (node for node in adjList.nodes if node != "end"))
     for vertex in obj.adjList.verts:
         vertex.fix_edges()
-    networkx.nx_agraph.to_agraph(adjList).draw('graph.pdf', prog='dot')
 
+    print("ADJ:")
+    print(networkx.adjacency_matrix(obj.adjList.adjList))
+    print("ENTANG:")
     print(networkx.adjacency_matrix(obj.adjList.entang))
+
     networkx.nx_agraph.to_agraph(obj.adjList.entang).draw('entang.pdf', prog='dot')
-    
+
     tree = Tree(adjList)
     tree.split_graph()
-    print(tree.tree_form("vertIDs"))
-    tree.contract()
+    graph = networkx.nx_agraph.to_agraph(adjList)
+    graph.layout()
+    graph.graph_attr.update(splines="True")
+    scale = 60
+
+    for nodeID in adjList.nodes:
+        vert = adjList.nodes[nodeID]["node"]
+        node = graph.get_node(nodeID)
+        node.attr['pos'] = "{:f},{:f}".format(vert.age*scale, vert.qubitID*scale)
+        node.attr['shape'] = "rect"
+        node.attr['style'] = "striped"
+        node.attr['fillcolor'] = COLOURS[0]
+        if vert.lastNode:
+            endNode = f"end{vert.qubitID}"
+            graph.add_edge(nodeID, endNode)
+            endNode = graph.get_node(endNode)
+            endNode.attr['style'] = "dotted"
+            endNode.attr['pos'] = "{:f},{:f}".format((obj.adjList.nGate+1)*scale, vert.qubitID*scale)
+            
+    for edge in graph.edges_iter():
+        fromNode, toNode = graph.get_node(edge[0]), graph.get_node(edge[1])
+        edge.attr['pos'] = "e,{1} s,{0}".format(fromNode.attr["pos"], toNode.attr["pos"])
+    graph.draw('graph.pdf')
+    N = 0
+    for tier in range(tree.nTier+1):
+        nodes = tree.by_tier(tier)
+        for node in nodes:
+            N += 1
+            for vert in node.adjList:
+                currNode = graph.get_node(vert)
+                right = node.ID%2
+                colourSel = COLOURS[N%len(COLOURS)]
+                # Urgh, American spelling
+#                currNode.attr['color'] = colourSel # if right else colourSel+"2"
+                currNode.attr['fillcolor'] = f":{colourSel}" # if right else colourSel+"2"
+#                currNode.attr['fillcolor'] += f":{colourSel}" # if right else colourSel+"2"
+
+        graph.draw('graph'+str(tier)+'.png'# , prog='neato'
+        )
+        
+    for node in adjList.nodes:
+        pass
+
+    # print(tree.tree_form("vertIDs"))
+    # tree.contract()
 
 class Vertex():
     """ Class defining a single tensor node vertex """
-    def __init__(self, ID, qubitID, age, graph, operation=None):
+    def __init__(self, ID, qubitID, age, localAge, graph, operation=None):
         self._ID = ID
         self._qubitID = qubitID
         self._age = age
+        self._localAge = localAge
         self._indices = []
         self._op = operation
         self._contracted = []
@@ -74,11 +142,9 @@ class Vertex():
     ID = property(lambda self: self._ID)
     qubitID = property(lambda self: self._qubitID)
     age = property(lambda self: self._age)
+    localAge = property(lambda self: self._localAge)
     contracted = property(lambda self: self._contracted)
-    predecessors = property(lambda self: [i for i in self.graph.predecessors(self.ID) if i not in self.successors])
-    successors = property(lambda self: [i for i in self.graph.successors(self.ID)])
-    edges = property(lambda self: ([(pred, self.ID) for pred in self.predecessors] +
-                                   [(self.ID, succ) for succ in self.successors]))
+    edges = property(lambda self: self.graph.edges(self.ID))
     fixedEdges = property(lambda self: self._fixedEdges)
     neighbours = property(lambda self: set(self.predecessors) | set(self.successors))
     nEdges = property(lambda self: len(self.edges))
@@ -88,16 +154,18 @@ class Vertex():
 class AdjList():
     """ Build directed graph using NetworkX """
     def __init__(self, size):
-        self._adjList = networkx.DiGraph()
+        self._adjList = networkx.Graph()
         self._entang = networkx.MultiGraph()
         for i in range(size):
             self._entang.add_node(i)
-            self._adjList.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, graph=self.adjList))
+            self._adjList.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, localAge=1, graph=self.adjList))
         self._lastUpdated = [node for node in self.adjList]
-        end = Vertex(ID="end", qubitID=None, age=None, graph=self.adjList, operation=None)
+        end = Vertex(ID="end", qubitID=None, age=None, localAge=None, graph=self.adjList, operation=None)
         self.adjList.add_node("end", node=end)
-        self._nGate = [1]*size
+        self._nGate = 1
+        self._nGateQubit = [1]*size
 
+    nGate = property(lambda self: self._nGate)
     entang = property(lambda self: self._entang)
     verts = property(lambda self: (self.adjList.nodes[vertex]["node"]
                                    for vertex in self.adjList.nodes if vertex != "end"))
@@ -107,13 +175,14 @@ class AdjList():
 
     def process(self, obj, **kwargs):
         """ Build graph from code """
+        self._nGate += 1
         for qubit in obj.qubitsInvolved:
             prev = self._lastUpdated[qubit]
-            self._nGate[qubit] += 1
+            self._nGateQubit[qubit] += 1
             self.adjList.nodes[prev]["node"].lastNode = False
             current = self.nVerts
             # Add new state as vertex
-            node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate[qubit],
+            node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate, localAge=self._nGateQubit[qubit],
                           graph=self.adjList, operation=kwargs['lineObj'])
             self._adjList.add_node(current, node=node)
             # Link last updated vertex to current
@@ -121,7 +190,6 @@ class AdjList():
             self._lastUpdated[qubit] = current
             if qubit != min(obj.qubitsInvolved): # Skip if initial qubit (nothing to link to)
                 self._adjList.add_edge(current, lastVertex, weight=1)
-                self._adjList.add_edge(lastVertex, current, weight=1)
                 self._entang.add_edge(self.adjList.nodes[lastVertex]["node"].qubitID,
                                       self.adjList.nodes[current]["node"].qubitID, weight=1)
             # Link to previous qubit in operation
@@ -131,7 +199,7 @@ class AdjList():
         """ Link final qubit with fictional outlet """
         for node in self._lastUpdated:
             self.adjList.add_edge(node, "end", key="end")
-        
+
 
 class TensorNode:
     """ Class containing details relating to tensor contractions """
@@ -177,11 +245,14 @@ class Tree:
 
     def __init__(self, graph=None):
         self._tier = 0
+        self._nTier = 0
+        self._allNodes = [self]
+        self._ID = 0
         self.child = []
         self._adjList = graph
         # Default to None if not in current scope
         self._tensor = None
-        self.root = self
+        self._root = self
 
     def __add__(self, other):
         if self.nChild < 2:
@@ -189,21 +260,32 @@ class Tree:
             return self
         raise IndexError('Binary tree cannot have more than 2 children')
 
+
+    root = property(lambda self: self._root)
+
+    adjList = property(lambda self: self._adjList)
+
     tensorNode = property(lambda self: self._tensor)
     tensor = property(lambda self: self._tensor.tensor)
     indices = property(lambda self: self._tensor.indices)
+
     tier = property(lambda self: self._tier)
+    nTier = property(lambda self: self.root._nTier)
+
     isLeaf = property(lambda self: not self.child)
+
     left = property(lambda self: self.child[0])
     right = property(lambda self: self.child[1])
     nChild = property(lambda self: len(self.child))
-    nVerts = property(lambda self: len(self._adjList))
+    allNodes = property(lambda self: self.root._allNodes)
+    ID = property(lambda self: self._ID)
+
     edges = property(lambda self: (edge for edge in self.tensorNode.edges))
-    vertices = property(lambda self: [self.adjList.nodes[vertex]["node"] for vertex in self.adjList.nodes])
-    vertIDs = property(lambda self: [vertex.ID for vertex in self.vertices])
     nEdge = property(lambda self: len(self.adjList))
-    adjList = property(lambda self: self._adjList)
     nEdges = property(lambda self: len(self.fullEdges))
+    vertices = property(lambda self: [self.adjList.nodes[vertex]["node"] for vertex in self.adjList.nodes])
+    nVerts = property(lambda self: len(self._adjList))
+    vertIDs = property(lambda self: [vertex.ID for vertex in self.vertices])
 
     @property
     def nodeID(self):
@@ -249,6 +331,16 @@ class Tree:
             yield from child.dfs()
         yield self
 
+    def by_tier(self, tiers=None):
+        """ Return nodes in tree-like order """
+        if tiers is None:
+            tiers = range(self.tier, self.nTier)
+        elif isinstance(tiers, int):
+            tiers = [tiers]
+
+        for tier in tiers:
+            yield from (node for node in self.allNodes if node.tier == tier)
+
     def least_connect(self):
         """ Return vertices with the fewest edges first """
         for element in reversed(sorted(self.adjList, key=lambda elem: elem.nEdge)):
@@ -272,9 +364,9 @@ class Tree:
 
         Return TensorObject
         """
-        
+
         vertex = self.vertex
-        print(f"Hi, I'm {vertex.ID}") 
+        print(f"Hi, I'm {vertex.ID}")
         nVirtQubit = vertex.nEdges - 1
 
         print(f"I have {vertex.nEdges} edges and 1 physical qubit")
@@ -325,7 +417,7 @@ class Tree:
 
     def contracted_nodes(self, left, right):
         self._adjList = networkx.contracted_nodes(self._adjList, left, right)
-    
+
     def contract(self):
         """ Contract entire tree  """
         if isinstance(self, Tree):
@@ -350,7 +442,7 @@ class Tree:
 
         if self.tier == 0:
             return
-        
+
         self.root.contracted_nodes(self.vertex.ID, self.right.vertex.ID)
         self.vertex._contracted += [self.left.vertex.ID]
         self.child = []
@@ -404,7 +496,6 @@ class Tree:
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph()
         childR.split_graph()
-        
 
     @staticmethod
     def flat_weight(vertexA, vertexB, edge):
@@ -430,7 +521,7 @@ class Tree:
         for edge in self.adjList.edges:
             edgeA, edgeB = edge
             nodeA, nodeB = self.adjList.nodes[edgeA]["node"], self.adjList.nodes[edgeB]["node"]
-            self.adjList[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 1)
+            self.adjList[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 0)
         return self.adjList
 
     def to_metis(self):
@@ -443,9 +534,14 @@ class Node(Tree):
     def __init__(self, parent, cut):
         Tree.__init__(self, graph=[])
         self.parent = parent
+        self._root = parent.root
         parent += self
-        self.root = parent.root
+        self._ID = len(self.allNodes)
+        self.root._allNodes.append(self)
         self._tier = self.parent.tier + 1
+
+        if self.tier > self.nTier:
+               self.root._nTier = self.tier
         self.child = []
         self._adjList = networkx.subgraph(parent.adjList,
                                           (node for i, node in enumerate(parent.adjList) if cut[i]))
