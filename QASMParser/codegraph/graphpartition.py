@@ -3,14 +3,9 @@ Module for building adjacency list and firing that through METIS for partitionin
 """
 import sys
 import ctypes
-import itertools as it
-from collections import defaultdict
 import metis
 import numpy as np
-from numpy.ctypeslib import as_ctypes
 import networkx
-import matplotlib.pyplot as plot
-import pygraphviz as pg
 
 sys.path += ['/home/jacob/QuEST-TN/utilities/']
 

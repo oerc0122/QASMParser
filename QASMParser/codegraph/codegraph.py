@@ -3,11 +3,11 @@ Contains routines to traverse the parsed code and build graphs
 """
 
 import numpy as np
-from QASMParser.Parser.Types import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
-import QASMParser.GraphBuilder.Analytics as Analytics
-import QASMParser.GraphBuilder.CircuitDiag as CircuitDiag
-import QASMParser.GraphBuilder.AdjMat as AdjMat
-import QASMParser.GraphBuilder.GraphPartition as GraphPartition
+from ..parser.types import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
+from . import analytics 
+from . import circuitdiag
+from . import adjmat
+from . import graphpartition
 
 
 class GraphBuilder():
@@ -36,13 +36,13 @@ class GraphBuilder():
 
     def setup(self):
         if self.codeAnalysis:
-            Analytics.setup(self)
+            analytics.setup(self)
         if self.printASCII:
-            print(CircuitDiag.header(self.nQubits, self.code))
+            print(circuitdiag.header(self.nQubits, self.code))
         if self.adjmatPartition:
-            AdjMat.setup(self)
+            adjmat.setup(self)
         if self.graphPartition:
-            GraphPartition.setup(self)
+            graphpartition.setup(self)
 
     def set_qubits(self, value=0, ranges=None):
         """ Set labels to qubits """
@@ -63,30 +63,30 @@ class GraphBuilder():
     def process(self, **kwargs):
         """ Perform necessary processing of set qubits """
         if self.codeAnalysis:
-            Analytics.process(self, **kwargs)
+            analytics.process(self, **kwargs)
         if self.printASCII:
-            print(CircuitDiag.process(self, **kwargs))
+            print(circuitdiag.process(self, **kwargs))
         if self.adjmatPartition:
-            AdjMat.process(self, **kwargs)
+            adjmat.process(self, **kwargs)
         if self.graphPartition:
-            GraphPartition.process(self, **kwargs)
+            graphpartition.process(self, **kwargs)
         self.set_qubits()
 
     def finalise(self):
         if self.codeAnalysis:
-            Analytics.analyse(self.analysis)
+            analytics.analyse(self.analysis)
         if self.graphPartition:
-            GraphPartition.finalise(self)
+            graphpartition.finalise(self)
 
     def handle_classical(self, **kwargs):
         """ Perform actions based on classical blocks """
         if self.printASCII:
-            print(CircuitDiag.handle_classical(self))
+            print(circuitdiag.handle_classical(self))
 
     def handle_measure(self, **kwargs):
         """ Handle measurements """
         if self.printASCII:
-            print(CircuitDiag.handle_measure(self))
+            print(circuitdiag.handle_measure(self))
 
 def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1):
     """ Traverse code recursively updating the builder accordingly """

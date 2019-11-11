@@ -2,10 +2,10 @@
 Module which performs the partitioning and set-up of quantum registers based on the partitioner request
 """
 from enum import (IntEnum)
-from QASMParser.Parser.Parser import (ProgFile)
-from QASMParser.Parser.Types import (TensorNetwork)
-from QASMParser.Parser.Errors import (partitionWarning)
-from QASMParser.GraphBuilder.CodeGraph import (GraphBuilder, parse_code)
+from ..parser.parser import (ProgFile)
+from ..parser.types import (TensorNetwork)
+from ..parser.errors import (partitionWarning)
+from .codegraph import (GraphBuilder, parse_code)
 
 def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1):
     """ Call correct partitioner based on partition level """

@@ -6,7 +6,7 @@ import re
 import copy
 from pyparsing import (ParseResults)
 
-from .Errors import (argWarning, langWarning,
+from .errors import (argWarning, langWarning,
                          dupWarning, existWarning, wrongTypeWarning,
                          indexWarning, aliasIndexWarning, argSizeWarning,
                          gateWarning, instructionWarning, includeNotMainWarning,
@@ -14,8 +14,8 @@ from .Errors import (argWarning, langWarning,
                          mathsEvalWarning, failedOpWarning, redefClassLangWarning,
                          inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                          rangeToIndexWarning, gateDeclareWarning)
-from .Tokens import (MathOp, Binary, Function)
-from .FileHandle import (QASMBlock, NullBlock)
+from .tokens import (MathOp, Binary, Function)
+from .filehandle import (QASMBlock, NullBlock)
 
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile(r"[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
