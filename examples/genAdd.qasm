@@ -20,16 +20,16 @@ gate unmaj a,b,c
 unitary circuit add[nBits] a[nBits],b[nBits],in,out -> ans {
     maj in, b[0], a[0];
     for bit in [1:nBits-1] {
-        maj a[bit-1], b[bit], a[bit];
+	maj a[bit-1], b[bit], a[bit];
       }
     cx a[nBits-1], out;
     for bit in [1:nBits-1] {
-        unmaj a[nBits-1-bit], b[nBits-bit], a[nBits-bit];
+	unmaj a[nBits-1-bit], b[nBits-bit], a[nBits-bit];
       }
     unmaj in, b[0], a[0];
     creg ans[nBits + 1];
     for bit in [0:nBits-1] {
-        measure b[bit] -> ans[bit];
+	measure b[bit] -> ans[bit];
       }
     measure out -> ans[nBits];
 }

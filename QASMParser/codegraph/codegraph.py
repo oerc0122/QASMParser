@@ -4,7 +4,7 @@ Contains routines to traverse the parsed code and build graphs
 
 import numpy as np
 from ..parser.types import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
-from . import analytics 
+from . import analytics
 from . import circuitdiag
 from . import adjmat
 from . import graphpartition
@@ -26,7 +26,7 @@ class GraphBuilder():
         self.adjmatPartition = partition in [1, 2]
         self.graphPartition = partition == 3
         self.setup()
-        
+
     involvedList = property(lambda self: self._involved)
     involved = property(lambda self: self._involved.nonzero())
     qubitsInvolved = property(lambda self: np.flatnonzero(self._involved == 1))
@@ -106,7 +106,7 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
                 # Prepare args and enter function
                 spargsSend = {arg.name: maths(sparg.val) for arg, sparg in zip(line.callee.spargs, line.spargs)}
                 if line.loops is not None:
-                    for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])):
+                    for loopVar in range_inclusive(maths(line.loops.start[0]), maths(line.loops.end[0])):
                         qargsSend = {arg.name: resolve_arg(codeObject, qarg, args, spargs, loopVar)
                                      for arg, qarg in zip(line.callee.qargs, line.qargs)}
                         recurse(line.callee)

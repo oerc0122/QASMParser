@@ -7,22 +7,21 @@ import metis
 import numpy as np
 import networkx
 
-sys.path += ['/home/jacob/QuEST-TN/utilities/']
+#sys.path += ["/home/jacob/QuEST-TN/utilities/"]
 
 # Find QuEST and TN libraries
-from QuESTPy.QuESTBase import init_QuESTLib
-from TNPy.TNBase import init_TNLib
-QuESTPath = "/home/jacob/QuEST-TN/build/TN/QuEST"
-TNPath = "/home/jacob/QuEST-TN/build/TN/"
-init_QuESTLib(QuESTPath)
-init_TNLib(TNPath)
+# from QuESTPy.QuESTBase import init_QuESTLib
+# from TNPy.TNBase import init_TNLib
+# QuESTPath = "/home/jacob/QuEST-TN/build/TN/QuEST"
+# TNPath = "/home/jacob/QuEST-TN/build/TN/"
+# init_QuESTLib(QuESTPath)
+# init_TNLib(TNPath)
 
-import QuESTPy
-import TNPy
-import TNPy.TNFunc as TNFunc
-import TNPy.TNAdditionalGates as TNAdd
-import QuESTPy.QuESTFunc as QuESTFunc
-import random
+# import QuESTPy
+# import TNPy
+# import TNPy.TNFunc as TNFunc
+# import TNPy.TNAdditionalGates as TNAdd
+# import QuESTPy.QuESTFunc as QuESTFunc
 
 COLOURS = ["blue", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "darkkhaki",
            "cornflowerblue", "cornsilk", "crimson", "cyan", "blueviolet", "darkgoldenrod", "darkgreen",
@@ -66,7 +65,7 @@ def finalise(obj):
     print("ENTANG:")
     print(networkx.adjacency_matrix(obj.adjList.entang))
 
-    networkx.nx_agraph.to_agraph(obj.adjList.entang).draw('entang.pdf', prog='dot')
+    networkx.nx_agraph.to_agraph(obj.adjList.entang).draw("entang.pdf", prog="dot")
 
     tree = Tree(adjList)
     tree.split_graph()
@@ -78,21 +77,23 @@ def finalise(obj):
     for nodeID in adjList.nodes:
         vert = adjList.nodes[nodeID]["node"]
         node = graph.get_node(nodeID)
-        node.attr['pos'] = "{:f},{:f}".format(vert.age*scale, vert.qubitID*scale)
-        node.attr['shape'] = "rect"
-        node.attr['style'] = "striped"
-        node.attr['fillcolor'] = COLOURS[0]
+        del node.attr["node"]
+        node.attr["pos"] = "{:f},{:f}".format(vert.age*scale, vert.qubitID*scale)
+        node.attr["shape"] = "rect"
+        node.attr["style"] = "striped"
+        node.attr["fillcolor"] = COLOURS[0]
         if vert.lastNode:
             endNode = f"end{vert.qubitID}"
             graph.add_edge(nodeID, endNode)
             endNode = graph.get_node(endNode)
-            endNode.attr['style'] = "dotted"
-            endNode.attr['pos'] = "{:f},{:f}".format((obj.adjList.nGate+1)*scale, vert.qubitID*scale)
-            
+            endNode.attr["style"] = "dotted"
+            endNode.attr["pos"] = "{:f},{:f}".format((obj.adjList.nGate+1)*scale, vert.qubitID*scale)
+
     for edge in graph.edges_iter():
         fromNode, toNode = graph.get_node(edge[0]), graph.get_node(edge[1])
-        edge.attr['pos'] = "e,{1} s,{0}".format(fromNode.attr["pos"], toNode.attr["pos"])
-    graph.draw('graph.pdf')
+        edge.attr["pos"] = "e,{1} s,{0}".format(fromNode.attr["pos"], toNode.attr["pos"])
+    graph.draw("graph.gv", format="dot")
+    graph.draw("graph.pdf")
     N = 0
     for tier in range(tree.nTier+1):
         nodes = tree.by_tier(tier)
@@ -103,13 +104,13 @@ def finalise(obj):
                 right = node.ID%2
                 colourSel = COLOURS[N%len(COLOURS)]
                 # Urgh, American spelling
-#                currNode.attr['color'] = colourSel # if right else colourSel+"2"
-                currNode.attr['fillcolor'] = f":{colourSel}" # if right else colourSel+"2"
-#                currNode.attr['fillcolor'] += f":{colourSel}" # if right else colourSel+"2"
+#                currNode.attr["color"] = colourSel # if right else colourSel+"2"
+                currNode.attr["fillcolor"] = f":{colourSel}" # if right else colourSel+"2"
+#                currNode.attr["fillcolor"] += f":{colourSel}" # if right else colourSel+"2"
 
-        graph.draw('graph'+str(tier)+'.png'# , prog='neato'
+        graph.draw("graph"+str(tier)+".png"# , prog="neato"
         )
-        
+
     for node in adjList.nodes:
         pass
 
@@ -178,7 +179,7 @@ class AdjList():
             current = self.nVerts
             # Add new state as vertex
             node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate, localAge=self._nGateQubit[qubit],
-                          graph=self.adjList, operation=kwargs['lineObj'])
+                          graph=self.adjList, operation=kwargs["lineObj"])
             self._adjList.add_node(current, node=node)
             # Link last updated vertex to current
             self._adjList.add_edge(prev, current, weight=1)
@@ -229,9 +230,9 @@ class TensorNode:
                                                 freePass[0], ctypes.c_int(len(freePass[0])),
                                                 freePass[1], ctypes.c_int(len(freePass[1])), env),
                          node=left.node, # Inherit left's ID
-                         edges=TensorNode.inherit(left, right, 'edges', contractionEdges),
-                         indices=TensorNode.inherit(left, right, 'indices', contractionEdges),
-                         qubits=TensorNode.inherit(left, right, 'qubits', contractionEdges))
+                         edges=TensorNode.inherit(left, right, "edges", contractionEdges),
+                         indices=TensorNode.inherit(left, right, "indices", contractionEdges),
+                         qubits=TensorNode.inherit(left, right, "qubits", contractionEdges))
         return out
 
 
@@ -253,7 +254,7 @@ class Tree:
         if self.nChild < 2:
             self.child.append(other)
             return self
-        raise IndexError('Binary tree cannot have more than 2 children')
+        raise IndexError("Binary tree cannot have more than 2 children")
 
 
     root = property(lambda self: self._root)
@@ -467,13 +468,13 @@ class Tree:
         right, widthR, heightR, middleR = self.right.display_aux(prop)
         sepL, sepR = widthL - middleL, widthR - middleR
         strLen = len(asStr)
-        firstLine = (middleL + 1) * ' ' + (sepL - 1) * '_' + asStr + middleR * '_' + (sepR) * ' '
-        secondLine = middleL * ' ' + '/' + (sepL - 1 + strLen + middleR) * ' ' + '\\' + (sepR - 1) * ' '
+        firstLine = (middleL + 1) * " " + (sepL - 1) * "_" + asStr + middleR * "_" + (sepR) * " "
+        secondLine = middleL * " " + "/" + (sepL - 1 + strLen + middleR) * " " + "\\" + (sepR - 1) * " "
         if heightL < heightR:
-            left += [widthL * ' '] * (heightR - heightL)
+            left += [widthL * " "] * (heightR - heightL)
         else:
-            right += [widthR * ' '] * (heightL - heightR)
-        lines = [firstLine, secondLine] + [a + strLen * ' ' + b for a, b in zip(left, right)]
+            right += [widthR * " "] * (heightL - heightR)
+        lines = [firstLine, secondLine] + [a + strLen * " " + b for a, b in zip(left, right)]
         return lines, widthL + widthR + strLen, max(heightL, heightR) + 2, widthL + strLen // 2
 
     def split_graph(self):
