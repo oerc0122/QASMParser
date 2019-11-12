@@ -142,7 +142,7 @@ def parse_code(codeObject, builder, args=None, spargs=None, depth=0, maxDepth=-1
         elif isinstance(line, Loop):
             spargsSend = dict(**spargs)
             qargsSend = args
-            for i in range(maths(line.start[0]), maths(line.end[0])):
+            for i in range_inclusive(maths(line.start[0]), maths(line.end[0])):
                 spargsSend[line.loopVar.name] = i
                 recurse(line)
             del qargsSend
