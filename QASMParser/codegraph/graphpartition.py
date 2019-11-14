@@ -1,7 +1,6 @@
 """
 Module for building adjacency list and firing that through METIS for partitioning
 """
-import sys
 import ctypes
 import metis
 import numpy as np
@@ -60,59 +59,31 @@ def finalise(obj):
     for vertex in obj.adjList.verts:
         vertex.fix_edges()
 
-    print("ADJ:")
-    print(networkx.adjacency_matrix(obj.adjList.adjList))
     print("ENTANG:")
-    print(networkx.adjacency_matrix(obj.adjList.entang))
+    print(obj.adjList.entanglements)
 
     networkx.nx_agraph.to_agraph(obj.adjList.entang).draw("entang.pdf", prog="dot")
 
     tree = Tree(adjList)
     tree.split_graph()
-    graph = networkx.nx_agraph.to_agraph(adjList)
-    graph.layout()
-    graph.graph_attr.update(splines="True")
-    scale = 60
 
-    for nodeID in adjList.nodes:
-        vert = adjList.nodes[nodeID]["node"]
-        node = graph.get_node(nodeID)
-        del node.attr["node"]
-        node.attr["pos"] = "{:f},{:f}".format(vert.age*scale, vert.qubitID*scale)
-        node.attr["shape"] = "rect"
-        node.attr["style"] = "striped"
-        node.attr["fillcolor"] = COLOURS[0]
-        if vert.lastNode:
-            endNode = f"end{vert.qubitID}"
-            graph.add_edge(nodeID, endNode)
-            endNode = graph.get_node(endNode)
-            endNode.attr["style"] = "dotted"
-            endNode.attr["pos"] = "{:f},{:f}".format((obj.adjList.nGate+1)*scale, vert.qubitID*scale)
-
-    for edge in graph.edges_iter():
-        fromNode, toNode = graph.get_node(edge[0]), graph.get_node(edge[1])
-        edge.attr["pos"] = "e,{1} s,{0}".format(fromNode.attr["pos"], toNode.attr["pos"])
-    graph.draw("graph.gv", format="dot")
+    graph = obj.adjList.to_graphviz()
+    obj.adjList.circuit_layout()
+    obj.adjList.setup_draw_circuit(labelAttr="opName")
     graph.draw("graph.pdf")
-    N = 0
+
+    nSplits = 0
     for tier in range(tree.nTier+1):
         nodes = tree.by_tier(tier)
         for node in nodes:
-            N += 1
+            nSplits += 1
             for vert in node.adjList:
                 currNode = graph.get_node(vert)
-                right = node.ID%2
-                colourSel = COLOURS[N%len(COLOURS)]
+                colourSel = COLOURS[nSplits%len(COLOURS)]
                 # Urgh, American spelling
-#                currNode.attr["color"] = colourSel # if right else colourSel+"2"
                 currNode.attr["fillcolor"] = f":{colourSel}" # if right else colourSel+"2"
-#                currNode.attr["fillcolor"] += f":{colourSel}" # if right else colourSel+"2"
 
-        graph.draw("graph"+str(tier)+".png"# , prog="neato"
-        )
-
-    for node in adjList.nodes:
-        pass
+        graph.draw("graph"+str(tier)+".png")#, prog="fdp")
 
     # print(tree.tree_form("vertIDs"))
     # tree.contract()
@@ -142,32 +113,46 @@ class Vertex():
     contracted = property(lambda self: self._contracted)
     edges = property(lambda self: self.graph.edges(self.ID))
     fixedEdges = property(lambda self: self._fixedEdges)
-    neighbours = property(lambda self: set(self.predecessors) | set(self.successors))
     nEdges = property(lambda self: len(self.edges))
     op = property(lambda self: self._op)
+    opName = property(lambda self: self.op.name)
     graph = property(lambda self: self._parent)
 
 class AdjList():
     """ Build directed graph using NetworkX """
     def __init__(self, size):
+        self._size = size
         self._adjList = networkx.Graph()
         self._entang = networkx.MultiGraph()
         for i in range(size):
             self._entang.add_node(i)
             self._adjList.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, localAge=1, graph=self.adjList))
-        self._lastUpdated = [node for node in self.adjList]
-        end = Vertex(ID="end", qubitID=None, age=None, localAge=None, graph=self.adjList, operation=None)
-        self.adjList.add_node("end", node=end)
+            end = Vertex(ID="end"+str(i), qubitID=i, age=None, localAge=None, graph=self.adjList, operation=None)
+            end.lastNode = False
+            self.adjList.add_node("end"+str(i), node=end)
+        self._lastUpdated = [node.ID for node in self.verts]
         self._nGate = 1
         self._nGateQubit = [1]*size
+        self.graph = None
 
+    size = property(lambda self: self._size)
     nGate = property(lambda self: self._nGate)
+    nGateQubit = property(lambda self: self._nGateQubit)
     entang = property(lambda self: self._entang)
     verts = property(lambda self: (self.adjList.nodes[vertex]["node"]
-                                   for vertex in self.adjList.nodes if vertex != "end"))
+                                   for vertex in self.adjList.nodes if "end" not in str(vertex)))
+    allVerts = property(lambda self: (self.adjList.nodes[vertex]["node"]
+                                      for vertex in self.adjList.nodes))
     adjList = property(lambda self: self._adjList)
-    nVerts = property(lambda self: len(self.adjList)-1)
-    edges = property(lambda self: (edge for edge in self.adjList.edges if "end" not in edge))
+    nVerts = property(lambda self: len(list(self.verts)))
+    edges = property(lambda self: (edge for edge in self.adjList.edges if not any("end" in str(node) for node in edge)))
+    endVerts = property(lambda self: (self.adjList.nodes[node]["node"] for node in self.ends))
+    ends = property(lambda self: ("end"+str(i) for i in range(self.size)))
+
+    @property
+    def entanglements(self):
+        """ Number of entanglements between qubits """
+        return networkx.adjacency_matrix(self.entang)
 
     def process(self, obj, **kwargs):
         """ Build graph from code """
@@ -193,9 +178,60 @@ class AdjList():
 
     def finalise(self):
         """ Link final qubit with fictional outlet """
-        for node in self._lastUpdated:
-            self.adjList.add_edge(node, "end", key="end")
+        for qubit, node in enumerate(self._lastUpdated):
+            end = self.adjList.nodes["end"+str(qubit)]["node"]
+            end._age = self.nGate+1
+            end._localAge = self.nGateQubit[qubit]+1
+            self.adjList.add_edge(node, "end"+str(qubit), key="end")
 
+
+    def to_graphviz(self):
+        """ Return the adjList as a graphviz object """
+        self.graph = networkx.nx_agraph.to_agraph(self.adjList)
+        for nodeID in self.adjList.nodes:
+            node = self.graph.get_node(nodeID)
+            del node.attr['node']
+
+        return self.graph
+
+    def setup_draw_circuit(self, graph=None, **kwargs):
+        """ Draw this adjlist in a circuit layout """
+        if graph is None:
+            graph = self.graph
+
+        for nodeID in self.adjList.nodes:
+            vert = self.adjList.nodes[nodeID]["node"]
+            node = graph.get_node(nodeID)
+            node.attr["shape"] = kwargs.get("shape", "rect")
+            node.attr["style"] = kwargs.get("style", "striped")
+            if "colourFunc" in kwargs:
+                node.attr["fillcolor"] = kwargs["colourFunc"](vert)
+            else:
+                node.attr["fillcolor"] = kwargs.get("colour", COLOURS[0])
+            if "labelFunc" in kwargs:
+                node.attr["label"] = kwargs.get("labelFunc")(vert)
+            else:
+                node.attr["label"] = getattr(vert, kwargs.get("labelAttr", "ID"), vert.ID)
+
+        for nodeID in self.ends:
+            endNode = graph.get_node(nodeID)
+            endNode.attr["style"] = kwargs.get("endstyle", "dotted")
+            endNode.attr["shape"] = kwargs.get("endshape", kwargs.get("shape", "rect"))
+
+    def circuit_layout(self, graph=None, scale=60):
+        """ Return a graph laid out as a quantum circuit """
+        if graph is None:
+            graph = self.graph
+
+        graph.layout()
+        for vert in self.allVerts:
+            node = graph.get_node(vert.ID)
+            node.attr["pos"] = "{:f},{:f}".format(vert.age*scale, vert.qubitID*scale)
+
+        for edge in graph.edges_iter():
+            fromNode, toNode = graph.get_node(edge[0]), graph.get_node(edge[1])
+            edge.attr["pos"] = "e,{1} s,{0}".format(fromNode.attr["pos"], toNode.attr["pos"])
+        return graph
 
 class TensorNode:
     """ Class containing details relating to tensor contractions """
@@ -277,6 +313,8 @@ class Tree:
     ID = property(lambda self: self._ID)
 
     edges = property(lambda self: (edge for edge in self.tensorNode.edges))
+    validEdges = property(lambda self: (edge for edge in self.adjList.edges
+                                        if not any("end" in str(node) for node in edge)))
     nEdge = property(lambda self: len(self.adjList))
     nEdges = property(lambda self: len(self.fullEdges))
     vertices = property(lambda self: [self.adjList.nodes[vertex]["node"] for vertex in self.adjList.nodes])
@@ -514,7 +552,7 @@ class Tree:
 
     def add_weights(self):
         """ Add weights necessary for METIS partitioning """
-        for edge in self.adjList.edges:
+        for edge in self.validEdges:
             edgeA, edgeB = edge
             nodeA, nodeB = self.adjList.nodes[edgeA]["node"], self.adjList.nodes[edgeB]["node"]
             self.adjList[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 0)
