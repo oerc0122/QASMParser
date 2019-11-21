@@ -2,6 +2,7 @@
 Module for building adjacency list and firing that through METIS for partitioning
 """
 import ctypes
+import copy
 import metis
 import numpy as np
 import networkx
@@ -65,7 +66,7 @@ def finalise(obj):
     networkx.nx_agraph.to_agraph(obj.adjList.entang).draw("entang.pdf", prog="dot")
 
     tree = Tree(adjList)
-    tree.split_graph()
+    tree.split_graph("girvan-newman")
 
     graph = obj.adjList.to_graphviz()
     obj.adjList.circuit_layout()
@@ -101,6 +102,12 @@ class Vertex():
         self._parent = graph
         self._fixedEdges = None
         self.lastNode = True
+
+    def __deepcopy__(self, memo):
+        newCopy = copy.copy(self)
+        newCopy._parent = None
+        newCopy._op = None
+        return newCopy
 
     def fix_edges(self):
         """ Lock in edges for later use """
@@ -343,11 +350,6 @@ class Tree:
         """ Get full graph's vertex """
         return self.root.adjList.edges(self.nodeID)
 
-    @property
-    def vertices(self):
-        for i in self.adjList.nodes:
-            yield self.adjList.nodes[i]["node"]
-
     def __str__(self):
         return self.tree_form("vertIDs")
 
@@ -515,21 +517,56 @@ class Tree:
         lines = [firstLine, secondLine] + [a + strLen * " " + b for a, b in zip(left, right)]
         return lines, widthL + widthR + strLen, max(heightL, heightR) + 2, widthL + strLen // 2
 
-    def split_graph(self):
+    def split_graph(self, method="stoer-wagner"):
+        """ Recursively split the graph and build the resulting binary tree """
+        if method == "stoer-wagner":
+            self.split_graph_stoer_wagner()
+        elif method == "metis":
+            self.split_graph_metis()
+        elif method == "girvan-newman":
+            self.split_graph_girvan_newman()
+        else:
+            raise ValueError("Unrecognised method {}".format(method))
+
+    def split_graph_girvan_newman(self):
+        """ Split the graph using Girvan-Newaman and build the resulting binary tree """
+        graph = self.add_weights()
+        parents = [self]
+        for tier in networkx.algorithms.community.centrality.girvan_newman(graph):
+            children = [None] * len(tier)
+            for nodeID, community in enumerate(tier):
+                for parent in parents:
+                    if community.issubset(parent.adjList): # Now we know "Who's the daddy?"
+                        children[nodeID] = Node(parent, community)
+            # And we become daddy
+            parents = children
+
+    def split_graph_stoer_wagner(self):
+        """ Recursively split the graph using Stoer-Wagner and build the resulting binary tree """
+        if self.nVerts < 2:
+            return
+        graph = self.add_weights()
+        _, (cutL, cutR) = networkx.algorithms.connectivity.stoerwagner.stoer_wagner(graph)
+        childL, childR = Node(self, cutL), Node(self, cutR)
+        childL.split_graph_stoer_wagner()
+        childR.split_graph_stoer_wagner()
+
+    def split_graph_metis(self):
         """ Recursively split the graph and build the resulting binary tree """
         if self.nVerts < 2:
             return
         graph = self.to_metis()
-        cutL = np.asarray(metis.part_graph(graph, nparts=2)[1])
-        if 0 < sum(cutL) < len(cutL):
+        cut = metis.part_graph(graph, nparts=2)[1]
+        if 0 < sum(cut) < len(cut):
             pass
         else: # Handle METIS not splitting small graphs by taking least-connected value
             leastCon = np.argmin(map(len, self.adjList.edges))
-            cutL = [0 if node != leastCon else 1 for node, _ in enumerate(graph)]
-        cutR = np.logical_not(cutL)
+            cut = [0 if node != leastCon else 1 for node, _ in enumerate(graph)]
+        cutL = (node for i, node in enumerate(self.adjList) if cut[i])
+        cutR = (node for i, node in enumerate(self.adjList) if not cut[i])
         childL, childR = Node(self, cutL), Node(self, cutR)
-        childL.split_graph()
-        childR.split_graph()
+        childL.split_graph_metis()
+        childR.split_graph_metis()
 
     @staticmethod
     def flat_weight(vertexA, vertexB, edge):
@@ -575,9 +612,8 @@ class Node(Tree):
         self._tier = self.parent.tier + 1
 
         if self.tier > self.nTier:
-               self.root._nTier = self.tier
+            self.root._nTier = self.tier
         self.child = []
-        self._adjList = networkx.subgraph(parent.adjList,
-                                          (node for i, node in enumerate(parent.adjList) if cut[i]))
+        self._adjList = networkx.subgraph(parent.adjList, cut)
 
 env = None
