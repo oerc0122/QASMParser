@@ -14,7 +14,7 @@ class Tree:
         self._allNodes = [self]
         self._ID = 0
         self.child = []
-        self._adjList = graph
+        self._codeGraph = graph
         # Default to None if not in current scope
         self._tensor = None
         self._root = self
@@ -28,7 +28,7 @@ class Tree:
 
     root = property(lambda self: self._root)
 
-    adjList = property(lambda self: self._adjList)
+    codeGraph = property(lambda self: self._codeGraph)
 
     tensorNode = property(lambda self: self._tensor)
     tensor = property(lambda self: self._tensor.tensor)
@@ -46,35 +46,35 @@ class Tree:
     ID = property(lambda self: self._ID)
 
     edges = property(lambda self: (edge for edge in self.tensorNode.edges))
-    validEdges = property(lambda self: (edge for edge in self.adjList.edges
+    validEdges = property(lambda self: (edge for edge in self.codeGraph.edges
                                         if not any("end" in str(node) for node in edge)))
-    nEdge = property(lambda self: len(self.adjList))
+    nEdge = property(lambda self: len(self.codeGraph))
     nEdges = property(lambda self: len(self.fullEdges))
-    vertices = property(lambda self: [self.adjList.nodes[vertex]["node"] for vertex in self.adjList.nodes])
-    nVerts = property(lambda self: len(self._adjList))
+    vertices = property(lambda self: [self.codeGraph.nodes[vertex]["node"] for vertex in self.codeGraph.nodes])
+    nVerts = property(lambda self: len(self._codeGraph))
     vertIDs = property(lambda self: [vertex.ID for vertex in self.vertices])
 
     @property
     def nodeID(self):
         """ Get ID of node for leaves """
-        for node in self.adjList.nodes:
+        for node in self.codeGraph.nodes:
             a = node
         return a
 
     @property
     def vertex(self):
         """ Vertex getter """
-        return self.adjList.nodes[self.nodeID]["node"]
+        return self.codeGraph.nodes[self.nodeID]["node"]
 
     @property
     def fullNode(self):
         """ Get full graph's vertex """
-        return self.root.adjList.nodes[self.nodeID]
+        return self.root.codeGraph.nodes[self.nodeID]
 
     @property
     def fullEdges(self):
         """ Get full graph's vertex """
-        return self.root.adjList.edges(self.nodeID)
+        return self.root.codeGraph.edges(self.nodeID)
 
     def __str__(self):
         return self.tree_form("vertIDs")
@@ -105,12 +105,12 @@ class Tree:
 
     def least_connect(self):
         """ Return vertices with the fewest edges first """
-        for element in reversed(sorted(self.adjList, key=lambda elem: elem.nEdge)):
+        for element in reversed(sorted(self.codeGraph, key=lambda elem: elem.nEdge)):
             yield element
 
     def most_connect(self):
         """ Return vertices with the fewest edges first """
-        for element in sorted(self.adjList, key=lambda elem: elem.nEdge):
+        for element in sorted(self.codeGraph, key=lambda elem: elem.nEdge):
             yield element
 
     def contract_order(self, order=0):
@@ -168,7 +168,7 @@ class Tree:
             children = [None] * len(tier)
             for nodeID, community in enumerate(tier):
                 for parent in parents:
-                    if community.issubset(parent.adjList): # Now we know "Who's the daddy?"
+                    if community.issubset(parent.codeGraph): # Now we know "Who's the daddy?"
                         children[nodeID] = Node(parent, community)
             # And we become daddy
             parents = children
@@ -192,10 +192,10 @@ class Tree:
         if 0 < sum(cut) < len(cut):
             pass
         else: # Handle METIS not splitting small graphs by taking least-connected value
-            leastCon = np.argmin(map(len, self.adjList.edges))
+            leastCon = np.argmin(map(len, self.codeGraph.edges))
             cut = [0 if node != leastCon else 1 for node, _ in enumerate(graph)]
-        cutL = (node for i, node in enumerate(self.adjList) if cut[i])
-        cutR = (node for i, node in enumerate(self.adjList) if not cut[i])
+        cutL = (node for i, node in enumerate(self.codeGraph) if cut[i])
+        cutR = (node for i, node in enumerate(self.codeGraph) if not cut[i])
         childL, childR = Node(self, cutL), Node(self, cutR)
         childL.split_graph_metis()
         childR.split_graph_metis()
@@ -223,9 +223,9 @@ class Tree:
         """ Add weights necessary for METIS partitioning """
         for edge in self.validEdges:
             edgeA, edgeB = edge
-            nodeA, nodeB = self.adjList.nodes[edgeA]["node"], self.adjList.nodes[edgeB]["node"]
-            self.adjList[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 0)
-        return self.adjList
+            nodeA, nodeB = self.codeGraph.nodes[edgeA]["node"], self.codeGraph.nodes[edgeB]["node"]
+            self.codeGraph[edgeA][edgeB]["weight"] = self.calc_weight(nodeA, nodeB, edge, 0)
+        return self.codeGraph
 
     def to_metis(self):
         """ Convert tree's graph into metis structure """
@@ -246,5 +246,5 @@ class Node(Tree):
         if self.tier > self.nTier:
             self.root._nTier = self.tier
         self.child = []
-        self._adjList = networkx.subgraph(parent.adjList, cut)
+        self._codeGraph = networkx.subgraph(parent.codeGraph, cut)
 

@@ -26,7 +26,7 @@ def main():
             codeGraph = GraphBuilder(QuantumRegister.numQubits, myProg)
             codeGraph.parse_code(maxDepth=argList.max_depth)
 
-            codeGraph.adjList.draw("graph.pdf", labelAttr="opName")
+            codeGraph.codeGraph.draw("graph.pdf", labelAttr="opName")
 
         else:
             lang = None

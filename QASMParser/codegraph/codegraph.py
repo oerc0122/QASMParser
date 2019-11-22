@@ -63,18 +63,18 @@ class Vertex():
     opName = property(lambda self: self.op.name)
     graph = property(lambda self: self._parent)
 
-class AdjList():
+class CodeGraph():
     """ Build directed graph using NetworkX """
     def __init__(self, size):
         self._size = size
-        self._adjList = networkx.Graph()
+        self._codeGraph = networkx.Graph()
         self._entang = networkx.MultiGraph()
         for i in range(size):
             self._entang.add_node(i)
-            self._adjList.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, localAge=1, graph=self.adjList))
-            end = Vertex(ID="end"+str(i), qubitID=i, age=None, localAge=None, graph=self.adjList, operation=None)
+            self._codeGraph.add_node(i, node=Vertex(ID=i, qubitID=i, age=1, localAge=1, graph=self.codeGraph))
+            end = Vertex(ID="end"+str(i), qubitID=i, age=None, localAge=None, graph=self.codeGraph, operation=None)
             end.lastNode = False
-            self.adjList.add_node("end"+str(i), node=end)
+            self.codeGraph.add_node("end"+str(i), node=end)
         self._lastUpdated = [node.ID for node in self.verts]
         self._nGate = 1
         self._nGateQubit = [1]*size
@@ -84,14 +84,14 @@ class AdjList():
     nGate = property(lambda self: self._nGate)
     nGateQubit = property(lambda self: self._nGateQubit)
     entang = property(lambda self: self._entang)
-    verts = property(lambda self: (self.adjList.nodes[vertex]["node"]
-                                   for vertex in self.adjList.nodes if "end" not in str(vertex)))
-    allVerts = property(lambda self: (self.adjList.nodes[vertex]["node"]
-                                      for vertex in self.adjList.nodes))
-    adjList = property(lambda self: self._adjList)
+    verts = property(lambda self: (self.codeGraph.nodes[vertex]["node"]
+                                   for vertex in self.codeGraph.nodes if "end" not in str(vertex)))
+    allVerts = property(lambda self: (self.codeGraph.nodes[vertex]["node"]
+                                      for vertex in self.codeGraph.nodes))
+    codeGraph = property(lambda self: self._codeGraph)
     nVerts = property(lambda self: len(list(self.verts)))
-    edges = property(lambda self: (edge for edge in self.adjList.edges if not any("end" in str(node) for node in edge)))
-    endVerts = property(lambda self: (self.adjList.nodes[node]["node"] for node in self.ends))
+    edges = property(lambda self: (edge for edge in self.codeGraph.edges if not any("end" in str(node) for node in edge)))
+    endVerts = property(lambda self: (self.codeGraph.nodes[node]["node"] for node in self.ends))
     ends = property(lambda self: ("end"+str(i) for i in range(self.size)))
 
     @property
@@ -105,37 +105,37 @@ class AdjList():
         for qubit in obj.qubitsInvolved:
             prev = self._lastUpdated[qubit]
             self._nGateQubit[qubit] += 1
-            self.adjList.nodes[prev]["node"].lastNode = False
+            self.codeGraph.nodes[prev]["node"].lastNode = False
             current = self.nVerts
             # Add new state as vertex
             node = Vertex(ID=self.nVerts, qubitID=qubit, age=self._nGate, localAge=self._nGateQubit[qubit],
-                          graph=self.adjList, operation=kwargs["lineObj"])
-            self._adjList.add_node(current, node=node)
+                          graph=self.codeGraph, operation=kwargs["lineObj"])
+            self._codeGraph.add_node(current, node=node)
             # Link last updated vertex to current
-            self._adjList.add_edge(prev, current, weight=1)
+            self._codeGraph.add_edge(prev, current, weight=1)
             self._lastUpdated[qubit] = current
             if qubit != min(obj.qubitsInvolved): # Skip if initial qubit (nothing to link to)
-                self._adjList.add_edge(current, lastVertex, weight=1)
-                self._entang.add_edge(self.adjList.nodes[lastVertex]["node"].qubitID,
-                                      self.adjList.nodes[current]["node"].qubitID, weight=1)
+                self._codeGraph.add_edge(current, lastVertex, weight=1)
+                self._entang.add_edge(self.codeGraph.nodes[lastVertex]["node"].qubitID,
+                                      self.codeGraph.nodes[current]["node"].qubitID, weight=1)
             # Link to previous qubit in operation
             lastVertex = current
 
     def finalise(self):
         """ Link final qubit with fictional outlet """
         for qubit, node in enumerate(self._lastUpdated):
-            end = self.adjList.nodes["end"+str(qubit)]["node"]
+            end = self.codeGraph.nodes["end"+str(qubit)]["node"]
             end._age = self.nGate+1
             end._localAge = self.nGateQubit[qubit]+1
-            self.adjList.add_edge(node, "end"+str(qubit), key="end")
+            self.codeGraph.add_edge(node, "end"+str(qubit), key="end")
 
         for vertex in self.verts:
             vertex.fix_edges()
 
     def to_graphviz(self):
-        """ Return the adjList as a graphviz object """
-        self.graph = networkx.nx_agraph.to_agraph(self.adjList)
-        for nodeID in self.adjList.nodes:
+        """ Return the codeGraph as a graphviz object """
+        self.graph = networkx.nx_agraph.to_agraph(self.codeGraph)
+        for nodeID in self.codeGraph.nodes:
             node = self.graph.get_node(nodeID)
             del node.attr['node']
 
@@ -148,8 +148,8 @@ class AdjList():
                 self.to_graphviz()
             graph = self.graph
 
-        for nodeID in self.adjList.nodes:
-            vert = self.adjList.nodes[nodeID]["node"]
+        for nodeID in self.codeGraph.nodes:
+            vert = self.codeGraph.nodes[nodeID]["node"]
             node = graph.get_node(nodeID)
             node.attr["shape"] = kwargs.get("shape", "rect")
             node.attr["style"] = kwargs.get("style", "striped")
@@ -205,7 +205,7 @@ class GraphBuilder():
 
         self.adjmatPartition = partition in [1, 2]
         self.graphPartition = partition == 3
-        self.adjList = AdjList(self.nQubits)
+        self.codeGraph = CodeGraph(self.nQubits)
 
     involvedList = property(lambda self: self._involved)
     involved = property(lambda self: self._involved.nonzero())
@@ -232,12 +232,12 @@ class GraphBuilder():
 
     def _process(self, **kwargs):
         """ Perform necessary processing of set qubits """
-        self.adjList.process(self, **kwargs)
+        self.codeGraph.process(self, **kwargs)
         self._set_qubits()
 
     def _finalise(self):
-        """ Finalise and fix adjList """
-        self.adjList.finalise()
+        """ Finalise and fix codeGraph """
+        self.codeGraph.finalise()
 
     def _handle_classical(self, **kwargs):
         """ Perform actions based on classical blocks """
