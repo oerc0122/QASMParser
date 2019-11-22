@@ -5,7 +5,7 @@ from enum import (IntEnum)
 from ..parser.parser import (ProgFile)
 from ..parser.types import (TensorNetwork)
 from ..parser.errors import (partitionWarning)
-from .codegraph import (GraphBuilder, parse_code)
+from .codegraph import (GraphBuilder)
 
 def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1):
     """ Call correct partitioner based on partition level """
@@ -19,7 +19,7 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1):
     if partitionLevel == partitionTypes.SPACELIKE:
         codeGraph = GraphBuilder(code.quantumRegisters.numQubits, code,
                                  partition=partitionLevel)
-        adjMat = parse_code(code, codeGraph, maxDepth=maxDepth).adjMat
+        adjMat = codeGraph.parse_code(maxDepth=maxDepth).adjMat
         bestSlice = adjMat.best_slice_adjmat()
         if not bestSlice:
             print(partitionWarning)
