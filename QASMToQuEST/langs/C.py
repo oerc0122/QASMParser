@@ -442,10 +442,16 @@ def Loop_to_c(self):
     resolve = lambda b: resolve_maths(self, b)
     start = map(resolve, self.start)
     end = map(resolve, self.end)
-    step = map(resolve, self.step)
+    step = list(map(resolve, self.step))
+    neg = [0] * len(list(step))
+    for i, incr in enumerate(step):
+        try:
+            neg[i] = int(incr.replace(" ", "")) < 0
+        except ValueError:
+            neg[i] = False
 
     var = (f"int {var} = {init}" for var, init in zip(self.var, start))
-    term = (f"{var} <= {term}"   for var, term in zip(self.var, end))
+    term = (f"{var} <= {term}" if not inv else f"{var} >= {term}" for var, term, inv in zip(self.var, end, neg))
     incr = (f"{var} += {incr}"   for var, incr  in zip(self.var, step))
     return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(incr)} )"
 

@@ -716,7 +716,6 @@ class CodeBlock(CoreOp):
         :param end:
 
         """
-        print(step)
         loop = Loop(self, block, var, start, end, step)
         self._code += [loop]
 

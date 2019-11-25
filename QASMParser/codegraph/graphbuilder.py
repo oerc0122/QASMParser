@@ -121,8 +121,10 @@ class GraphBuilder(ABC):
             elif isinstance(line, Loop):
                 spargsSend = dict(**spargs)
                 qargsSend = args
-                for i in range_inclusive(maths(line.start[0]), maths(line.end[0])):
+                print(maths(line.start[0]), maths(line.end[0]), maths(line.step[0]))
+                for i in range_inclusive(maths(line.start[0]), maths(line.end[0]), maths(line.step[0])):
                     spargsSend[line.loopVar.name] = i
+                    print(spargsSend)
                     recurse(line)
                 del qargsSend
                 del spargsSend
@@ -144,8 +146,12 @@ class GraphBuilder(ABC):
 
 def range_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop like anything sensible would """
+    if step < 0:
+        return range(start, stop-1, step)
     return range(start, stop+1, step)
 
 def slice_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop like anything sensible would """
+    if step < 0:
+        return slice(start, stop-1, step)
     return slice(start, stop+1, step)
