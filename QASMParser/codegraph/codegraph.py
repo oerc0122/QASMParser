@@ -45,7 +45,7 @@ class Vertex():
 
 class CodeGraph(GraphBuilder):
     """ Build directed graph using NetworkX """
-    def __init__(self, code: list, nQubits: int, maxDepth: int=-1):
+    def __init__(self, code: list, nQubits: int, maxDepth: int = -1):
         GraphBuilder.__init__(self, code, nQubits, maxDepth)
         self._tensorGraph = networkx.Graph()
         self._entang = networkx.Graph()
@@ -179,3 +179,11 @@ class CodeGraph(GraphBuilder):
         self.circuit_layout(**kwargs)
         self.setup_draw_circuit(**kwargs)
         self.graph.draw(outFile)
+
+    def draw_entang(self, outFile, **kwargs):
+        """ Render entanglements in graph to file """
+        for edge1, edge2, data in self.entang.edges(data=True):
+            data['penwidth'] = data.get('weight', '')
+            data['len'] = 2
+        entangGraph = networkx.nx_agraph.to_agraph(self.entang)
+        entangGraph.draw("entang.pdf", prog="neato")

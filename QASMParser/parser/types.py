@@ -47,6 +47,11 @@ def resolve_arg(block, var, args, spargs, loopVar=None):
         shift = ind.split("_loop")[1]
         shift = shift if shift else 0
         ind = loopVar + int(shift)
+    elif isinstance(ind, Constant):
+        if ind.name in spargs: # If we can do a direct sub
+            ind = maths(spargs[ind.name])
+        else:
+            raise KeyError(badConstantWarning.format(ind.name))
     else:
         ind = maths(ind)
 
@@ -72,7 +77,8 @@ def resolve_arg(block, var, args, spargs, loopVar=None):
         out = var.start + ind
     else:
         raise Exception("Cannot handle request")
-
+    if isinstance(var, Constant):
+        print("QUACK:", out)
     return out
 
 def to_lang_error(self):

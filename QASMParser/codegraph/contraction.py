@@ -4,10 +4,10 @@ Module containing contraction methods
 
 import ctypes
 import sys
-from .graphpartition import Tree
+import networkx
+from graphpartition import Tree
 sys.path += ["/home/jacob/QuEST-TN/utilities/"]
 
-import networkx
 
 # Find QuEST and TN libraries
 from QuESTPy.QuESTBase import init_QuESTLib

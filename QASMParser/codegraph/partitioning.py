@@ -29,11 +29,11 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
 
     if partitionLevel == partitionTypes.SPACELIKE:
         codeGraph = CodeGraph(code, code.nQubits, maxDepth=maxDepth)
+        codeGraph.draw_entang("entang.pdf")
         slices = optimal_cut(codeGraph)
 
         if not slices or len(slices) == 1:
             print(partitionWarning)
-
         if not dummy:
             code.partition = create_tensor_network(code, bestSlice)
 

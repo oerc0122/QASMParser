@@ -20,4 +20,3 @@ COLOURS = ["blue", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate",
            "seagreen", "seashell", "sienna", "skyblue", "slateblue", "slategray", "slategrey", "snow",
            "springgreen", "steelblue", "tan", "thistle", "tomato", "transparent", "turquoise", "violet",
            "violetred", "wheat", "white", "whitesmoke", "yellow", "yellowgreen"]
-

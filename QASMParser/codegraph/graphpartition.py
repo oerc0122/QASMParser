@@ -248,4 +248,3 @@ class Node(Tree):
             self.root._nTier = self.tier
         self.child = []
         self._codeGraph = networkx.subgraph(parent.codeGraph, cut)
-
