@@ -6,8 +6,7 @@ from QASMParser.parser.parser import (ProgFile)
 from QASMParser.parser.coregates import setup_QASM_gates
 from QASMParser.parser.types import (QuantumRegister)
 from QASMParser.codegraph.partitioning import (partition)
-from QASMParser.codegraph.codegraph import (GraphBuilder)
-
+from QASMParser.codegraph.codegraph import (CodeGraph)
 from .cli import get_command_args
 from .printer import (to_lang)
 from .errors import (noSpecWarning)
@@ -15,6 +14,10 @@ from .errors import (noSpecWarning)
 def main():
     """ Run main program """
     argList = get_command_args()
+
+    if any((argList.analyse, argList.dummy_partition, argList.print, argList.partition > 1)):
+        from QASMParser.codegraph.codegraph import (GraphBuilder)
+
     # Set up the core internal gates
     setup_QASM_gates()
 
@@ -23,10 +26,14 @@ def main():
         print(source)
 
         if  any((argList.analyse, argList.dummy_partition, argList.print)):
-            codeGraph = GraphBuilder(QuantumRegister.numQubits, myProg)
-            codeGraph.parse_code(maxDepth=argList.max_depth)
 
-            codeGraph.codeGraph.draw("graph.pdf", labelAttr="opName")
+            if argList.print:
+                codeGraph = CodeGraph(QuantumRegister.numQubits, myProg)
+                codeGraph.draw("graph.pdf", labelAttr="opName")
+                del codeGraph
+
+            if argList.dummy_partition:
+                partition(myProg, argList.partition, argList.max_depth, dummy=True)
 
         else:
             lang = None

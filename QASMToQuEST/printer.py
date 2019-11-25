@@ -147,8 +147,7 @@ def fix_qureg(codeObj):
     code = [InitEnv(codeObj)]
     for reg in codeObj.quantumRegisters:
         code += [Comment(codeObj, f'{reg.name}[{reg.start}:{reg.end-1}]')]
-        code += [Let(codeObj, (reg.name, "const listint"),
-                     (list(range(reg.start, reg.end)), None))]
+        code += [Let(codeObj, (reg.name, "const listint"), (reg.mapping, None))]
 
     if not codeObj.useTN:
         code += [QuantumRegister(codeObj, "qreg", QuantumRegister.numQubits)]

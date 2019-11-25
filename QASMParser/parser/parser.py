@@ -14,8 +14,10 @@ class ProgFile(CodeBlock):
 
     Contians routines for converting code to outputlanguages and writing said output to an output file.
     """
-    quantumRegisters = property(lambda self: self._quantumRegisters)
-
+    quantumRegisters = property(lambda self: [reg for reg in self.code if isinstance(reg, QuantumRegister)])
+    gates = property(lambda self: [gate for gate in self.code if isinstance(gate, (Gate, Circuit, Procedure, Opaque))])
+    nQubits = property(lambda self: sum(reg.size for reg in self.quantumRegisters))
+    
     def __init__(self, filename):
         self.filename = filename
         self._name = filename
@@ -28,8 +30,6 @@ class ProgFile(CodeBlock):
         for val, name in enumerate(["F", "T"]):
             self._objs[name] = Constant(self, (name, "bool"), (val, None))
         self.parse_instructions()
-        self._quantumRegisters = [reg for reg in self.code if isinstance(reg, QuantumRegister)]
-        self._gates = [gate for gate in self.code if isinstance(gate, (Gate, Circuit, Procedure, Opaque))]
         self.useTN = False
         self.partition = None
 

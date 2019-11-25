@@ -6,14 +6,14 @@ import re
 import copy
 from pyparsing import (ParseResults)
 
-from .errors import (argWarning, langWarning,
-                         dupWarning, existWarning, wrongTypeWarning,
-                         indexWarning, aliasIndexWarning, argSizeWarning,
-                         gateWarning, instructionWarning, includeNotMainWarning,
-                         loopSpecWarning, argParseWarning, noExitWarning,
-                         mathsEvalWarning, failedOpWarning, redefClassLangWarning,
-                         inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
-                         rangeToIndexWarning, gateDeclareWarning)
+from .errors import (argWarning, langWarning, badMappingWarning,
+                     dupWarning, existWarning, wrongTypeWarning,
+                     indexWarning, aliasIndexWarning, argSizeWarning,
+                     gateWarning, instructionWarning, includeNotMainWarning,
+                     loopSpecWarning, argParseWarning, noExitWarning,
+                     mathsEvalWarning, failedOpWarning, redefClassLangWarning,
+                     inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
+                     rangeToIndexWarning, gateDeclareWarning)
 from .tokens import (MathOp, Binary, Function)
 from .filehandle import (QASMBlock, NullBlock)
 
@@ -1276,8 +1276,18 @@ class QuantumRegister(Register):
 
         self._start += QuantumRegister.numQubits
         self._end += QuantumRegister.numQubits
+        self._mapping = tuple(range(self._start, self._end))
         QuantumRegister.numQubits += self.size
 
+    @property
+    def mapping(self):
+        return self._mapping
+
+    @mapping.setter
+    def mapping(self, val):
+        if len(val) != self.size:
+            raise ValueError(badMappingWarning.format(self.name, len(val), val, self.size))
+        self._mapping = val
 class ClassicalRegister(Register):
     """
     Classical register as created by "creg"

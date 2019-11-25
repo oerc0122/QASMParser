@@ -169,6 +169,7 @@ class Tree:
             for nodeID, community in enumerate(tier):
                 for parent in parents:
                     if community.issubset(parent.codeGraph): # Now we know "Who's the daddy?"
+                        print("HONK:", parent.codeGraph, community)
                         children[nodeID] = Node(parent, community)
             # And we become daddy
             parents = children

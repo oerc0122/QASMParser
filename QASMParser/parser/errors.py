@@ -10,6 +10,7 @@ opaqueWarning = "Opaque gate cannot have body in {}"
 parseArgWarning = "Issue parsing {} of type {}"
 typeWarning = "Unrecognised type {} requested in function {}"
 freeWarning = "Attempted to free non-allocated object {}"
+badMappingWarning = "Mismatched size in {}, cannot assign tuple length {} ({}) to object length {}"
 
 # File parsing
 fileWarning = "{message} in {file} at line {line}"
@@ -49,10 +50,6 @@ noExitWarning = "Recursive gate {} does not have defined exit"
 wrongTypeWarning = "Bad argument, expected {} received {}"
 
 
-# Partitioning
-partitionWarning = ("Partitioning suggests no partitions.\n"
-                    "Recommend running with different partitioning method or disable partitioning")
-
 
 def print_decor(func):
     """Decorator for identifying the location of print statements."""
@@ -64,4 +61,3 @@ def print_decor(func):
         func(name)
     return wrapper
 
-#print = print_decor(print)
