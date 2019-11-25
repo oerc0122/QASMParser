@@ -23,9 +23,14 @@ unitary circuit add[nBits] a[nBits],b[nBits],in,out -> ans {
 	maj a[bit-1], b[bit], a[bit];
       }
     cx a[nBits-1], out;
-    for bit in [1:nBits-1] {
-	unmaj a[nBits-1-bit], b[nBits-bit], a[nBits-bit];
-      }
+
+    for bit in [nBits-1:1:-1] {
+	unmaj a[bit-1], b[bit], a[bit];
+        }
+    
+    /* for bit in [1:nBits-1] { */
+    /*     unmaj a[nBits-1-bit], b[nBits-bit], a[nBits-bit]; */
+    /*   } */
     unmaj in, b[0], a[0];
     creg ans[nBits + 1];
     for bit in [0:nBits-1] {

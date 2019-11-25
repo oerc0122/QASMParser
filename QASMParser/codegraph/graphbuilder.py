@@ -131,7 +131,13 @@ class GraphBuilder(ABC):
                 self._handle_classical(lineObj=line)
 
             elif isinstance(line, Measure):
-                self._handle_measure(lineObj=line)
+                if line.loops is not None:
+                    for loopVar in range(maths(line.loops.start[0]), maths(line.loops.end[0])):
+                        self._set_qubits(1, resolve_arg(codeObject, line.qargs, args, spargs, loopVar))
+                        self._handle_measure(lineObj=line)
+                else:
+                    self._set_qubits(1, resolve_arg(codeObject, line.qargs, args, spargs))
+                    self._handle_measure(lineObj=line)
 
         if depth == 0:
             self.__finalise()

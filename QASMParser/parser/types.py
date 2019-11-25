@@ -77,8 +77,7 @@ def resolve_arg(block, var, args, spargs, loopVar=None):
         out = var.start + ind
     else:
         raise Exception("Cannot handle request")
-    if isinstance(var, Constant):
-        print("QUACK:", out)
+
     return out
 
 def to_lang_error(self):
@@ -708,7 +707,7 @@ class CodeBlock(CoreOp):
 
         self._code += [output]
 
-    def _loop(self, var, block, start, end):
+    def _loop(self, var, block, start, end, step):
         """ Add loop to code
 
         :param var:
@@ -717,7 +716,8 @@ class CodeBlock(CoreOp):
         :param end:
 
         """
-        loop = Loop(self, block, var, start, end)
+        print(step)
+        loop = Loop(self, block, var, start, end, step)
         self._code += [loop]
 
     def _cycle(self, var):
@@ -919,9 +919,9 @@ class CodeBlock(CoreOp):
         # Loop routines
         elif keyword == "for":
             var = token["var"]
-            start, end = self.parse_range(token["range"])
+            start, end, interval = self.parse_range(token["range"])
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self._loop(var, block, start, end) # Handle "<" ending one early
+            self._loop(var, block, start, end, step=interval) # Handle "<" ending one early
         elif keyword == "while":
             cond = self.parse_maths(token["cond"])
             block = QASMBlock(self.currentFile, token.get("block", None))
@@ -1049,7 +1049,7 @@ class CodeBlock(CoreOp):
             else:
                 self._error(loopSpecWarning.format("start or end"))
 
-        elif rangeSpec.get("index", None) is not None:
+        elif "index" in rangeSpec:
             point = rangeSpec.get("index", None)
             if isinstance(point, ParseResults):
                 point = point.get("var", point)
@@ -1057,7 +1057,7 @@ class CodeBlock(CoreOp):
             interval = (point, point)
             self._check_bounds(interval, arg)
 
-        elif rangeSpec.get("start", None) is not None or rangeSpec.get("end", None) is not None:
+        elif "start" in rangeSpec or "end" in rangeSpec:
             if indexOnly:
                 self._error(rangeToIndexWarning)
             start, end = rangeSpec.get("start", None), rangeSpec.get("end", None)
@@ -1074,7 +1074,12 @@ class CodeBlock(CoreOp):
                 if start is None or end is None:
                     self._error(loopSpecWarning.format("end" if end is None else "start"))
 
-            interval = (start, end)
+            if "step" in rangeSpec:
+                step = rangeSpec["step"]
+                step = self.resolve(step, argType="Constant")
+                interval = (start, end, step)
+            else:
+                interval = (start, end)
 
             self._check_bounds(interval, arg)
 

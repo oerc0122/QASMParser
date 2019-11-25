@@ -110,6 +110,10 @@ class CodeGraph(GraphBuilder):
             # Link to previous qubit in operation
             lastVertex = current
 
+    def _handle_measure(self, **kwargs):
+        self._process(**kwargs)
+        self._set_qubits()
+            
     def _finalise(self):
         """ Link final qubit with fictional outlet """
         for qubit, node in enumerate(self._lastUpdated):

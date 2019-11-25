@@ -210,6 +210,8 @@ def _setup_QASMParser():
     interval = Optional(intExp.setResultsName("start"), default=None) + inS \
         + Optional(intExp.setResultsName("end"), default=None)
     interRef = Group(inL + interval + inR)
+    loopRef = Group(inL + intExp.setResultsName("start") + inS + intExp.setResultsName("end") +
+                          Optional(inS) + Optional(intExp.setResultsName("step"), default=1) + inR)
     ref = inL + Group(delimitedList(index ^ interval))("ref") + inR
     regNoRef = validName("var")
     regRef = Group(validName("var") + Optional(ref))
@@ -350,7 +352,7 @@ def _setup_QASMParser():
     callGate.addParseAction(lambda s, l, t: _set_version(t, (1, 2, 0)))
 
     # Block structures
-    _Block("for", validName("var") + _in_ + interRef("range"), version="REQASM 1.0")
+    _Block("for", validName("var") + _in_ + loopRef("range"), version="REQASM 1.0")
     _Block("if", "(" + boolExp("cond") + ")", version="REQASM 1.0")
     _Block("while", "(" + boolExp("cond") + ")", version="OMEQASM 1.0")
 

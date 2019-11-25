@@ -445,8 +445,8 @@ def Loop_to_c(self):
     step = map(resolve, self.step)
 
     var = (f"int {var} = {init}" for var, init in zip(self.var, start))
-    term = (f"{var} <= {term}"    for var, term in zip(self.var, end))
-    incr = (f"{var} += {incr}"     for var, incr  in zip(self.var, step))
+    term = (f"{var} <= {term}"   for var, term in zip(self.var, end))
+    incr = (f"{var} += {incr}"   for var, incr  in zip(self.var, step))
     return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(incr)} )"
 
 def NestLoop_to_c(self):
