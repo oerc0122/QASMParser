@@ -154,7 +154,7 @@ def modified_stoer_wagner(graph, opt="mem", edgeSelectionFunc=highest_weight):
                 nGateQubit += sum(eaten["weight"] for eaten in node["contraction"].values())
             print(nPhys, nVirt)
             mem += nPhys + nVirt
-            time = exp_add(time, math.log2(nGateQubit) + mem)
+            time = exp_add(time, math.log2(nGateQubit) + nPhys + nVirt)
         print("COST:", mem, time)
         return mem, time
 
