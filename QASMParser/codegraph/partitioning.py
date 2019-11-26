@@ -106,6 +106,7 @@ def optimal_cut(codeGraph):
         node = testGraph.nodes[nodeID]
         if "contraction" in node:
             groups.append((nodeID, *(eaten for eaten in node["contraction"]), ))
+            print((nodeID, *(eaten for eaten in node["contraction"]), ))
         else:
             groups.append((nodeID, ))
     groups = tuple(groups)
@@ -167,13 +168,13 @@ def modified_stoer_wagner(graph, opt="mem", edgeSelectionFunc=highest_weight):
         print(sortEdges)
         for *node, data in sortEdges:
             trialGraph = networkx.contracted_edge(testGraph, node, self_loops=False)
-            
+
             # Prevent nesting contractions
-            contNode = trialGraph.nodes[node[0]]
-            for cont in list(contNode["contraction"].keys()):
-                if "contraction" in contNode["contraction"][cont]:
-                    contNode["contraction"].update(contNode["contraction"][cont]["contraction"])
-                    del contNode["contraction"][cont]["contraction"]
+            contNode = trialGraph.nodes[node[0]]["contraction"]
+            for cont in list(contNode.keys()):
+                if "contraction" in contNode[cont]:
+                    contNode.update(contNode[cont]["contraction"])
+                    del contNode[cont]["contraction"]
 
             # Calculate new cost following reduction
             newCost = cost(trialGraph)
