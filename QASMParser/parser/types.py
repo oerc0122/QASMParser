@@ -13,7 +13,8 @@ from .errors import (argWarning, langWarning, badMappingWarning,
                      loopSpecWarning, argParseWarning, noExitWarning,
                      mathsEvalWarning, failedOpWarning, redefClassLangWarning,
                      inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
-                     rangeToIndexWarning, gateDeclareWarning)
+                     rangeToIndexWarning, gateDeclareWarning, freeWarning,
+                     badConstantWarning)
 from .tokens import (MathOp, Binary, Function)
 from .filehandle import (QASMBlock, NullBlock)
 
@@ -435,9 +436,11 @@ class CodeBlock(CoreOp):
             self._error(failedOpWarning.format("resolve " + elem[0].name + " to constant value", "resolve_maths"))
         else:
             if hasattr(elem, "trueType"):
-                raise NotImplementedError(failedOpWarning.format(f"parse {elem.trueType} {elem}", "resolve_maths"))
+                raise NotImplementedError(failedOpWarning.format(
+                    f"parse {elem.trueType} {elem}", "resolve_maths"))
             else:
-                raise NotImplementedError(failedOpWarning.format(f"parse {type(elem).__name__} {elem}", "resolve_maths"))
+                raise NotImplementedError(failedOpWarning.format(
+                    f"parse {type(elem).__name__} {elem}", "resolve_maths"))
         if not outStr:
             return "0"
 
@@ -752,7 +755,7 @@ class CodeBlock(CoreOp):
             self._error(freeWarning.format(targetObj.name))
 
         self._code += [Dealloc(self, targetObj)]
-        
+
     def _new_while(self, cond, block):
         """ Add while block
 
@@ -1291,6 +1294,7 @@ class QuantumRegister(Register):
 
     @property
     def mapping(self):
+        """ Return the labels of the qubits in the register """
         return self._mapping
 
     @mapping.setter

@@ -28,7 +28,7 @@ def main():
         if  any((argList.analyse, argList.dummy_partition, argList.print)):
 
             if argList.print:
-                codeGraph = CodeGraph(QuantumRegister.numQubits, myProg)
+                codeGraph = CodeGraph(myProg, QuantumRegister.numQubits)
                 codeGraph.draw("graph.pdf", labelAttr="opName")
                 del codeGraph
 

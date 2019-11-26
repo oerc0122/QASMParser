@@ -45,7 +45,7 @@ class GraphBuilder(ABC):
 
     def _process(self, *args, **kwargs):
         """ Do the necessary processing of the set qubits """
-        raise NotImplementedError("No process defined for subclass {}".format(type(self).__name__))
+        raise NotImplementedError("No process defined for GraphBuilder subclass {}".format(type(self).__name__))
 
     def _finalise(self, *args, **kwargs):
         """ Finalise and fix code """
@@ -121,10 +121,8 @@ class GraphBuilder(ABC):
             elif isinstance(line, Loop):
                 spargsSend = dict(**spargs)
                 qargsSend = args
-                print(maths(line.start[0]), maths(line.end[0]), maths(line.step[0]))
                 for i in range_inclusive(maths(line.start[0]), maths(line.end[0]), maths(line.step[0])):
                     spargsSend[line.loopVar.name] = i
-                    print(spargsSend)
                     recurse(line)
                 del qargsSend
                 del spargsSend

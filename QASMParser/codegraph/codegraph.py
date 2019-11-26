@@ -113,7 +113,7 @@ class CodeGraph(GraphBuilder):
     def _handle_measure(self, **kwargs):
         self._process(**kwargs)
         self._set_qubits()
-            
+
     def _finalise(self):
         """ Link final qubit with fictional outlet """
         for qubit, node in enumerate(self._lastUpdated):
@@ -122,6 +122,12 @@ class CodeGraph(GraphBuilder):
             end._localAge = self.nGateQubit[qubit]+1
             self.tensorGraph.add_edge(node, "end"+str(qubit), key="end")
 
+        # Set weight of entanglement nodes to number of gates they hold
+        for qubitID in self.entang.nodes:
+            node = self.entang.nodes[qubitID]
+            node["weight"] = self.nGateQubit[qubitID]
+
+        # Lock vertex edges in for contractions later
         for vertex in self.verts:
             vertex.fix_edges()
 
@@ -187,7 +193,7 @@ class CodeGraph(GraphBuilder):
     def draw_entang(self, outFile, **kwargs):
         """ Render entanglements in graph to file """
         for edge1, edge2, data in self.entang.edges(data=True):
-            data['penwidth'] = data.get('weight', '')
+            data['label'] = data.get('weight', '')
             data['len'] = 2
         entangGraph = networkx.nx_agraph.to_agraph(self.entang)
-        entangGraph.draw("entang.pdf", prog="neato")
+        entangGraph.draw(outFile, prog="neato")

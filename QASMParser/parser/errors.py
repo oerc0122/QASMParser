@@ -48,7 +48,7 @@ loopSpecWarning = "Interval specified without {}, both required"
 mathsEvalWarning = "Error parsing maths string:\n '{}'\n"
 noExitWarning = "Recursive gate {} does not have defined exit"
 wrongTypeWarning = "Bad argument, expected {} received {}"
-
+badConstantWarning = "No sparg named {} found in routine" 
 
 
 def print_decor(func):
