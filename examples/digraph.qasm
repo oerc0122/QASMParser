@@ -1,6 +1,6 @@
 REQASM 1.0;
 
-qreg a[8];
+qreg a[10];
 
 for i in [1:30]
 {

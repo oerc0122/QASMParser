@@ -146,7 +146,7 @@ def fix_qureg(codeObj):
     """ Fix quantum registers to align with QuEST style """
     code = [InitEnv(codeObj)]
     for reg in codeObj.quantumRegisters:
-        code += [Comment(codeObj, f'{reg.name}[{reg.start}:{reg.end-1}]')]
+        code += [Comment(codeObj, f'{reg.name}[{reg.start}:{reg.end-1}] => {", ".join(map(str, reg.mapping))}')]
         code += [Let(codeObj, (reg.name, "const listint"), (reg.mapping, None))]
 
     if not codeObj.useTN:

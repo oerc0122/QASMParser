@@ -126,11 +126,13 @@ class CodeGraph(GraphBuilder):
         for qubitID in self.entang.nodes:
             node = self.entang.nodes[qubitID]
             node["weight"] = self.nGateQubit[qubitID]
-
+        
         # Lock vertex edges in for contractions later
         for vertex in self.verts:
             vertex.fix_edges()
-
+        networkx.freeze(self._tensorGraph)
+        networkx.freeze(self._entang)
+            
     def to_graphviz(self):
         """ Return the circuit as a graphviz object """
         self.graph = networkx.nx_agraph.to_agraph(self.tensorGraph)
