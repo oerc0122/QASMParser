@@ -22,16 +22,20 @@ def main():
     setup_QASM_gates()
 
     for source in argList.sources:
-        myProg = ProgFile(source)
         print(source)
+        myProg = ProgFile(source)
 
-        if  any((argList.analyse, argList.dummy_partition, argList.print)):
-
+        if argList.print or argList.entanglement:
+            codeGraph = CodeGraph(myProg, QuantumRegister.numQubits)
             if argList.print:
-                codeGraph = CodeGraph(myProg, QuantumRegister.numQubits)
-                codeGraph.draw("graph.pdf", labelAttr="opName")
-                del codeGraph
+                codeGraph.draw(argList.print if argList.print else "graph.pdf", labelAttr="opName")
+            if argList.entanglement:
+                codeGraph.draw_entang(argList.entanglement if argList.entanglement else "entang.pdf")
+            del codeGraph
 
+        
+        if  any((argList.analyse, argList.dummy_partition)):
+                
             if argList.dummy_partition:
                 partition(myProg, argList.partition, argList.max_depth, dummy=True)
 
@@ -54,7 +58,7 @@ def main():
             else:
                 outputFile = None
 
-            partition(myProg, argList.partition)
+            partition(myProg, argList.partition, argList.max_depth)
             to_lang(myProg, outputFile, lang,
                     include_internals=argList.include_internals,
                     includes=argList.include,

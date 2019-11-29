@@ -12,7 +12,7 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
     """ Call correct partitioner based on partition level """
     partitionTypes = IntEnum("PartitionTypes", "NONE REGISTER SPACELIKE FULL", start=0)
 
-    if partitionLevel > partitionTypes.REGISTER:
+    if partitionLevel > partitionTypes.NONE:
         from .codegraph import (CodeGraph)
         import networkx
     if partitionLevel > partitionTypes.SPACELIKE:
@@ -23,15 +23,16 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
             return
 
     if partitionLevel == partitionTypes.REGISTER:
-        bestSlice = tuple([register.end for register in code.quantumRegisters])
+        codeGraph = CodeGraph(code, code.nQubits, maxDepth=maxDepth)
+        slices = tuple([register.end for register in code.quantumRegisters])
+        if not slices or len(slices) == 1:
+            print(partitionWarning)
         if not dummy:
-            code.partition = create_tensor_network(code, bestSlice)
+            create_tensor_network(code, codeGraph.entang, slices)
 
     if partitionLevel == partitionTypes.SPACELIKE:
         codeGraph = CodeGraph(code, code.nQubits, maxDepth=maxDepth)
-        codeGraph.draw_entang("entang.pdf")
         slices = optimal_cut(codeGraph)
-        print(slices)
         if not slices or len(slices) == 1:
             print(partitionWarning)
         if not dummy:
@@ -114,6 +115,17 @@ def external_edges(graph, nbunch):
     """ Get the edges external to a set of nodes """
     return (edge for edge in graph.edges(nbunch) if any(node not in nbunch for node in edge))
 
+def graph_to_groups(graph):
+    """ Transform a qubit graph into a list of grouped nodes """
+    groups = []
+    for nodeID in graph.nodes:
+        node = graph.nodes[nodeID]
+        if "contraction" in node:
+            groups.append((nodeID, *(eaten for eaten in node["contraction"]), ))
+        else:
+            groups.append((nodeID, ))
+    return tuple(groups)
+
 def optimal_cut(codeGraph):
     """ Calculate the best cut """
     import networkx
@@ -121,17 +133,10 @@ def optimal_cut(codeGraph):
     testGraph = modified_stoer_wagner(entangGraph, opt="time", edgeSelectionFunc=highest_weight)
 
     graph = networkx.nx_agraph.to_agraph(testGraph)
+    graph.edge_attr["len"] = "2"
     graph.draw("postsquish.pdf", prog="neato")
-    # Map testGraph's nodes to slices
-    groups = []
-    for nodeID in testGraph.nodes:
-        node = testGraph.nodes[nodeID]
-        if "contraction" in node:
-            groups.append((nodeID, *(eaten for eaten in node["contraction"]), ))
-        else:
-            groups.append((nodeID, ))
-    groups = tuple(groups)
-    return groups
+
+    return graph_to_groups(testGraph)
 
 def highest_weight(edges):
     """ Get edges based on highest weight first """
@@ -165,10 +170,12 @@ def modified_contract_nodes(G, u, v):
     uData, vData = outGraph.nodes[u], outGraph.nodes[v]
     outGraph.remove_node(v)
 
+    print(uData, u, v)
     if "label" in uData:
-        uData["label"] += ":"+str(v)
+        uData["label"] += f":{vData['label'] if 'label' in vData else v}"
     else:
-        uData["label"] = str(u) + ":" + str(v)
+        uData["label"] = f"{u}:{vData['label'] if 'label' in vData else v}"
+        
     if "contraction" in uData:
         uData["contraction"][v] = vData
     else:
