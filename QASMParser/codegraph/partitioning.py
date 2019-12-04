@@ -3,6 +3,7 @@ Module which performs the partitioning and set-up of quantum registers based on 
 """
 from enum import (IntEnum)
 import numpy as np
+from .utility import exp_add
 from .drawing import COLOURS
 from ..parser.parser import (ProgFile)
 from ..parser.types import (TensorNetwork)
@@ -219,24 +220,3 @@ def modified_stoer_wagner(graph, opt="mem", edgeSelectionFunc=highest_weight):
             break
 
     return testGraph
-
-def exp_add(a: float, b: float):
-    """ Add the exponents of two numbers
-    :param a: input exponent
-    :param b: input exponent
-    :returns: Sum of exponents"""
-    import math
-    if b == 0:
-        return a
-    if a == 0:
-        return b
-
-    # Assume that for very large numbers the 1 is irrelevant
-    if a > 30 or b > 30:
-        return a + b
-
-    if a > b:
-        out = math.log2(2**(a - b) + 1) + b
-    else:
-        out = math.log2(2**(b - a) + 1) + a
-    return out

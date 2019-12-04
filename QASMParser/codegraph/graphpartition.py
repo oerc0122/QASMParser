@@ -16,7 +16,7 @@ class Tree:
         self.child = []
         self._codeGraph = graph
         # Default to None if not in current scope
-        self._tensor = None
+        self.tensorNode = None
         self._root = self
 
     def __add__(self, other):
@@ -30,9 +30,8 @@ class Tree:
 
     codeGraph = property(lambda self: self._codeGraph)
 
-    tensorNode = property(lambda self: self._tensor)
-    tensor = property(lambda self: self._tensor.tensor)
-    indices = property(lambda self: self._tensor.indices)
+    tensor = property(lambda self: self.tensorNode.tensor)
+    indices = property(lambda self: self.tensorNode.indices)
 
     tier = property(lambda self: self._tier)
     nTier = property(lambda self: self.root._nTier)
@@ -232,6 +231,41 @@ class Tree:
         """ Convert tree's graph into metis structure """
         return metis.networkx_to_metis(self.add_weights())
 
+    def contract(self, dummy):
+        """ Contract entire tree recursively """
+        if dummy:
+            from dummycontraction import TensorNode
+        else:
+            from contraction import TensorNode
+            
+        if self.isLeaf:
+            vertex = self.vertex
+            print(f"Hi, I'm {vertex.ID}")
+            nVirtQubit = vertex.nEdges - 1
+
+            print(f"I have {vertex.nEdges} edges and 1 physical qubit")
+            print(f"My edges are {list(vertex.edges)}")
+            self.tensorNode = TensorNode(nPhys=1, nVirt=nVirtQubit,
+                                         edges=vertex.fixedEdges,
+                                         indices=[(vertex.ID, i) for i in range(vertex.nEdges)],
+                                         qubits=[vertex.qubitID for i in range(vertex.nEdges)],
+                                         ops=[vertex.op])
+            return
+
+        for child in self.child:
+            child.contract()
+
+        # My vertex becomes child's merged vertex
+        self.tensorNode = self.left.tensorNode.contract(self.right.tensorNode)
+
+        if self.tier == 0:
+            return
+
+        # Reduce self image
+        idL, idR = self.left.vertex.ID, self.right.vertex.ID
+        self.root._adjList = networkx.contracted_nodes(self.root._adjList, idL, idR)
+        self.vertex._contracted += [idL]
+        self.child = []
 
 class Node(Tree):
     """ Tree node class """

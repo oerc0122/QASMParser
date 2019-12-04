@@ -3,6 +3,7 @@ Contains the definition of an object for defining graph builders and code parser
 """
 from abc import ABC
 import numpy as np
+from .utility import (slice_inclusive, range_inclusive)
 from ..parser.types import (resolve_arg, CallGate, Opaque, SetAlias, Alias, Loop, CBlock, Measure)
 
 class GraphBuilder(ABC):
@@ -141,15 +142,3 @@ class GraphBuilder(ABC):
 
         if depth == 0:
             self.__finalise()
-
-def range_inclusive(start=None, stop=None, step=1):
-    """ Actually include the stop like anything sensible would """
-    if step < 0:
-        return range(start, stop-1, step)
-    return range(start, stop+1, step)
-
-def slice_inclusive(start=None, stop=None, step=1):
-    """ Actually include the stop like anything sensible would """
-    if step < 0:
-        return slice(start, stop-1, step)
-    return slice(start, stop+1, step)

@@ -6,7 +6,6 @@ from QASMParser.parser.parser import (ProgFile)
 from QASMParser.parser.coregates import setup_QASM_gates
 from QASMParser.parser.types import (QuantumRegister)
 from QASMParser.codegraph.partitioning import (partition)
-from QASMParser.codegraph.codegraph import (CodeGraph)
 from .cli import get_command_args
 from .printer import (to_lang)
 from .errors import (noSpecWarning)
@@ -16,7 +15,7 @@ def main():
     argList = get_command_args()
 
     if any((argList.analyse, argList.dummy_partition, argList.print, argList.partition > 1)):
-        from QASMParser.codegraph.codegraph import (GraphBuilder)
+        from QASMParser.codegraph.codegraph import (CodeGraph)
 
     # Set up the core internal gates
     setup_QASM_gates()
@@ -33,9 +32,9 @@ def main():
                 codeGraph.draw_entang(argList.entanglement if argList.entanglement else "entang.pdf")
             del codeGraph
 
-        
+
         if  any((argList.analyse, argList.dummy_partition)):
-                
+
             if argList.dummy_partition:
                 partition(myProg, argList.partition, argList.max_depth, dummy=True)
 

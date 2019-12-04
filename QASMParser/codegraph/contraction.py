@@ -4,8 +4,6 @@ Module containing contraction methods
 
 import ctypes
 import sys
-import networkx
-from graphpartition import Tree
 sys.path += ["/home/jacob/QuEST-TN/utilities/"]
 
 
@@ -23,138 +21,97 @@ import TNPy.TNFunc as TNFunc
 import TNPy.TNAdditionalGates as TNAdd
 import QuESTPy.QuESTFunc as QuESTFunc
 
-ENV = None
+ENV = QuESTFunc.createQuESTEnv()
 
 class TensorNode:
-    """ Class containing details relating to tensor contractions """
-    def __init__(self, tensor, node, edges, indices, qubits):
-        self.tensor = tensor
-        self._node = node
+    """ Class to represent tensors and perform contractions """
+    def __init__(self, nPhys, nVirt, edges, indices, qubits, ops):
+        global ENV
+        self._tensor = TNFunc.createTensor(nPhys, nVirt, ENV)
+        self._nPhys = nPhys
+        self._nVirt = nVirt
         self._edges = edges
         self._indices = indices
         self._qubits = qubits
 
-    node = property(lambda self: self._node)
+        self._init_entangle()
+        self.apply(ops)
+
+    nPhys = property(lambda self: self._nPhys)
+    nVirt = property(lambda self: self._nVirt)
+    tensor = property(lambda self: self._tensor)
     edges = property(lambda self: self._edges)
     indices = property(lambda self: self._indices)
     qubits = property(lambda self: self._qubits)
+    nQubits = property(lambda self: len(self.qubits))
 
-    @staticmethod
-    def inherit(left, right, prop, contractionEdges):
-        """ Set self's indices and qubits to the combination of left and right """
-        return ([propty for contracted, propty in zip(contractionEdges[0], getattr(left, prop)) if not contracted] +
-                [propty for contracted, propty in zip(contractionEdges[1], getattr(right, prop)) if not contracted])
+    def _init_entangle(self):
+        """ Entangle first virtual with physical qubit """
+        TNAdd.TN_controlledGateTargetHalf(QuESTFunc.controlledNot, self.tensor, 1, 0)
 
-    @staticmethod
-    def contract(left, right, contractionEdges):
+    def _inherit(self, other, contractionEdges):
+        """ Set self's indices and qubits to the combination of self and other """
+        self._nPhys += other.nPhys
+        self._nVirt += other.nVirt - len(contractionEdges[0]) - len(contractionEdges[1])
+
+        for prop in ("edges", "indices", "qubits"):
+            setattr(self, prop,
+                    ([propty for contracted, propty in zip(contractionEdges[0], getattr(self, prop))
+                      if not contracted] +
+                     [propty for contracted, propty in zip(contractionEdges[1], getattr(other, prop))
+                      if not contracted])
+                    )
+
+    def _compute_contraction_edges(self, other):
+        """ Calculate the edges which are involved in a contraction """
+        return ([edge[::-1] in other.edges or
+                 edge in other.edges for edge in self.edges],
+                [edge[::-1] in self.edges or
+                 edge in self.edges for edge in other.edges])
+
+    def contract(self, other):
         """ Contract two tensor nodes and update the respective properties """
+        contractionEdges = self._compute_contraction_edges(other)
         contPass = [[i for i, edges in enumerate(cont) if edges] for cont in contractionEdges]
         freePass = [[i for i, edges in enumerate(cont) if not edges] for cont in contractionEdges]
         # Transform into ctypes arrays
         *contPass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), contPass)
         *freePass, = map(lambda pyarr: (ctypes.c_int * len(pyarr))(*pyarr), freePass)
-        out = TensorNode(TNFunc.contractIndices(left.tensor, right.tensor,
-                                                contPass[0], contPass[1], ctypes.c_int(len(contPass[0])),
-                                                freePass[0], ctypes.c_int(len(freePass[0])),
-                                                freePass[1], ctypes.c_int(len(freePass[1])), ENV),
-                         node=left.node, # Inherit left's ID
-                         edges=TensorNode.inherit(left, right, "edges", contractionEdges),
-                         indices=TensorNode.inherit(left, right, "indices", contractionEdges),
-                         qubits=TensorNode.inherit(left, right, "qubits", contractionEdges))
-        return out
+        self._tensor = TNFunc.contractIndices(self.tensor, other.tensor,
+                                              contPass[0], contPass[1], ctypes.c_int(len(contPass[0])),
+                                              freePass[0], ctypes.c_int(len(freePass[0])),
+                                              freePass[1], ctypes.c_int(len(freePass[1])), ENV)
+        self._inherit(other, contractionEdges)
+        return self
 
-    @staticmethod
-    def compute_contraction_edges(left, right):
-        """ Calculate the edges which are involved in a contraction """
-        return ([edge[::-1] in right.tensorNode.edges or
-                 edge in right.tensorNode.edges for edge in left.edges],
-                [edge[::-1] in left.tensorNode.edges or
-                 edge in left.tensorNode.edges for edge in right.edges])
+    def apply(self, ops):
+        """ Apply ops to tensor """
 
-def resolve_node(node: Tree):
-    """
-    Initialise tensor/qureg
-    Call our operation on qubits
-    Update node resolved
+        for op in ops:
+            # If we're initialise -- createTensor => |0>
+            if op is None:
+                continue
 
-    Return TensorObject
-    """
+            if op.name == "CX":
+                gate = QuESTFunc.controlledNot
+                args = [0, 2]
+            elif op.name == "U":
+                gate = QuESTFunc.hadamard
+                args = [0]
 
-    vertex = node.vertex
-    print(f"Hi, I'm {vertex.ID}")
-    nVirtQubit = vertex.nEdges - 1
-
-    print(f"I have {vertex.nEdges} edges and 1 physical qubit")
-    print(f"My edges are {list(vertex.edges)}")
-    node._tensor = TensorNode(TNFunc.createTensor(1, nVirtQubit, ENV),
-                              edges=vertex.fixedEdges,
-                              node=vertex.ID,
-                              indices=[(vertex.ID, i) for i in range(vertex.nEdges)],
-                              qubits=[vertex.qubitID for i in range(vertex.nEdges)])
-
-    # If we're initialise -- createTensor => |0>
-    if vertex.op is None:
-        return
-
-    # Entangle first virtual with physical qubit
-    print("TARGET HALF")
-    TNAdd.TN_controlledGateTargetHalf(QuESTFunc.controlledNot, node.tensor, 1, 0)
-
-    if vertex.op.name == "CX":
-        gate = QuESTFunc.controlledNot
-        args = [0, 2]
-    elif vertex.op.name == "U":
-        gate = QuESTFunc.hadamard
-        args = [0]
-
-    for vertex in node.vertices:
-        if gate.control:
-            if vertex.qubitID == vertex.op.qargs[gate.control-1][1]:
-                print("Control")
-                # physical qubit is the control, virtual qubit is the target
-                print(args)
-                TNAdd.TN_controlledGateControlHalf(gate, node.tensor, *args)
+            if gate.control:
+                for qubit, index in zip(self.qubits, self.indices):
+                    if index[0] == op.qargs[gate.control-1][1]:
+                        print("Control")
+                        # physical qubit is the control, virtual qubit is the target
+                        print(args)
+                        TNAdd.TN_controlledGateControlHalf(gate, self.tensor, *args)
+                    elif index[1] == op.qargs[gate.control-1][1]:
+                        print("Target")
+                        # virtual qubit is the control, physical qubit is the target
+                        print(args[::-1])
+                        TNAdd.TN_controlledGateTargetHalf(gate, self.tensor, *args[::-1])
             else:
-                print("Target")
-                # virtual qubit is the control, physical qubit is the target
-                print(args[::-1])
-                TNAdd.TN_controlledGateTargetHalf(gate, node.tensor, *args[::-1])
-        else:
-            TNAdd.TN_singleQubitGate(gate, node.tensor, *args)
-
-def contract(graph):
-    """ Contract entire tree recursively """
-    if isinstance(graph, Tree):
-        global ENV
-        ENV = QuESTFunc.createQuESTEnv()
-
-    if graph.isLeaf:
-        graph.resolve()
-        return
-
-    for child in graph.child:
-        child.contract()
-
-    childL = graph.left
-    childR = graph.right
-    tensorL = childL.tensorNode
-    tensorR = childR.tensorNode
-    idL = childL.vertex.ID
-    idR = childR.vertex.ID
-
-    print("Left", idL, list(graph.left.edges))
-    print("Right", idR, list(graph.right.edges))
-
-    contractionEdges = TensorNode.compute_contraction_edges(childL, childR)
-    # My vertex becomes child's merged vertex
-    graph._tensor = TensorNode.contract(tensorL, tensorR, contractionEdges)
-
-    if graph.tier == 0:
-        return
-
-    # Reduce graph image
-    graph.root._adjList = networkx.contracted_nodes(graph.root._adjList, idL, idR)
-    graph.vertex._contracted += [idL]
-    graph.child = []
-
-    print("Hi, I'm ", graph.vertex.ID, list(graph.edges), "I ate ", graph.vertex.contracted)
+                for qubit in self.qubits:
+                    if op.qargs[0][1] == qubit:
+                        TNAdd.TN_singleQubitGate(gate, self.tensor, qubit)
