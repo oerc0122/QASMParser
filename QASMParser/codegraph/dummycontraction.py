@@ -10,40 +10,49 @@ class TensorNode:
         self._tensor = None
         self._nPhys = nPhys
         self._nVirt = nVirt
-        self._edges = edges
-        self._indices = indices
-        self._qubits = qubits
-        self._timeCost = self.malloc_time(self)
-        self._memCost = self.qubitCost
+        self.edges = edges
+        self.indices = indices
+        self.qubits = qubits
+        self._memCost = 0
+        self._timeCost = 0
+        self.add_cost(self.malloc_cost())
         self._init_entangle()
         self.apply(ops)
 
     timeCost = property(lambda self: self._timeCost)
     memCost = property(lambda self: self._memCost)
-    cost = property(lambda self: (self._memCost, self._timeCost))
+    @property
+    def cost(self):
+        return (self._memCost, self._timeCost)
 
+    def add_cost(self, val):
+        self._timeCost += val[0]
+        self._memCost += val[1]
+        
+    
     nPhys = property(lambda self: self._nPhys)
     nVirt = property(lambda self: self._nVirt)
     tensor = property(lambda self: self._tensor)
-    edges = property(lambda self: self._edges)
-    indices = property(lambda self: self._indices)
-    qubits = property(lambda self: self._qubits)
+    # edges = property(lambda self: self._edges)
+    # indices = property(lambda self: self._indices)
+    # qubits = property(lambda self: self._qubits)
     nQubits = property(lambda self: len(self.qubits))
 
     qubitCost = property(lambda self: exp_add(self.nPhys, self.nVirt))
 
-    def malloc_time(self):
-        return 1
+    def malloc_cost(self):
+        return (self.qubitCost, self.qubitCost)
 
     def contract_cost(self, other):
-        return 1
+        return (0, exp_add(self.qubitCost, other.qubitCost))
 
     def gate_cost(self):
-        return 1
+        """ Cost of a gate, no memory overhead """
+        return (0, self.qubitCost)
 
     def _init_entangle(self):
         """ Entangle first virtual with physical qubit """
-        self._timeCost += self.gate_cost(self)
+        self.add_cost(self.gate_cost())
 
     def _inherit(self, other, contractionEdges):
         """ Set self's indices and qubits to the combination of self and other """
@@ -60,6 +69,8 @@ class TensorNode:
 
     def _compute_contraction_edges(self, other):
         """ Calculate the edges which are involved in a contraction """
+        print(self.qubits, other.qubits)
+        print("HI", self.edges, other.edges, flush=True)
         return ([edge[::-1] in other.edges or
                  edge in other.edges for edge in self.edges],
                 [edge[::-1] in self.edges or
@@ -68,12 +79,11 @@ class TensorNode:
     def contract(self, other):
         """ Contract two tensor nodes and update the respective properties """
         contractionEdges = self._compute_contraction_edges(other)
-        self._timeCost += self.contract_cost(self, other)
+        self.add_cost(self.contract_cost(other))
         self._inherit(other, contractionEdges)
         return self
 
     def apply(self, ops):
         """ Apply ops to tensor """
-
         for op in ops:
-            self._timeCost, self._memCost += self.gate_cost(self)
+            self.add_cost(self.gate_cost())

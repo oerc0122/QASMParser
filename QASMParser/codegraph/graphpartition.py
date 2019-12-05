@@ -4,6 +4,7 @@ Module for building adjacency list and firing that through METIS for partitionin
 import metis
 import numpy as np
 import networkx
+import copy
 
 class Tree:
     """ Class defining tree head """
@@ -234,9 +235,9 @@ class Tree:
     def contract(self, dummy):
         """ Contract entire tree recursively """
         if dummy:
-            from dummycontraction import TensorNode
+            from .dummycontraction import TensorNode
         else:
-            from contraction import TensorNode
+            from .contraction import TensorNode
             
         if self.isLeaf:
             vertex = self.vertex
@@ -253,7 +254,7 @@ class Tree:
             return
 
         for child in self.child:
-            child.contract()
+            child.contract(dummy)
 
         # My vertex becomes child's merged vertex
         self.tensorNode = self.left.tensorNode.contract(self.right.tensorNode)
@@ -263,7 +264,7 @@ class Tree:
 
         # Reduce self image
         idL, idR = self.left.vertex.ID, self.right.vertex.ID
-        self.root._adjList = networkx.contracted_nodes(self.root._adjList, idL, idR)
+        self.root._codeGraph = networkx.contracted_nodes(self.root._codeGraph, idR, idL, False)
         self.vertex._contracted += [idL]
         self.child = []
 

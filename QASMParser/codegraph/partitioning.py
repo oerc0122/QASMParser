@@ -44,28 +44,32 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
 
         codeGraph.draw("graph.pdf", labelAttr="opName")
 
-        tree = Tree(codeGraph.tensorGraph)
+        graph = codeGraph.tensorGraph.copy()
+        graph.remove_nodes_from(node for node in codeGraph.tensorGraph.nodes
+                                if isinstance(node, str))
+        tree = Tree(graph)
         tree.split_graph("metis")
 
         if dummy:
-            graph = codeGraph.to_graphviz()
-            codeGraph.circuit_layout()
-            codeGraph.setup_draw_circuit(labelAttr="opName")
-            nSplits = 0
-            for tier in range(tree.nTier+1):
-                nodes = tree.by_tier(tier)
-                for node in nodes:
-                    nSplits += 1
-                    for vert in node.codeGraph:
-                        currNode = graph.get_node(vert)
-                        colourSel = COLOURS[nSplits%len(COLOURS)]
-                        # Urgh, American spelling
-                        currNode.attr["fillcolor"] = f":{colourSel}"
+            # graph = codeGraph.to_graphviz()
+            # codeGraph.circuit_layout()
+            # codeGraph.setup_draw_circuit(labelAttr="opName")
+            # nSplits = 0
+            # for tier in range(tree.nTier+1):
+            #     nodes = tree.by_tier(tier)
+            #     for node in nodes:
+            #         nSplits += 1
+            #         for vert in node.codeGraph:
+            #             currNode = graph.get_node(vert)
+            #             colourSel = COLOURS[nSplits%len(COLOURS)]
+            #             # Urgh, American spelling
+            #             currNode.attr["fillcolor"] = f":{colourSel}"
 
-            graph.draw("graph"+str(tier)+".png")
+            # graph.draw("graph"+str(tier)+".png")
+            tree.contract(dummy=True)
+            print(tree.tensorNode.cost)
         else:
-            from contraction import contract
-            contract(tree)
+            tree.contract()
 
 
 def create_tensor_network(code, entangGraph, slices):

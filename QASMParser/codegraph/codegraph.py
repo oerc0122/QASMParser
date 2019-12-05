@@ -29,8 +29,9 @@ class Vertex():
         return newCopy
 
     def fix_edges(self):
-        """ Lock in edges for later use """
-        self._fixedEdges = list(self.edges)
+        """ Lock in edges stripping fictional terminus for later use """
+        self._fixedEdges = [edge for edge in self.edges
+                             if not any("end" in str(node) for node in edge)]
 
     ID = property(lambda self: self._ID)
     qubitID = property(lambda self: self._qubitID)
