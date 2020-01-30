@@ -14,7 +14,7 @@ from .errors import (argWarning, langWarning, badMappingWarning,
                      mathsEvalWarning, failedOpWarning, redefClassLangWarning,
                      inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                      rangeToIndexWarning, gateDeclareWarning, freeWarning,
-                     badConstantWarning)
+                     badConstantWarning, recursiveGateWarning)
 from .tokens import (MathOp, Binary, Function)
 from .filehandle import (QASMBlock, NullBlock)
 
@@ -662,10 +662,10 @@ class CodeBlock(CoreOp):
 
         if "INV" in modifiers.asList():
             # If inverse doesn't exist, make it
-            if self._check_def("inv_"+gateName, create=True, argType="Gate"):
+            if self._check_def("_inv_"+gateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
                 orig.invert(self)
-            gateName = "inv_"+gateName
+            gateName = "_inv_"+gateName
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
 
         self._code += [gate]
@@ -1705,6 +1705,8 @@ class Gate(Referencable, CodeBlock):
         self._control = None
 
         if recursive:
+            if self.trueType == "Gate":
+                print(recursiveGateWarning)
             self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
             self._code = []
             self.entry = EntryExit(self.name)
@@ -1751,17 +1753,17 @@ class Gate(Referencable, CodeBlock):
             return self._inverse
 
         inverse = copy.copy(self)
-        inverse._name = "inv_"+self.name
+        inverse._name = "_inv_"+self.name
         inverse._code = []
 
         for line in reversed(self.code):
             if isinstance(line, CallGate):
                 gateName = line.name
-                if parent._check_def("inv_"+gateName, create=True, argType="Gate"):
+                if parent._check_def("_inv_"+gateName, create=True, argType="Gate"):
                     gate = parent.resolve(gateName, argType="Gate")
                     gate.invert(parent)
                 line.qargs[0][1] = (0, 0)
-                inverse._code.append(CallGate(self, "inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+                inverse._code.append(CallGate(self, "_inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
 
             else:
                 self._error(failedOpWarning.format("invert "+line.name, self.name + " invert"))
@@ -1865,7 +1867,7 @@ class Circuit(Gate):
 
         self._code += [variable]
 
-    # Re-enable functions 
+    # Re-enable functions
     _measurement = CodeBlock._measurement
     _loop = CodeBlock._loop
     _cycle = CodeBlock._cycle
