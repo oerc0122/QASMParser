@@ -1815,45 +1815,26 @@ class Gate(Referencable, CodeBlock):
     def _measurement(self, qarg, qindex, parg, bindex):
         self._error(failedOpWarning.format("measure", self.trueType))
 
-    def _new_alias(self, argName, size):
-        """ Create a new alias in scope of self
+    def _loop(self, var, block, start, end, step):
+        self._error(failedOpWarning.format("loop", self.trueType))
 
-        :param argName: Name of alias to create
-        :param size:    Size of alias to create
+    def _cycle(self, var):
+        self._error(failedOpWarning.format("cycle", self.trueType))
 
-        """
-        self._is_def(argName, create=True)
-        alias = DeferredAlias(self, argName, size)
-        self._objs[argName] = alias
-        self._code += [alias]
-        self._to_free += [self]
+    def _escape(self, var):
+        self._error(failedOpWarning.format("escape", self.trueType))
 
-    def _alias(self, aliasName, argIndex, referee, refIndex):
-        """
-        If an alias called aliasName exists: assign values to this alias
-        If it does not exist:  Create it and if values assign it
+    def _end(self):
+        self._error(failedOpWarning.format("end", self.trueType))
 
-        :param aliasName: Name of alias to create
-        :param argIndex:  Index of alias to assign to
-        :param referee:   Register to be aliased
-        :param refIndex:  Index of register to be aliased
-        """
-        referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
-        refInter = refInter[0], refInter[1]
-        refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
-        if self._check_def(aliasName, create=True, argType="Alias"):
-            self._new_alias(aliasName, refSize)
+    def _new_while(self, cond, block):
+        self._error(failedOpWarning.format("while", self.trueType))
 
-        alias, aliasInter = self.resolve(aliasName, argType="Alias", index=argIndex)
-
-        self._code += [SetAlias(self, (alias, aliasInter), (referee, refInter))]
+    def _new_if(self, cond, block):
+        self._error(failedOpWarning.format("if", self.trueType))
 
     def _leave(self):
-        """ Leave loop """
-        if self.entry is not None:
-            self.entry.exited()
-        else:
-            self._error(failedOpWarning.format("exit", "non-recursive "+self.trueType))
+        self._error(failedOpWarning.format("exit", self.trueType))
 
     qargs = property(lambda self: self._qargs, qargs_setter)
     pargs = property(lambda self: self._pargs, pargs_setter)
@@ -1884,7 +1865,15 @@ class Circuit(Gate):
 
         self._code += [variable]
 
+    # Re-enable functions 
     _measurement = CodeBlock._measurement
+    _loop = CodeBlock._loop
+    _cycle = CodeBlock._cycle
+    _escape = CodeBlock._escape
+    _end = CodeBlock._end
+    _new_while = CodeBlock._new_while
+    _new_if = CodeBlock._new_if
+    _leave = CodeBlock._leave
 
 class Procedure(Circuit):
     """ Defines a circuit as according to REQASM """
