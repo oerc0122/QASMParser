@@ -61,7 +61,8 @@ def init_core_QASM_gates():
     """ Set up the core gates in python """
     unitary = Gate.internalGates["U"]
     controlledNot = Gate.internalGates["CX"]
-    unitaryInverse = Gate.internalGates["inv_U"]
+    unitaryInverse = Gate.internalGates["_inv_U"]
+    unitaryControl = Gate.internalGates["_ctrl_U"]
 
     controlledNot.set_code([CBlock(
         None,

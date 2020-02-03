@@ -103,21 +103,6 @@ class Tree:
         for tier in tiers:
             yield from (node for node in self.allNodes if node.tier == tier)
 
-    def least_connect(self):
-        """ Return vertices with the fewest edges first """
-        for element in reversed(sorted(self.codeGraph, key=lambda elem: elem.nEdge)):
-            yield element
-
-    def most_connect(self):
-        """ Return vertices with the fewest edges first """
-        for element in sorted(self.codeGraph, key=lambda elem: elem.nEdge):
-            yield element
-
-    def contract_order(self, order=0):
-        """ Generator returning leaves in expected resolution order """
-        contractOrder = (self.dfs, self.least_connect, self.most_connect)
-        return contractOrder[order]()
-
     def tree_form(self, prop):
         """ Return printout tree displaying property """
         lines, _, _, _ = self.display_aux(prop)
@@ -238,7 +223,7 @@ class Tree:
             from .dummycontraction import TensorNode
         else:
             from .contraction import TensorNode
-            
+
         if self.isLeaf:
             vertex = self.vertex
             print(f"Hi, I'm {vertex.ID}")

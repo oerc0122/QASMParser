@@ -660,12 +660,23 @@ class CodeBlock(CoreOp):
         gargs = self.parse_args(gargs, argType="Gate")
         spargs = self.parse_args(spargs, argType="Constant")
 
-        if "INV" in modifiers.asList():
+        nInvert = len([a for a in modifiers.asList() if a == "INV"])
+        nControls = len([a for a in modifiers.asList() if a == "CTRL"])
+        if nInvert%2: # If odd number of inverts
             # If inverse doesn't exist, make it
             if self._check_def("_inv_"+gateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
                 orig.invert(self)
             gateName = "_inv_"+gateName
+        if nControls:
+            # If control doesn't exist, make it
+            if self._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
+                orig = self.resolve(gateName, argType="Gate")
+                orig.control(self)
+            spargs = [nControls] + spargs
+            print(spargs)
+            gateName = "_ctrl_"+gateName
+            
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
 
         self._code += [gate]
@@ -1717,6 +1728,7 @@ class Gate(Referencable, CodeBlock):
         self.qargs = qargs
         self.pargs = pargs
         self.gargs = gargs
+
         # List of vars declared only in scope
 
         self.parse_instructions()
@@ -1773,29 +1785,68 @@ class Gate(Referencable, CodeBlock):
         parent._objs[inverse.name] = inverse
         return self._inverse
 
-    def qargs_setter(self, args):
+    def control(self, parent):
+        """Calculates the controlled variant of the gate and called gates and assigns it to self._control """
+        if not self.unitary:
+            self._error(failedOpWarning.format("invert", "non unitary "+self.trueType))
+
+        if self._control:
+            return self._control
+
+        control = copy.copy(self)
+        control._name = "_ctrl_"+self.name
+        # Need to add sparg
+        control._spargs = [Constant(self, ("_nCtrls", "int"), (MathsBlock(self, "_nCtrls"), None))] + control._spargs
+        # Need to add extra qarg to contain controls
+        control._qargs = [Argument("_ctrls", "_nCtrls")] + control._qargs
+        control._code = []
+
+        for line in self.code:
+            if isinstance(line, CallGate):
+                gateName = line.name
+                if parent._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
+                    gate = parent.resolve(gateName, argType="Gate")
+                    gate.control(parent)
+                line.qargs[0][1] = (0, 0)
+                line.qargs = [("_ctrls", (0, 0))] + line.qargs
+                line.spargs = ["_nCtrls"] + line.spargs
+                control._code.append(CallGate(self, "_ctrl_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+
+            else:
+                self._error(failedOpWarning.format("control "+line.name, self.name + " control"))
+
+        self._control = control
+        parent._code += [control]
+        parent._objs[control.name] = control
+        return self._control
+
+    def _parse_qarg(self, token):
+        arg = token["var"]
+        size = token.get("ref", {"index":1})
+        if size is not None:
+            size = self.parse_range(size)
+        return Argument(self, arg, size)
+
+    def _qargs_setter(self, args):
         """ Parse qargs and assign as arguments """
         for argTok in args:
-            arg = argTok["var"]
-            size = argTok.get("ref", {"index":1})
-            if size is not None:
-                size = self.parse_range(size)
-            self._objs[arg] = Argument(self, arg, size)
-            self.qargs.append(self._objs[arg])
+            arg = self._parse_qarg(argTok)
+            self._objs[arg.name] = arg
+            self._qargs.append(self._objs[arg.name])
 
-    def pargs_setter(self, args):
+    def _pargs_setter(self, args):
         """ Parse pargs and set as floats """
         for arg in args:
             self._objs[arg] = Constant(self, (arg, "float"), (MathsBlock(self, arg), None))
-            self.pargs.append(self._objs[arg])
+            self._pargs.append(self._objs[arg])
 
-    def spargs_setter(self, args):
+    def _spargs_setter(self, args):
         """ Parse spargs and set as ints """
         for arg in args:
             self._objs[arg] = Constant(self, (arg, "int"), (MathsBlock(self, arg), None))
-            self.spargs.append(self._objs[arg])
+            self._spargs.append(self._objs[arg])
 
-    def gargs_setter(self, args):
+    def _gargs_setter(self, args):
         """ Parse gargs and add to space """
         for arg in args:
             self._gate(arg, NullBlock(self), unitary=self.unitary)
@@ -1838,10 +1889,10 @@ class Gate(Referencable, CodeBlock):
     def _leave(self):
         self._error(failedOpWarning.format("exit", self.trueType))
 
-    qargs = property(lambda self: self._qargs, qargs_setter)
-    pargs = property(lambda self: self._pargs, pargs_setter)
-    spargs = property(lambda self: self._spargs, spargs_setter)
-    gargs = property(lambda self: self._gargs, gargs_setter)
+    qargs = property(lambda self: self._qargs, _qargs_setter)
+    pargs = property(lambda self: self._pargs, _pargs_setter)
+    spargs = property(lambda self: self._spargs, _spargs_setter)
+    gargs = property(lambda self: self._gargs, _gargs_setter)
     inverse = property(lambda self: self._inverse)
     control = property(lambda self: self._control)
 
@@ -1898,7 +1949,8 @@ class Opaque(Gate):
         self._argType = "Gate"
 
         self._inverse = None
-
+        self._control = None
+        
     def set_block(self, block):
         """ Set the block of the opaque gate """
         CodeBlock.__init__(self, self.parent, block)

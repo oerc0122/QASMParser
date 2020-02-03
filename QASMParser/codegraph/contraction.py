@@ -23,6 +23,30 @@ import QuESTPy.QuESTFunc as QuESTFunc
 
 ENV = QuESTFunc.createQuESTEnv()
 
+def least_connect(adjList, i, j):
+    return adjList[i, j]
+
+def most_connect(adjList, i, j):
+    return -adjList[i, j]
+
+def connection(adjList, i, j):
+    """ Calculate Ania's cost metric min(free - contraction) """
+    return sum(sum(elem for k, elem in enumerate(adjList[i])
+                   if k not in (i, j)),
+               sum(elem for k, elem in enumerate(adjList[j])
+                   if k not in (i, j)),
+               -adjList[i, j])
+
+
+def contract_order(adjList, order=0):
+    """ Generator returning leaves in expected resolution order """
+    contractOrder = (connection, least_connect, most_connect)
+    possibleContractions = ((i, j) for i in adjList for j in adjList[i:]
+                            if adjList[i, j] > 0)
+    for elem in sorted(possibleContractions, key=lambda elem: contractOrder[order](adjList, *elem)):
+        yield elem
+
+
 class TensorNode:
     """ Class to represent tensors and perform contractions """
     def __init__(self, nPhys, nVirt, edges, indices, qubits, ops):

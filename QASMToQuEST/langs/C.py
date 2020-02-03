@@ -75,7 +75,8 @@ def init_core_QASM_gates():
     """ Set up the core gates in python """
     unitary = Gate.internalGates["U"]
     controlledNot = Gate.internalGates["CX"]
-    unitaryInverse = Gate.internalGates["inv_U"]
+    unitaryInverse = Gate.internalGates["_inv_U"]
+    unitaryControl = Gate.internalGates["_ctrl_U"]
 
     controlledNot.set_code([CBlock(
         None,
@@ -88,9 +89,31 @@ rotateZ(qreg,a_index,phi);""".splitlines())])
 
     unitaryInverse.set_code([CBlock(
         None,
-        """rotateZ(qreg,a_index,-lambda);
+        """rotateZ(qreg,a_index,-phi);
 rotateX(qreg,a_index,-theta);
-rotateZ(qreg,a_index,-phi);""".splitlines())])
+rotateZ(qreg,a_index,-lambda);""".splitlines())])
+
+    unitaryControl.set_code([CBlock(
+        None,
+        """Complex _alpha, _beta;
+getComplexPairFromRotation(lambda, (Vector) {0, 0, 1}, &_alpha, &_beta);
+ComplexMatrix2 _rot = {
+        .real = {{_alpha.real, -_beta.real}, {_beta.real, _alpha.real}}
+        .imag = {{_alpha.imag, _beta.imag} {_beta.imag, -_alpha.imag}};
+multiControlledUnitary(qreg, _ctrls, _nCtrls, a_index, _rot);
+
+getComplexPairFromRotation(theta, (Vector) {1, 0, 0}, &_alpha, &_beta);
+ComplexMatrix2 _rot = {
+        .real = {{_alpha.real, -_beta.real}, {_beta.real, _alpha.real}}
+        .imag = {{_alpha.imag, _beta.imag} {_beta.imag, -_alpha.imag}};
+multiControlledUnitary(qreg, _ctrls, _nCtrls, a_index, _rot);
+
+getComplexPairFromRotation(phi, (Vector) {0, 0, 1}, &_alpha, &_beta);
+ComplexMatrix2 _rot = {
+        .real = {{_alpha.real, -_beta.real}, {_beta.real, _alpha.real}}
+        .imag = {{_alpha.imag, _beta.imag} {_beta.imag, -_alpha.imag}};
+multiControlledUnitary(qreg, _ctrls, _nCtrls, a_index, _rot);
+""".splitlines())])
 
 
 def Maths_to_c(parent, maths: MathsBlock):

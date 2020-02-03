@@ -37,6 +37,7 @@ redefClassLangWarning = "Classical language already defined as {}"
 inlineOpaqueWarning = "Cannot set opaque by inline directive"
 dupWarning = "{Name} is already declared as a {Type}"
 existWarning = "{Type} {Name} has not been declared"
+recursiveGateWarning = "Warning: Specified recursive gate which is not possible"
 gateDeclareWarning = "Cannot declare {} in {}"
 gateWarning = "Unrecognised gate-like type {}"
 failedOpWarning = "Cannot {} in {}"
@@ -48,7 +49,7 @@ loopSpecWarning = "Interval specified without {}, both required"
 mathsEvalWarning = "Error parsing maths string:\n '{}'\n"
 noExitWarning = "Recursive gate {} does not have defined exit"
 wrongTypeWarning = "Bad argument, expected {} received {}"
-badConstantWarning = "No sparg named {} found in routine" 
+badConstantWarning = "No sparg named {} found in routine"
 
 
 def print_decor(func):
@@ -60,4 +61,3 @@ def print_decor(func):
             f"{inspect.currentframe().f_back.f_code.co_filename} {inspect.currentframe().f_back.f_lineno}: ")
         func(name)
     return wrapper
-
