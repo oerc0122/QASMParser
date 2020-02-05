@@ -5,7 +5,7 @@ from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRe
                                      Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                      Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                      Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
-                                     MathOp, Register, Dealloc, DeferredAlias)
+                                     MathOp, Register, Dealloc, DeferredAlias, InlineAlias)
 from QASMParser.parser.tokens import (Binary, Function)
 from QASMParser.parser.filehandle import (NullBlock)
 
@@ -342,16 +342,11 @@ def SetAlias_to_c(self):
     """Syntax conversion for setting an alias."""
     outStr = ""
 
-    if self.parent.resolve_maths(self.pargs[1][1] - self.pargs[1][0] + 1) > 1:
-        aliasIndex, targetIndex = (self.alias.name+"_index", self.qargs[0].name+"_index")
-        outStr += Loop(self.parent, NullBlock(self.parent.currentFile),
-                       (aliasIndex, targetIndex),
-                       (self.pargs[1][0], self.qargs[1][0]),
-                       (self.pargs[1][1], self.qargs[1][1]), step=None).to_lang()
-        if self.qargs[0].start > 0:
-            outStr += f"\n  {self.alias.name}[{aliasIndex}] = {targetIndex} + {self.qargs[0].start};"
-        else:
-            outStr += f"\n  {self.alias.name}[{aliasIndex}] = {targetIndex};"
+    if isinstance(self.qargs[0], InlineAlias):
+        deref = [resolve_arg(targ).strip('&') for targ in self.qargs[0].targets]
+        outStr += f"memcpy({self.alias.name}, (int[]) {{{', '.join(deref)}}}, sizeof(int)*{self.pargs[0].size});"
+    elif self.parent.resolve_maths(self.pargs[1][1] - self.pargs[1][0] + 1) > 1:
+        outStr += f"memcpy({resolve_arg(self.pargs)}, {resolve_arg(self.qargs)}, sizeof(int)*{1 +self.qargs[1][1] - self.qargs[1][0]});"
     else:
         qargs = (self.qargs[0], self.qargs[1][0])
         outStr = f"{self.alias.name}[{self.pargs[1][0]}] = {resolve_arg(qargs)};"

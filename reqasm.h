@@ -34,6 +34,8 @@ _Bool andOfBits(bitstr bits);
 int fllog(int c, int a);
 int powrem(int a, int c);
 
+void setArr(int n, int* inArr, int* outArr);
+
 ComplexMatrix2 uPauliX = {
 			  .r0c0 = {0.,0.},
 			  .r1c0 = {1.,0.},

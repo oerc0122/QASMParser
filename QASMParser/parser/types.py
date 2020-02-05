@@ -14,7 +14,7 @@ from .errors import (argWarning, langWarning, badMappingWarning,
                      mathsEvalWarning, failedOpWarning, redefClassLangWarning,
                      inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                      rangeToIndexWarning, gateDeclareWarning, freeWarning,
-                     badConstantWarning, recursiveGateWarning)
+                     badConstantWarning, recursiveGateWarning, targetModifyWarning)
 from .tokens import (MathOp, Binary, Function)
 from .filehandle import (QASMBlock, NullBlock)
 
@@ -562,7 +562,13 @@ class CodeBlock(CoreOp):
         :param refIndex:  Index of register to be aliased
         """
 
-        referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
+        if len(referee) == 1 and len(refIndex) == 1:
+            referee, refIndex = referee[0], refIndex[0]
+            referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
+        else:
+            targets = [self.resolve(ref, argType="QuantumRegister", index=refInd)
+                       for ref, refInd in zip(referee, refIndex)]
+            referee, refInter = InlineAlias(self, targets), (0, len(targets)-1)
         refInter = refInter[0], refInter[1]
         refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
 
@@ -676,7 +682,7 @@ class CodeBlock(CoreOp):
             spargs = [nControls] + spargs
             print(spargs)
             gateName = "_ctrl_"+gateName
-            
+
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
 
         self._code += [gate]
@@ -851,6 +857,7 @@ class CodeBlock(CoreOp):
                                                   self.currentFile.QASMType,
                                                   self.currentFile.versionNumber))
 
+
         if keyword == "include":
             self.include(token["file"])
 
@@ -861,23 +868,21 @@ class CodeBlock(CoreOp):
             qargs = token.get("qargs", [])
             spargs = token.get("spargs", [])
             gargs = token.get("gargs", [])
+
+            print(qargs.dump())
             byprod = token.get("byprod", None)
             mods = token.get("mods", [])
 
             self._call_gate(gateName, pargs, qargs, gargs, spargs, byprod, modifiers=mods)
         elif keyword == "measure":
-            qarg = token["qreg"]["var"]
-            qindex = token["qreg"].get("ref", None)
-            parg = token["creg"]["var"]
-            bindex = token["creg"].get("ref", None)
+            qarg, qindex = self.parse_reg_ref(token["qreg"])
+            parg, bindex = self.parse_reg_ref(token["creg"])
             self._measurement(qarg, qindex, parg, bindex)
         elif keyword == "reset":
-            qarg = token["qreg"]["var"]
-            qindex = token["qreg"].get("ref", None)
+            qarg, qindex = self.parse_reg_ref(token["qreg"])
             self._reset(qarg, qindex)
         elif keyword == "output":
-            parg = token["value"]["var"]
-            bindex = token["value"].get("ref", None)
+            parg, bindex = self.parse_reg_ref(token["value"])
             self._output(parg, bindex)
         elif keyword == "if":
             cond = self.parse_maths(token["cond"])
@@ -895,22 +900,15 @@ class CodeBlock(CoreOp):
 
         # Variable-like routines
         elif keyword in ["cbit", "creg"]: # Registers default to size 1 if blank
-            argName = token["arg"]["var"]
-            size = token["arg"].get("ref")
+            argName, size = self.parse_reg_ref(token["arg"])
             if size is None:
                 size = {"index": 1}
-            else:
-                size = token["arg"]["ref"]
             size = self.parse_range(size)
             self._new_variable(argName, size, True)
         elif keyword in ["qbit", "qreg"]:
-
-            argName = token["arg"]["var"]
-            size = token["arg"].get("ref")
+            argName, size = self.parse_reg_ref(token["arg"])
             if size is None:
                 size = {"index": 1}
-            else:
-                size = token["arg"]["ref"]
             size = self.parse_range(size)
             self._new_variable(argName, size, False)
         elif keyword == "val":
@@ -919,14 +917,12 @@ class CodeBlock(CoreOp):
             argType = token["type"]
             self._let((var, argType), (val, None))
         elif keyword == "defAlias":
-            name = token["alias"]["var"]
-            index = self.parse_range(token["alias"]["ref"])
+            name, index = self.parse_reg_ref(token["alias"], ref=True)
+            index = self.parse_range(index)
             self._new_alias(name, index)
         elif keyword == "alias":
-            name = token["alias"]["var"]
-            index = token["alias"].get("ref", None)
-            qarg = token["target"]["var"]
-            qindex = token["target"].get("ref", None)
+            name, index = self.parse_reg_ref(token["alias"])
+            qarg, qindex = zip(*[self.parse_reg_ref(targ) for targ in token["target"][0]])
             self._alias(name, index, qarg, qindex)
 
         # Loop routines
@@ -947,7 +943,6 @@ class CodeBlock(CoreOp):
             self._escape(var)
         elif keyword == "exit":
             self._leave()
-
         elif keyword == "end":
             var = token["process"]
             self._end()
@@ -1108,6 +1103,14 @@ class CodeBlock(CoreOp):
 
         """
         return MathsBlock(self, maths, topLevel=True)
+
+    @staticmethod
+    def parse_reg_ref(token, ref=False):
+        """ Parse a register reference """
+        if ref: # Raise error if no ref
+            return token["var"], token["ref"]
+
+        return token["var"], token.get("ref", None)
 
 class SubBlock(CodeBlock):
     """ Extending type to inherit overwritten core functions with those of the parent """
@@ -1347,6 +1350,44 @@ class DeferredClassicalRegister(ClassicalRegister):
         self._end -= 1
         self._argType = "ClassicalRegister"
 
+
+class Targets(list):
+    """ Type to protect alias targets """
+    def __getitem__(self, item):
+        result = list.__getitem__(self, item)
+        try:
+            return Targets(result)
+        except TypeError:
+            return result
+
+    def __setitem__(self, index, val):
+        """ Deref nested aliases
+        Strictly aliases should never be multiply nested due to this protection,
+        but weirder things have happened """
+        trueTarget, trueRef = val
+        while trueTarget.argType != "QuantumRegister":
+            if trueTarget.argType == "Alias":
+                print(trueTarget, trueRef, trueTarget.size)
+                trueTarget, trueRef = trueTarget.targets[trueRef]
+            else:
+                raise TypeError(wrongTypeWarning.format(trueTarget.argType, "Alias")+" in target resolution.")
+        list.__setitem__(self, index, (trueTarget, trueRef))
+
+    def __delitem__(self, other):
+        raise TypeError(targetModifyWarning)
+    def __add__(self, other):
+        raise TypeError(targetModifyWarning)
+    def __mul__(self, other):
+        raise TypeError(targetModifyWarning)
+    def __radd__(self, other):
+        raise TypeError(targetModifyWarning)
+    def __iadd__(self, other):
+        raise TypeError(targetModifyWarning)
+    def __rmul__(self, other):
+        raise TypeError(targetModifyWarning)
+    def __imul__(self, other):
+        raise TypeError(targetModifyWarning)
+
 class Alias(Register):
     """
     Alias as specified in REQASM
@@ -1360,8 +1401,7 @@ class Alias(Register):
         :param inter: Range of bits
         """
         Register.__init__(self, parent, name, inter)
-        self.allSet = False
-        self.targets = [(None, None)]*self.size
+        self._targets = Targets([(None, None)]*self.size)
 
     def set_target(self, indices, target, interval):
         """ Aliases target to indices
@@ -1372,9 +1412,13 @@ class Alias(Register):
 
         """
         for index in range(indices[0], indices[1]+1):
-            self.targets[index - self.minIndex] = (target, interval[0] + index)
+            self._targets[index - self.minIndex] = (target, interval[0] + index)
 
-        self.allSet = all(target != (None, None) for target in self.targets)
+    @property
+    def allSet(self):
+        return all(target != (None, None) for target in self.targets)
+
+    targets = property(lambda self: self._targets)
 
 class DeferredAlias(Alias):
     """
@@ -1388,7 +1432,6 @@ class DeferredAlias(Alias):
     def __init__(self, parent, name, inter):
         """ Initialise a deferred alias """
         Register.__init__(self, parent, name, inter)
-        self.allSet = False
         self.targets = []
         self._argType = "Alias"
 
@@ -1405,7 +1448,21 @@ class DeferredAlias(Alias):
                 self.targets += [(None, None)] * (len(self.targets) + 1 - index + self.minIndex)
             self.targets[index - self.minIndex] = (target, interval[0] + index)
 
-        self.allSet = all(target != (None, None) for target in self.targets)
+class InlineAlias(Alias):
+    def __init__(self, parent, args):
+        """ Initialise an inline alias """
+        self._expand_args(args)
+        Register.__init__(self, parent, None, len(args))
+        print(args)
+        self._targets = Targets(args)
+        self._argType = "Alias"
+
+    @staticmethod
+    def _expand_args(args):
+        for arg in args:
+            reg, (indS, indE) = arg
+            if indE != indS:
+                raise NotImplementedError("Cannot currently inline alias ranges")
 
 class Argument(Register):
     """
@@ -1532,7 +1589,6 @@ class CallGate(Operation):
             if sparg in self.parent.spargs:
                 newSpargs[sparg.name] = 0
 
-
         for qarg in self.callee.qargs:
             newQargs.append([qarg, int(self.parent.resolve_maths(qarg.size, additionalVars=newSpargs))])
 
@@ -1551,8 +1607,9 @@ class CallGate(Operation):
         # Implicit loops mean we handle qargs separately
         for index, qarg in enumerate(qargs):
             # Hack to bypass stupidity of Python's object fiddling
-            if isinstance(qarg[1][1], (Constant, MathsBlock)) or isinstance(qarg[1][0], (Constant, MathsBlock)) or \
-               newQargs[index][1] == 0:
+            if any(isinstance(qarg[1][1], (Constant, MathsBlock)),
+                   isinstance(qarg[1][0], (Constant, MathsBlock)),
+                   newQargs[index][1] == 0):
                 continue
             nArg = qarg[1][1] - qarg[1][0] + 1
             expect = newQargs[index][1]
@@ -1950,7 +2007,7 @@ class Opaque(Gate):
 
         self._inverse = None
         self._control = None
-        
+
     def set_block(self, block):
         """ Set the block of the opaque gate """
         CodeBlock.__init__(self, self.parent, block)

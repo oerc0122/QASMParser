@@ -49,6 +49,7 @@ loopSpecWarning = "Interval specified without {}, both required"
 mathsEvalWarning = "Error parsing maths string:\n '{}'\n"
 noExitWarning = "Recursive gate {} does not have defined exit"
 wrongTypeWarning = "Bad argument, expected {} received {}"
+targetModifyWarning = "Cannot modify targets"
 badConstantWarning = "No sparg named {} found in routine"
 
 

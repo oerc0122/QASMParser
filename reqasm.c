@@ -118,3 +118,9 @@ int powrem(int a, int c) {
   }
   return a - pow(c, fllog(a,c));
 }
+
+void setArr(int n, int* inArr, int* outArr) {
+    for (int i=0; i < n; i++) {
+        outArr[i] = inArr[i];
+    }
+}

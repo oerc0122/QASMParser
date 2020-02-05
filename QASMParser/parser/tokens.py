@@ -219,6 +219,8 @@ def _setup_QASMParser():
     regListNoRef = Group(delimitedList(regNoRef))
     regListRef = Group(delimitedList(regRef))
     inPlaceAlias = vBar + regListRef + vBar
+    validQarg = regRef | inPlaceAlias
+    aliasQarg = Group(regRef) | inPlaceAlias
 
     def set_maths_type(toks, mathsType):
         """ Set logical or integer or floating point """
@@ -268,6 +270,7 @@ def _setup_QASMParser():
     gargParser = ungroup(nestedExpr("<", ">", delimitedList(ungroup(validName)), None))
     qargParser = delimitedList(regRef)
 
+    callQargParser = delimitedList(validQarg)
     callPargParser = brL + delimitedList(realExp) + brR
     callSpargParser = inL + delimitedList(intExp) + inR
 
@@ -329,7 +332,7 @@ def _setup_QASMParser():
     _Op("cbit", regNoRef("arg"), version="REQASM 1.0")
     _Op("qbit", regNoRef("arg"), version="REQASM 1.0")
     _Op("defAlias", regMustRef("alias"), keyOverride="alias", version="REQASM 1.0")
-    _Op("alias", regRef("alias") + _is_ + regRef("target"), version="REQASM 1.0")
+    _Op("alias", regRef("alias") + _is_ + aliasQarg("target"), version="REQASM 1.0")
     _Op("val", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM 1.0")
 
     # Operations-like structures
@@ -348,7 +351,7 @@ def _setup_QASMParser():
     callGate = Combine(Group(modifiers)("mods") + \
                        validName("gate")) + \
                        callArgParser + \
-                       regListRef("qargs").addParseAction(lambda s, l, t: _override_keyword(t, "call")) + \
+                       callQargParser("qargs").addParseAction(lambda s, l, t: _override_keyword(t, "call")) + \
                        returnParser
     callGate.addParseAction(lambda s, l, t: _set_version(t, (1, 2, 0)))
 
@@ -398,7 +401,7 @@ def _setup_QASMParser():
                   directiveBlock |                                                          # Directives
                   (ignoreSpecialBlocks + ZeroOrMore(CharsNotIn("{}")) + dummyCodeBlock) |   # Block operations
                   (ignoreSpecialBlocks + ZeroOrMore(CharsNotIn("{};")) + lineEnd))          # QASM Instructions
-    
+
     testKeyword = (dirSyntax.setParseAction(lambda s, l, t: _override_keyword(t, "directive")) |
                    Word(alphas)("keyword"))
 
