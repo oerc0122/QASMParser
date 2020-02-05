@@ -167,7 +167,6 @@ def _setup_QASMParser():
     number = Word(nums)
     expo = Combine(CaselessLiteral("e") + Optional(sign) + number).setResultsName("exponent")
 
-    e = CaselessKeyword("e")
     pi = CaselessKeyword("pi")
 
     integer = Combine(number + Optional(expo))
@@ -200,6 +199,7 @@ def _setup_QASMParser():
     boolFunc = oneOf("andof orof xorof")
 
     inL, inS, inR = map(Suppress, "[:]")
+    vBar = Suppress("|")
     brL, brR = map(Suppress, "()")
 
     intExp = Forward()
@@ -211,20 +211,21 @@ def _setup_QASMParser():
         + Optional(intExp.setResultsName("end"), default=None)
     interRef = Group(inL + interval + inR)
     loopRef = Group(inL + intExp.setResultsName("start") + inS + intExp.setResultsName("end") +
-                          Optional(inS) + Optional(intExp.setResultsName("step"), default=1) + inR)
+                    Optional(inS) + Optional(intExp.setResultsName("step"), default=1) + inR)
     ref = inL + Group(delimitedList(index ^ interval))("ref") + inR
     regNoRef = validName("var")
     regRef = Group(validName("var") + Optional(ref))
     regMustRef = Group(validName("var") + ref)
     regListNoRef = Group(delimitedList(regNoRef))
     regListRef = Group(delimitedList(regRef))
+    inPlaceAlias = vBar + regListRef + vBar
 
     def set_maths_type(toks, mathsType):
         """ Set logical or integer or floating point """
         toks["type"] = mathsType
 
     intVar = integer | regRef
-    realVar = real | integer | pi | e | regRef
+    realVar = real | integer | pi | regRef
     boolVar = boolean | interRef | regRef | realExp | intExp
     intFuncVar = (intFunc  + brL + Group(Optional(delimitedList(intVar)))("args") + brR).setParseAction(Function)
     realFuncVar = ((realFunc ^ intFunc)
@@ -370,7 +371,7 @@ def _setup_QASMParser():
         keyOverride=Empty())
 
     # Set-up line parsers
-    reservedNames = Or(_reservedKeys) ^ e ^ pi
+    reservedNames = Or(_reservedKeys) ^ pi
     validName <<= (~reservedNames) + Word(alphas, alphanums+"_")
 
     copsParsers = list(map(lambda cop: cop.parser, cops.values()))

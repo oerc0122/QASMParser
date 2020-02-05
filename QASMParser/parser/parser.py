@@ -6,7 +6,7 @@ from .types import (QuantumRegister, CodeBlock, Constant, Include, Gate, Circuit
 from .filehandle import (QASMFile)
 from .errors import (includeWarning)
 
-langConstants = ["e", "pi", "T", "F"]
+langConstants = ["pi", "T", "F"]
 
 class ProgFile(CodeBlock):
     """
@@ -25,7 +25,7 @@ class ProgFile(CodeBlock):
         CodeBlock.__init__(self, self, QASMFile(filename), False)
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
-        for constant in ["e", "pi"]:
+        for constant in ["pi"]:
             self._objs[constant] = Constant(self, (constant, "float"), (None, None))
         for val, name in enumerate(["F", "T"]):
             self._objs[name] = Constant(self, (name, "bool"), (val, None))

@@ -13,7 +13,6 @@ typedef struct bitstr
 } bitstr;
 
 const qreal pi = 3.141592653589;
-const qreal e  = 2.718281828459;
 const _Bool T  = 1;
 const _Bool F  = 0;
 
