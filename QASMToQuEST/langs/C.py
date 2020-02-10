@@ -227,6 +227,10 @@ def resolve_arg(arg):
         else:
             out = f"{ref}{obj.start}[{index}]"
 
+    elif isinstance(obj, InlineAlias):
+        deref = [resolve_arg(targ).strip('&') for targ in obj.targets]
+        out = f"(int[]) {{{', '.join(deref)}}}"
+
     elif issubclass(type(obj), Register):
         out = f"{ref}{obj.name}[{index}]"
     else:
@@ -342,10 +346,7 @@ def SetAlias_to_c(self):
     """Syntax conversion for setting an alias."""
     outStr = ""
 
-    if isinstance(self.qargs[0], InlineAlias):
-        deref = [resolve_arg(targ).strip('&') for targ in self.qargs[0].targets]
-        outStr += f"memcpy({self.alias.name}, (int[]) {{{', '.join(deref)}}}, sizeof(int)*{self.pargs[0].size});"
-    elif self.parent.resolve_maths(self.pargs[1][1] - self.pargs[1][0] + 1) > 1:
+    if self.parent.resolve_maths(self.pargs[1][1] - self.pargs[1][0] + 1) > 1:
         outStr += f"memcpy({resolve_arg(self.pargs)}, {resolve_arg(self.qargs)}, sizeof(int)*{1 +self.qargs[1][1] - self.qargs[1][0]});"
     else:
         qargs = (self.qargs[0], self.qargs[1][0])

@@ -4,8 +4,9 @@ Main module for tokenising parsed files
 
 import re
 import copy
-from pyparsing import (ParseResults)
+from collections import Iterable
 
+from pyparsing import (ParseResults)
 from .errors import (argWarning, langWarning, badMappingWarning,
                      dupWarning, existWarning, wrongTypeWarning,
                      indexWarning, aliasIndexWarning, argSizeWarning,
@@ -282,6 +283,23 @@ class CodeBlock(CoreOp):
                 out = [var, var.name]
             else:
                 out = var
+
+        elif argType == "InlineAlias":
+            if not isinstance(var, Iterable):
+                self._error("Bad inline alias")
+
+            # Resolve targets
+            resolvedTargets = []
+            for elem in var:
+                name, ref = self.parse_reg_ref(elem)
+                target = self.resolve(name, "QuantumRegister", ref)
+                if target[1][1] - target[1][0] > 0: # If needs expanding
+                    for i in range(target[1][0], target[1][1]+1):
+                        resolvedTargets.append((target[0], (i, i)))
+                else:
+                    resolvedTargets.append(target)
+            out = (InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1))
+
         elif argType == "Alias":
 
             self._is_def(var, create=False, argType=argType)
@@ -551,7 +569,7 @@ class CodeBlock(CoreOp):
         self._objs[argName] = alias
         self._code += [alias]
 
-    def _alias(self, aliasName, argIndex, referee, refIndex):
+    def _alias(self, aliasName, argIndex, referee):
         """
         If an alias called aliasName exists: assign values to this alias
         If it does not exist:  Create it and if values assign it
@@ -562,13 +580,11 @@ class CodeBlock(CoreOp):
         :param refIndex:  Index of register to be aliased
         """
 
-        if len(referee) == 1 and len(refIndex) == 1:
-            referee, refIndex = referee[0], refIndex[0]
+        if len(referee) == 1:
+            referee, refIndex = self.parse_reg_ref(referee[0])
             referee, refInter = self.resolve(referee, argType="QuantumRegister", index=refIndex)
         else:
-            targets = [self.resolve(ref, argType="QuantumRegister", index=refInd)
-                       for ref, refInd in zip(referee, refIndex)]
-            referee, refInter = InlineAlias(self, targets), (0, len(targets)-1)
+            referee, refInter = self.resolve(referee, "InlineAlias")
         refInter = refInter[0], refInter[1]
         refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
 
@@ -680,7 +696,6 @@ class CodeBlock(CoreOp):
                 orig = self.resolve(gateName, argType="Gate")
                 orig.control(self)
             spargs = [nControls] + spargs
-            print(spargs)
             gateName = "_ctrl_"+gateName
 
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
@@ -868,8 +883,6 @@ class CodeBlock(CoreOp):
             qargs = token.get("qargs", [])
             spargs = token.get("spargs", [])
             gargs = token.get("gargs", [])
-
-            print(qargs.dump())
             byprod = token.get("byprod", None)
             mods = token.get("mods", [])
 
@@ -922,8 +935,8 @@ class CodeBlock(CoreOp):
             self._new_alias(name, index)
         elif keyword == "alias":
             name, index = self.parse_reg_ref(token["alias"])
-            qarg, qindex = zip(*[self.parse_reg_ref(targ) for targ in token["target"][0]])
-            self._alias(name, index, qarg, qindex)
+            qarg = token["target"][0]
+            self._alias(name, index, qarg)
 
         # Loop routines
         elif keyword == "for":
@@ -1014,10 +1027,14 @@ class CodeBlock(CoreOp):
         args = []
         if argType in ["ClassicalRegister", "QuantumRegister"]:
             for arg in argsIn:
-                args.append(self.resolve(arg["var"], argType, arg.get("ref", None)))
+                if len(arg) > 1:
+                    arg = self.resolve(arg, "InlineAlias")
+                else:
+                    name, ref = self.parse_reg_ref(arg)
+                    arg = self.resolve(name, argType, ref)
+                args.append(arg)
         elif argType in ["Constant"]:
-            for arg in argsIn:
-                args.append(self.resolve(arg, argType))
+            args = [self.resolve(arg, argType) for arg in argsIn]
         else:
             self._error(argParseWarning.format(argType))
 
@@ -1367,7 +1384,6 @@ class Targets(list):
         trueTarget, trueRef = val
         while trueTarget.argType != "QuantumRegister":
             if trueTarget.argType == "Alias":
-                print(trueTarget, trueRef, trueTarget.size)
                 trueTarget, trueRef = trueTarget.targets[trueRef]
             else:
                 raise TypeError(wrongTypeWarning.format(trueTarget.argType, "Alias")+" in target resolution.")
@@ -1451,18 +1467,9 @@ class DeferredAlias(Alias):
 class InlineAlias(Alias):
     def __init__(self, parent, args):
         """ Initialise an inline alias """
-        self._expand_args(args)
         Register.__init__(self, parent, None, len(args))
-        print(args)
         self._targets = Targets(args)
         self._argType = "Alias"
-
-    @staticmethod
-    def _expand_args(args):
-        for arg in args:
-            reg, (indS, indE) = arg
-            if indE != indS:
-                raise NotImplementedError("Cannot currently inline alias ranges")
 
 class Argument(Register):
     """
@@ -1572,7 +1579,8 @@ class CallGate(Operation):
         :param spargs: Input special arguments
 
         """
-          # Check number of args matches
+
+        # Check number of args matches
         for name, args, expect in [("pargs", pargs, self.callee.pargs),
                                    ("gargs", gargs, self.callee.gargs),
                                    ("spargs", spargs, self.callee.spargs)]:
@@ -1592,6 +1600,7 @@ class CallGate(Operation):
         for qarg in self.callee.qargs:
             newQargs.append([qarg, int(self.parent.resolve_maths(qarg.size, additionalVars=newSpargs))])
 
+
         self.resolvedQargs = newQargs
 
         if self.callee.byprod:
@@ -1607,9 +1616,9 @@ class CallGate(Operation):
         # Implicit loops mean we handle qargs separately
         for index, qarg in enumerate(qargs):
             # Hack to bypass stupidity of Python's object fiddling
-            if any(isinstance(qarg[1][1], (Constant, MathsBlock)),
-                   isinstance(qarg[1][0], (Constant, MathsBlock)),
-                   newQargs[index][1] == 0):
+            if any((isinstance(qarg[1][1], (Constant, MathsBlock)),
+                    isinstance(qarg[1][0], (Constant, MathsBlock)),
+                    newQargs[index][1] == 0)):
                 continue
             nArg = qarg[1][1] - qarg[1][0] + 1
             expect = newQargs[index][1]

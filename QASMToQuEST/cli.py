@@ -58,7 +58,6 @@ def get_command_args():
 
     """
     argList = _parser.parse_args()
-    print(argList)
     if not argList.sources:
         _parser.print_help()
         exit()
