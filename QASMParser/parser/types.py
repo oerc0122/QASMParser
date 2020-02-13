@@ -15,12 +15,19 @@ from .errors import (argWarning, langWarning, badMappingWarning,
                      mathsEvalWarning, failedOpWarning, redefClassLangWarning,
                      inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                      rangeToIndexWarning, gateDeclareWarning, freeWarning,
-                     badConstantWarning, recursiveGateWarning, targetModifyWarning)
+                     badConstantWarning, recursiveGateWarning, targetModifyWarning,
+                     inlineAliasLoopWarning, targetUniqueWarning)
 from .tokens import (MathOp, Binary, Function)
 from .filehandle import (QASMBlock, NullBlock)
 
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile(r"[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
+
+def unique(listCheck):
+    """ Check that all elements of list are unique
+        https://stackoverflow.com/a/5281641"""
+    seen = set()
+    return not any(tuple(i) in seen or seen.add(tuple(i)) for i in listCheck)
 
 def slice_inclusive(start=None, stop=None, step=1):
     """ Actually include the stop, like anything sensible would """
@@ -166,6 +173,9 @@ class Operation(CoreOp):
         :param pargs: Input parameter arguments
 
         """
+        if any(isinstance(parg[0], InlineAlias) for parg in pargs):
+            self._error(inlineAliasLoopWarning)
+
         baseStart, baseEnd = pargs[0][1]
         loopable = baseStart != baseEnd
 
@@ -197,7 +207,7 @@ class Referencable(CoreOp):
         CoreOp.__init__(self, parent)
         self._name = name
         self._argType = type(self).__name__
-
+        self._error = self.parent.currentFile.error
     argType = property(lambda self: self._argType)
 
 class CodeBlock(CoreOp):
@@ -299,10 +309,10 @@ class CodeBlock(CoreOp):
                 else:
                     resolvedTargets.append(target)
 
-            if len(resolvedTargets) == 1:
+            if len(resolvedTargets) == 1: # If we don't really need to alias
                 out = resolvedTargets[0]
             else:
-                out = [InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1)]
+                out = (InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1))
 
         elif argType == "Alias":
 
@@ -1376,6 +1386,7 @@ class Targets(list):
     """ Type to protect alias targets """
     def __getitem__(self, item):
         result = list.__getitem__(self, item)
+
         try:
             return Targets(result)
         except TypeError:
@@ -1412,7 +1423,6 @@ class Alias(Register):
     """
     Alias as specified in REQASM
     """
-
     def __init__(self, parent, name, inter):
         """Initialise an alias
 
@@ -1422,6 +1432,9 @@ class Alias(Register):
         """
         Register.__init__(self, parent, name, inter)
         self._targets = Targets([(None, None)]*self.size)
+
+    targets = property(lambda self: self._targets)
+    unique = property(lambda self: unique(self.targets))
 
     def set_target(self, indices, target, interval):
         """ Aliases target to indices
@@ -1433,12 +1446,13 @@ class Alias(Register):
         """
         for index in range(indices[0], indices[1]+1):
             self._targets[index - self.minIndex] = (target, interval[0] + index)
+        if not self.unique:
+            self._error(targetUniqueWarning.format(self.name))
 
     @property
     def allSet(self):
+        """ Check all targets spread """
         return all(target != (None, None) for target in self.targets)
-
-    targets = property(lambda self: self._targets)
 
 class DeferredAlias(Alias):
     """
@@ -1474,6 +1488,8 @@ class InlineAlias(Alias):
         Register.__init__(self, parent, None, len(args))
         self._targets = Targets(args)
         self._argType = "Alias"
+        if not self.unique:
+            self._error(targetUniqueWarning.format("<inline alias>"))
 
 class Argument(Register):
     """
@@ -1604,8 +1620,10 @@ class CallGate(Operation):
         for qarg in self.callee.qargs:
             newQargs.append([qarg, int(self.parent.resolve_maths(qarg.size, additionalVars=newSpargs))])
 
-
         self.resolvedQargs = newQargs
+
+        if not unique(qargs):
+            self._error("Arguments are not unique")
 
         if self.callee.byprod:
             resolvedByprod = self.parent.resolve(byprod, "ClassicalRegister")
