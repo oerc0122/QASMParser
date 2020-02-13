@@ -298,7 +298,11 @@ class CodeBlock(CoreOp):
                         resolvedTargets.append((target[0], (i, i)))
                 else:
                     resolvedTargets.append(target)
-            out = (InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1))
+
+            if len(resolvedTargets) == 1:
+                out = resolvedTargets[0]
+            else:
+                out = [InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1)]
 
         elif argType == "Alias":
 
@@ -1027,7 +1031,7 @@ class CodeBlock(CoreOp):
         args = []
         if argType in ["ClassicalRegister", "QuantumRegister"]:
             for arg in argsIn:
-                if len(arg) > 1:
+                if "var" not in arg: # We have an alias
                     arg = self.resolve(arg, "InlineAlias")
                 else:
                     name, ref = self.parse_reg_ref(arg)
