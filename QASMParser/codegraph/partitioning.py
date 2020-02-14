@@ -25,11 +25,14 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
 
     if partitionLevel == partitionTypes.REGISTER:
         codeGraph = CodeGraph(code, code.nQubits, maxDepth=maxDepth)
-        slices = tuple([register.end for register in code.quantumRegisters])
+        slices = tuple([tuple([i for i in range(register.start, register.end)])
+                        for register in code.quantumRegisters])
         if not slices or len(slices) == 1:
             print(partitionWarning)
         if not dummy:
             create_tensor_network(code, codeGraph.entang, slices)
+        else:
+            print(slices)
 
     if partitionLevel == partitionTypes.SPACELIKE:
         codeGraph = CodeGraph(code, code.nQubits, maxDepth=maxDepth)
@@ -38,6 +41,8 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
             print(partitionWarning)
         if not dummy:
             create_tensor_network(code, codeGraph.entang, slices)
+        else:
+            print(slices)
 
     if partitionLevel == partitionTypes.FULL:
         codeGraph = CodeGraph(code, code.nQubits, maxDepth=maxDepth)
@@ -74,14 +79,19 @@ def partition(code: ProgFile, partitionLevel: int = 0, maxDepth=-1, dummy=False)
 
 def create_tensor_network(code, entangGraph, slices):
     """ Build the tensor network command and calculate the number of virtual qubits needed for the operation """
-    remap = {new: old for old, new in enumerate(point for group in slices for point in group)}
-    print(remap)
+
+    remap = {}
+    for TensorNetworkID, group in enumerate(slices):
+        for qubitInd, qubitID in enumerate(group):
+            remap[qubitID] = TensorNetworkID, qubitInd
+
     for reg in code.quantumRegisters:
-        reg.mapping = tuple(map(lambda x: remap[x], reg.mapping))
+        reg.TNMapping = tuple(map(lambda x: remap[x], reg.mapping))
+
     *physicalQubits, = map(len, slices)
     *virtualQubits, = (sum(entangGraph.get_edge_data(*edge)["weight"] for edge in external_edges(entangGraph, group))
                        for group in slices)
-    print(physicalQubits, virtualQubits)
+
     code.useTN = True
     code.partition = TensorNetwork(code, "qreg", physicalQubits, virtualQubits)
 
@@ -175,7 +185,6 @@ def modified_contract_nodes(G, u, v):
     uData, vData = outGraph.nodes[u], outGraph.nodes[v]
     outGraph.remove_node(v)
 
-    print(uData, u, v)
     if "label" in uData:
         uData["label"] += f":{vData['label'] if 'label' in vData else v}"
     else:

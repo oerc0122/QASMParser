@@ -80,7 +80,6 @@ rotateX(qreg,a_index,-theta)
 rotateZ(qreg,a_index,-phi)""".splitlines())])
 
 
-
 def Maths_to_Python(parent, maths: MathsBlock):
     """Resolve mathematical operations into C.
 
