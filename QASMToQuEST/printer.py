@@ -111,13 +111,14 @@ def to_lang(codeObj, filename=None, langOut="C", **options):
         else:
             codeToWrite[target:target+1] = include.raw_code
 
-    if codeObj.useTN:
-        writeln(lang.includeTN)
-
     if lang.hoistIncludes:
         codeToWrite = sorted(codeToWrite, key=lambda x: isinstance(x, Include))
         while isinstance(codeToWrite[-1], Include):
             print_code(codeObj, [codeToWrite.pop()], outputFile)
+
+    if codeObj.useTN:
+        lang.UseTN()
+        writeln(lang.includeTN)
 
     if options["include_internals"]:
         codeToWrite = list(Gate.internalGates.values()) + codeToWrite
@@ -152,6 +153,9 @@ def fix_qureg(codeObj):
     if not codeObj.useTN:
         code += [QuantumRegister(codeObj, "qreg", QuantumRegister.numQubits)]
     else:
+        for reg in codeObj.quantumRegisters:
+            code += [Comment(codeObj, f'{reg.name}[{reg.start}:{reg.end-1}] => {", ".join(map(str, reg.TNMapping))}')]
+            code += [Let(codeObj, (reg.name+"_TN", "listint"), (reg.TNMapping, None))]
         code += [codeObj.partition]
     return code
 

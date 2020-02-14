@@ -66,18 +66,18 @@ def init_core_QASM_gates():
 
     controlledNot.set_code([CBlock(
         None,
-        """controlledNot(qreg, a_index, b_index)""".splitlines())])
+        """controlledNot(qreg, a, b)""".splitlines())])
     unitary.set_code([CBlock(
         None,
-        """rotateZ(qreg,a_index,lambda)
-rotateX(qreg,a_index,theta)
-rotateZ(qreg,a_index,phi)""".splitlines())])
+        """rotateZ(qreg,a,lambda)
+rotateX(qreg,a,theta)
+rotateZ(qreg,a,phi)""".splitlines())])
 
     unitaryInverse.set_code([CBlock(
         None,
-        """rotateZ(qreg,a_index,-lambda)
-rotateX(qreg,a_index,-theta)
-rotateZ(qreg,a_index,-phi)""".splitlines())])
+        """rotateZ(qreg,a,-lambda)
+rotateX(qreg,a,-theta)
+rotateZ(qreg,a,-phi)""".splitlines())])
 
 
 def Maths_to_Python(parent, maths: MathsBlock):
@@ -198,7 +198,6 @@ def python_include(filename: str):
     """
     return f'from {filename} import *'
 header = [python_include("QuESTLibs"), python_include("math")]
-includeTN = python_include("TNPy")
 
 def Include_to_Python(self):
     """Syntax conversion for Python imports."""
@@ -229,12 +228,6 @@ def End_to_Python(self):
     """Syntax conversion for early return from function."""
     return "return"
 
-def Reset_to_Python(self):
-    """Syntax conversion for resetting quantum state to zero."""
-    qarg = self.qargs
-    qargRef = self.resolve_arg(qarg)
-    return f'collapseToOutcome(qreg, {qargRef}, 0)'
-
 def ClassicalRegister_to_Python(self):
     """Syntax conversion for creating a classical register."""
     if isinstance(self.size, MathsBlock):
@@ -245,7 +238,6 @@ def ClassicalRegister_to_Python(self):
         size = f'{self.size}'
 
     return f'{self.name} = [0]*{size}'
-
 
 def QuantumRegister_to_Python(self):
     """Syntax conversion for creating a quantum register."""
@@ -306,35 +298,9 @@ def CBlock_to_Python(self):
     """Syntax conversion for classical block."""
     return "\n".join(self.block)
 
-def CallGate_to_Python(self):
-    """Syntax conversion for calling a gate."""
-    printQargs = ""
-    printPargs = ""
-    printSpargs = ""
-
-    if self.qargs:
-        printQargs = "qreg, " + ", ".join(f"{resolve_arg(qarg)}" for qarg in self.qargs)
-    if self.pargs:
-        printPargs = ", ".join(f"{resolve_maths(self.parent,parg)}" for parg in self.pargs)
-    if self.spargs:
-        printSpargs = ", ".join(f"{resolve_maths(self.parent, sparg)}" for sparg in self.spargs)
-
-    printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
-    printGate = self.name
-    outString = f"{printGate}({printArgs})"
-    return outString
-
 def Comment_to_Python(self):
     """Syntax conversion for a comment."""
     return "#" + self.comment.replace("\n", "\n#").replace("/*", "#").replace("*/", "")
-
-def Measure_to_Python(self):
-    """Syntax conversion for a measurement."""
-    parg = self.pargs
-    qarg = self.qargs
-    qargRef = resolve_arg(qarg)
-    pargRef = resolve_arg(parg)
-    return f"{pargRef} = measure(qreg, {qargRef})"
 
 def IfBlock_to_Python(self):
     """Syntax conversion for an if statement."""
@@ -389,9 +355,100 @@ def NestLoop_to_Python(self):
     ranges = [f"range({init}, {term}, {incr})" for init, term, incr in zip(start, end, step)]
     return f"for {', '.join(self.var)} in zip({', '.join(ranges)})"
 
+
 def TensorNetwork_to_Python(self):
     """Syntax conversion for creating a TensorNetwork """
     return "{} = createTensorNetwork({}, {}, {}, Env)".format(self.name,
                                                               len(self.physicalQubits),
                                                               self.physicalQubits,
                                                               self.virtualQubits)
+
+def CallGate_to_Python(self):
+    """Syntax conversion for calling a gate."""
+    printQargs = ""
+    printPargs = ""
+    printSpargs = ""
+
+    if self.qargs:
+        printQargs = "qreg, " + ", ".join(f"{resolve_arg(qarg)}" for qarg in self.qargs)
+    if self.pargs:
+        printPargs = ", ".join(f"{resolve_maths(self.parent,parg)}" for parg in self.pargs)
+    if self.spargs:
+        printSpargs = ", ".join(f"{resolve_maths(self.parent, sparg)}" for sparg in self.spargs)
+
+    printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
+    printGate = self.name
+    outString = f"{printGate}({printArgs})"
+    return outString
+
+def Measure_to_Python(self):
+    """Syntax conversion for a measurement."""
+    parg = self.pargs
+    qarg = self.qargs
+    qargRef = resolve_arg(qarg)
+    pargRef = resolve_arg(parg)
+    return f"{pargRef} = measure(qreg, {qargRef})"
+
+def Reset_to_Python(self):
+    """Syntax conversion for resetting quantum state to zero."""
+    qarg = self.qargs
+    qargRef = self.resolve_arg(qarg)
+    return f'collapseToOutcome(qreg, {qargRef}, 0)'
+
+
+def UseTN():
+    CallGate.to_lang = CallGateTN_to_Python
+#    Reset.to_lang = ResetTN_to_Python
+includeTN = python_include("TNPy")
+
+def CallGateTN_to_Python(self):
+    """Syntax conversion for calling a gate."""
+    printQargs = ""
+    printPargs = ""
+    printSpargs = ""
+
+    tensors = {qarg[0].TNMapping[0] for qarg in self.qargs if isinstance(qarg[0], QuantumRegister)}
+
+    if len(tensors) < 2:
+        if self.qargs:
+            printQargs = "qreg, " + ", ".join(f"{resolve_argTN(qarg)}" for qarg in self.qargs)
+        if self.pargs:
+            printPargs = ", ".join(f"{resolve_maths(self.parent,parg)}" for parg in self.pargs)
+        if self.spargs:
+            printSpargs = ", ".join(f"{resolve_maths(self.parent, sparg)}" for sparg in self.spargs)
+    else:
+        pass
+        
+    printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
+    printGate = self.name
+    outString = f"{printGate}({printArgs})"
+    return outString
+
+def resolve_argTN(arg):
+    """Resolve quantum arguments into their appropriate references or indices.
+
+    :param arg: List consisting of [register, index] to resolve
+    :returns: Python-resolved array reference in register
+    :rtype: str
+    """
+
+    obj, index = arg
+
+    if isinstance(index, (list, tuple)):
+        index = "{}:{}".format(*map(resolve_index, index))
+    else:
+        index = resolve_index(index)
+
+    if isinstance(obj, Argument):
+        if obj.size == 1:
+            out = obj.start
+        else:
+            out = f"{obj.start}[{index}]"
+
+    elif issubclass(type(obj), Register):
+        out = f"{obj.name}_TN[{obj.name}[{index}]]"
+    else:
+        raise NotImplementedError("Resolution of {}".format(type(obj).__name__))
+
+    return out
+

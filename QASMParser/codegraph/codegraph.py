@@ -116,11 +116,11 @@ class CodeGraph(GraphBuilder):
             lastVertex = current
 
         return nodes
-    
+
     def _handle_measure(self, **kwargs):
         nodes = self._process(**kwargs)
-        for node in nodes:
-            node.req = backprop(node)
+        # for node in nodes:
+        #     node.req = backprop(node)
         self._set_qubits()
 
     def _finalise(self):
