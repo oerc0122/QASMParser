@@ -79,6 +79,28 @@ rotateZ(qreg,a,phi)""".splitlines())])
 rotateX(qreg,a,-theta)
 rotateZ(qreg,a,-phi)""".splitlines())])
 
+    # C, not python : Will not work!
+    unitaryControl.set_code([CBlock(
+        None,
+        """Complex _alpha, _beta;
+getComplexPairFromRotation(lambda, (Vector) {0, 0, 1}, &_alpha, &_beta);
+ComplexMatrix2 _rot = {
+        .real = {{_alpha.real, -_beta.real}, {_beta.real, _alpha.real}}
+        .imag = {{_alpha.imag, _beta.imag} {_beta.imag, -_alpha.imag}};
+multiControlledUnitary(qreg, _ctrls, _nCtrls, a_index, _rot);
+
+getComplexPairFromRotation(theta, (Vector) {1, 0, 0}, &_alpha, &_beta);
+ComplexMatrix2 _rot = {
+        .real = {{_alpha.real, -_beta.real}, {_beta.real, _alpha.real}}
+        .imag = {{_alpha.imag, _beta.imag} {_beta.imag, -_alpha.imag}};
+multiControlledUnitary(qreg, _ctrls, _nCtrls, a_index, _rot);
+
+getComplexPairFromRotation(phi, (Vector) {0, 0, 1}, &_alpha, &_beta);
+ComplexMatrix2 _rot = {
+        .real = {{_alpha.real, -_beta.real}, {_beta.real, _alpha.real}}
+        .imag = {{_alpha.imag, _beta.imag} {_beta.imag, -_alpha.imag}};
+multiControlledUnitary(qreg, _ctrls, _nCtrls, a_index, _rot);
+""".splitlines())])
 
 def Maths_to_Python(parent, maths: MathsBlock):
     """Resolve mathematical operations into C.

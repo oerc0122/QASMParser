@@ -710,6 +710,8 @@ class CodeBlock(CoreOp):
                 orig = self.resolve(gateName, argType="Gate")
                 orig.control(self)
             spargs = [nControls] + spargs
+            # Pack qargs automagically
+            qargs = [(InlineAlias(self, qargs[0:nControls]), (0, nControls-1)), *qargs[nControls:]]
             gateName = "_ctrl_"+gateName
 
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
