@@ -709,7 +709,7 @@ class CodeBlock(CoreOp):
             if self._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
                 orig.control(self)
-            spargs = [nControls] + spargs
+            spargs = [nControls, *spargs]
             # Pack qargs automagically
             qargs = [(InlineAlias(self, qargs[0:nControls]), (0, nControls-1)), *qargs[nControls:]]
             gateName = "_ctrl_"+gateName
