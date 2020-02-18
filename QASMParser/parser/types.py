@@ -708,7 +708,7 @@ class CodeBlock(CoreOp):
             # If control doesn't exist, make it
             if self._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
-                orig.control(self)
+                orig.control_gate(self)
             spargs = [nControls, *spargs]
             # Pack qargs automagically
             qargs = [(InlineAlias(self, qargs[0:nControls]), (0, nControls-1)), *qargs[nControls:]]
@@ -1514,6 +1514,276 @@ class Argument(Register):
         self._end = self.size
 
 
+# Gate types
+
+class Gate(Referencable, CodeBlock):
+    """
+    Type to handle general general gates and their extensions (circuit, procedure, etc.)
+
+    :param parent: Parent block defining object
+    :param name: Reference name of the object
+    :param block: Code block of operations
+    :param pargs: Input parameter arguments
+    :param qargs: Input quantum arguments
+    :param spargs: Input special arguments
+    :param gargs: Input gate arguments
+    :param byprod: Output classical bit
+    :param recursive: Gate allowed to recurse
+    :param unitary: Gate allowed to contain non-unitaries
+    :param returnType: Type of return of function
+    """
+    internalGates = {}
+    _disabledMethods = (("declare var", "new_variable"), ("measurement",), ("loop",), ("cycle",),
+                        ("escape",), ("end",), ("if", "new_if"), ("while", "new_while"), ("leave",))
+    _nonUnitaryMethods = (("measurement",),)
+    
+    def __new__(cls, *args, **kwargs):
+        """ Override new to allow disabling of methods through list """
+        newGate = super(Gate, cls).__new__(cls)
+        if cls is Gate or kwargs.get("unitary", False):
+            toDisable = newGate._disabledMethods + newGate._nonUnitaryMethods
+        else:
+            toDisable = newGate._disabledMethods
+        for method in toDisable:
+            newGate._disable(*method)
+        return newGate
+
+    def __init__(self, parent, name, block,
+                 pargs=(), qargs=(), spargs=(), gargs=(), byprod=(),
+                 recursive=False, unitary=False, returnType=None):
+        """Initialises the gate object """
+        CodeBlock.__init__(self, parent, block)
+        Referencable.__init__(self, parent, name)
+
+        # Gates are, by definition, unitary
+        if isinstance(self, Gate):
+            self.unitary = True
+        else:
+            self.unitary = unitary
+
+        self._inverse = None
+        self._control = None
+
+        if recursive:
+            if self.trueType == "Gate":
+                print(recursiveGateWarning)
+            self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
+            self._code = []
+            self.entry = EntryExit(self.name)
+        else:
+            self.entry = None
+
+        self.spargs = spargs
+        self.qargs = qargs
+        self.pargs = pargs
+        self.gargs = gargs
+
+        # List of vars declared only in scope
+
+        self.parse_instructions()
+
+        # Free those vars
+        self._code += [Dealloc(self, freeable) for freeable in self._to_free if freeable != byprod]
+
+        if not byprod:
+            self.byprod = None
+            self.returnType = None
+        else:
+            # Catches undefined returns
+            self.byprod = self.resolve(byprod, "ClassicalRegister")
+
+            self._code.append(Return(self, self.byprod))
+
+            if self.byprod.size == 1:
+                self.returnType = "int"
+            else:
+                self.returnType = "listint"
+
+        if returnType is not None:
+            self.returnType = returnType
+
+        if recursive and self.entry.depth > 0:
+            self._error(noExitWarning.format(self.name))
+
+    def invert(self, parent):
+        """Calculates the inverse of the gate and called gates and assigns it to self._inverse """
+        if not self.unitary:
+            self._error(failedOpWarning.format("invert", "non unitary "+self.trueType))
+
+        if self._inverse:
+            return self._inverse
+
+        inverse = copy.copy(self)
+        inverse._name = "_inv_"+self.name
+        inverse._code = []
+
+        for line in reversed(self.code):
+            if isinstance(line, CallGate):
+                gateName = line.name
+                if parent._check_def("_inv_"+gateName, create=True, argType="Gate"):
+                    gate = parent.resolve(gateName, argType="Gate")
+                    gate.invert(parent)
+                line.qargs[0][1] = (0, 0)
+                inverse._code.append(CallGate(self, "_inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+
+            else:
+                self._error(failedOpWarning.format("invert "+line.name, self.name + " invert"))
+
+        self._inverse = inverse
+        parent._code += [inverse]
+        parent._objs[inverse.name] = inverse
+        return self._inverse
+
+    def control_gate(self, parent):
+        """Calculates the controlled variant of the gate and called gates and assigns it to self._control """
+        if not self.unitary:
+            self._error(failedOpWarning.format("invert", "non unitary "+self.trueType))
+
+        if self._control:
+            return self._control
+
+        control = copy.copy(self)
+        control._name = "_ctrl_"+self.name
+        # Need to add sparg
+        control._spargs = [Constant(self, ("_nCtrls", "int"), (MathsBlock(self, "_nCtrls"), None))] + control._spargs
+        # Need to add extra qarg to contain controls
+        control._qargs = [Argument("_ctrls", "_nCtrls")] + control._qargs
+        control._code = []
+
+        for line in self.code:
+            if isinstance(line, CallGate):
+                gateName = line.name
+                if parent._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
+                    gate = parent.resolve(gateName, argType="Gate")
+                    gate.control(parent)
+                line.qargs[0][1] = (0, 0)
+                line.qargs = [("_ctrls", (0, 0))] + line.qargs
+                line.spargs = ["_nCtrls"] + line.spargs
+                control._code.append(CallGate(self, "_ctrl_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+
+            else:
+                self._error(failedOpWarning.format("control "+line.name, self.name + " control"))
+
+        self._control = control
+        parent._code += [control]
+        parent._objs[control.name] = control
+        return self._control
+
+    def _parse_qarg(self, token):
+        arg = token["var"]
+        size = token.get("ref", {"index":1})
+        if size is not None:
+            size = self.parse_range(size)
+        return Argument(self, arg, size)
+
+    def _qargs_setter(self, args):
+        """ Parse qargs and assign as arguments """
+        for argTok in args:
+            arg = self._parse_qarg(argTok)
+            self._objs[arg.name] = arg
+            self._qargs.append(self._objs[arg.name])
+
+    def _pargs_setter(self, args):
+        """ Parse pargs and set as floats """
+        for arg in args:
+            self._objs[arg] = Constant(self, (arg, "float"), (MathsBlock(self, arg), None))
+            self._pargs.append(self._objs[arg])
+
+    def _spargs_setter(self, args):
+        """ Parse spargs and set as ints """
+        for arg in args:
+            self._objs[arg] = Constant(self, (arg, "int"), (MathsBlock(self, arg), None))
+            self._spargs.append(self._objs[arg])
+
+    def _gargs_setter(self, args):
+        """ Parse gargs and add to space """
+        for arg in args:
+            self._gate(arg, NullBlock(self), unitary=self.unitary)
+
+    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, byprod=None, modifiers=()):
+        self._is_def(gateName, create=False, argType="Gate")
+        # Perform unitary checks
+        if self.unitary and not self._objs[gateName].unitary:
+            self._error(failedOpWarning.format("call non-unitary gate " + gateName, "unitary gate " + self.name))
+
+        CodeBlock._call_gate(self, gateName, pargs, qargs, gargs, spargs, byprod, modifiers)
+
+
+    qargs = property(lambda self: self._qargs, _qargs_setter)
+    pargs = property(lambda self: self._pargs, _pargs_setter)
+    spargs = property(lambda self: self._spargs, _spargs_setter)
+    gargs = property(lambda self: self._gargs, _gargs_setter)
+    inverse = property(lambda self: self._inverse)
+    control = property(lambda self: self._control)
+
+    def _disable(self, method, altName=None):
+        setattr(self, "_"+(altName or method), lambda *args: self._error(failedOpWarning.format(method, self.trueType)))
+
+class Circuit(Gate):
+    """
+    Type reflecting REQASM extension to gate
+    """
+    _disabledMethods = tuple()
+
+    def __init__(self, *args, **kwargs):
+        Gate.__init__(self, *args, **kwargs)
+        self._argType = "Gate"
+
+    def _new_variable(self, argName, size, classical):
+        """ Override new variable of gate to allow classical variables """
+        self._is_def(argName, create=True)
+
+        if classical:
+            variable = DeferredClassicalRegister(self, argName, size)
+            self._to_free += [self]
+            self._objs[argName] = variable
+        else:
+            self._error(gateDeclareWarning.format("qarg", type(self).__name__))
+
+        self._code += [variable]
+
+class Procedure(Circuit):
+    """ Defines a procedure as according to REQASM (No difference currently) """
+    _disabledMethods = tuple()
+    def __init__(self, *args, **kwargs):
+        Circuit.__init__(self, *args, **kwargs)
+        self._argType = "Procedure"
+
+class Opaque(Gate):
+    """
+    Type reflecting OpenQASM opaque gate
+    Allows the definition of a block through directive extensions
+    """
+    _disabledMethods = tuple()
+    def __init__(self, parent, name,
+                 pargs=(), qargs=(), spargs=(), gargs=(), byprod=None,
+                 recursive=False, unitary=False, returnType=None):
+        self.parentFile = parent.currentFile
+        Gate.__init__(self, parent, name, NullBlock(self.parentFile),
+                      pargs, qargs, spargs, gargs, byprod,
+                      recursive, unitary, returnType)
+        self._argType = "Gate"
+
+        self._inverse = None
+        self._control = None
+
+    def set_block(self, block):
+        """ Set the block of the opaque gate """
+        CodeBlock.__init__(self, self.parent, block)
+        self.parse_instructions()
+
+    def set_code(self, code):
+        """ Set the code of the opaque block directly """
+        self._code = code
+
+    def set_inverse(self, block):
+        """ Set the inverse of the opaque gate """
+        self._inverse = block
+
+    def set_control(self, block):
+        """ Set the control of the opaque gate """
+        self._control = block
+
 # Operation types
 
 class Return(Operation):
@@ -1771,292 +2041,6 @@ class EntryExit(CoreOp):
         """ Depth is defined """
         self.depth = 0
 
-class Gate(Referencable, CodeBlock):
-    """
-    Type to handle general general gates and their extensions (circuit, procedure, etc.)
-
-    :param parent: Parent block defining object
-    :param name: Reference name of the object
-    :param block: Code block of operations
-    :param pargs: Input parameter arguments
-    :param qargs: Input quantum arguments
-    :param spargs: Input special arguments
-    :param gargs: Input gate arguments
-    :param byprod: Output classical bit
-    :param recursive: Gate allowed to recurse
-    :param unitary: Gate allowed to contain non-unitaries
-    :param returnType: Type of return of function
-    """
-    internalGates = {}
-
-    def __init__(self, parent, name, block,
-                 pargs=(), qargs=(), spargs=(), gargs=(), byprod=(),
-                 recursive=False, unitary=False, returnType=None):
-        """Initialises the gate object """
-        CodeBlock.__init__(self, parent, block)
-        Referencable.__init__(self, parent, name)
-
-        # Gates are, by definition, unitary
-        if isinstance(self, Gate):
-            self.unitary = True
-        else:
-            self.unitary = unitary
-
-        self._inverse = None
-        self._control = None
-
-        if recursive:
-            if self.trueType == "Gate":
-                print(recursiveGateWarning)
-            self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
-            self._code = []
-            self.entry = EntryExit(self.name)
-        else:
-            self.entry = None
-
-        self.spargs = spargs
-        self.qargs = qargs
-        self.pargs = pargs
-        self.gargs = gargs
-
-        # List of vars declared only in scope
-
-        self.parse_instructions()
-
-        # Free those vars
-        self._code += [Dealloc(self, freeable) for freeable in self._to_free if freeable != byprod]
-
-        if not byprod:
-            self.byprod = None
-            self.returnType = None
-        else:
-            # Catches undefined returns
-            self.byprod = self.resolve(byprod, "ClassicalRegister")
-
-            self._code.append(Return(self, self.byprod))
-
-            if self.byprod.size == 1:
-                self.returnType = "int"
-            else:
-                self.returnType = "listint"
-
-        if returnType is not None:
-            self.returnType = returnType
-
-        if recursive and self.entry.depth > 0:
-            self._error(noExitWarning.format(self.name))
-
-    def invert(self, parent):
-        """Calculates the inverse of the gate and called gates and assigns it to self._inverse """
-        if not self.unitary:
-            self._error(failedOpWarning.format("invert", "non unitary "+self.trueType))
-
-        if self._inverse:
-            return self._inverse
-
-        inverse = copy.copy(self)
-        inverse._name = "_inv_"+self.name
-        inverse._code = []
-
-        for line in reversed(self.code):
-            if isinstance(line, CallGate):
-                gateName = line.name
-                if parent._check_def("_inv_"+gateName, create=True, argType="Gate"):
-                    gate = parent.resolve(gateName, argType="Gate")
-                    gate.invert(parent)
-                line.qargs[0][1] = (0, 0)
-                inverse._code.append(CallGate(self, "_inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
-
-            else:
-                self._error(failedOpWarning.format("invert "+line.name, self.name + " invert"))
-
-        self._inverse = inverse
-        parent._code += [inverse]
-        parent._objs[inverse.name] = inverse
-        return self._inverse
-
-    def control(self, parent):
-        """Calculates the controlled variant of the gate and called gates and assigns it to self._control """
-        if not self.unitary:
-            self._error(failedOpWarning.format("invert", "non unitary "+self.trueType))
-
-        if self._control:
-            return self._control
-
-        control = copy.copy(self)
-        control._name = "_ctrl_"+self.name
-        # Need to add sparg
-        control._spargs = [Constant(self, ("_nCtrls", "int"), (MathsBlock(self, "_nCtrls"), None))] + control._spargs
-        # Need to add extra qarg to contain controls
-        control._qargs = [Argument("_ctrls", "_nCtrls")] + control._qargs
-        control._code = []
-
-        for line in self.code:
-            if isinstance(line, CallGate):
-                gateName = line.name
-                if parent._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
-                    gate = parent.resolve(gateName, argType="Gate")
-                    gate.control(parent)
-                line.qargs[0][1] = (0, 0)
-                line.qargs = [("_ctrls", (0, 0))] + line.qargs
-                line.spargs = ["_nCtrls"] + line.spargs
-                control._code.append(CallGate(self, "_ctrl_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
-
-            else:
-                self._error(failedOpWarning.format("control "+line.name, self.name + " control"))
-
-        self._control = control
-        parent._code += [control]
-        parent._objs[control.name] = control
-        return self._control
-
-    def _parse_qarg(self, token):
-        arg = token["var"]
-        size = token.get("ref", {"index":1})
-        if size is not None:
-            size = self.parse_range(size)
-        return Argument(self, arg, size)
-
-    def _qargs_setter(self, args):
-        """ Parse qargs and assign as arguments """
-        for argTok in args:
-            arg = self._parse_qarg(argTok)
-            self._objs[arg.name] = arg
-            self._qargs.append(self._objs[arg.name])
-
-    def _pargs_setter(self, args):
-        """ Parse pargs and set as floats """
-        for arg in args:
-            self._objs[arg] = Constant(self, (arg, "float"), (MathsBlock(self, arg), None))
-            self._pargs.append(self._objs[arg])
-
-    def _spargs_setter(self, args):
-        """ Parse spargs and set as ints """
-        for arg in args:
-            self._objs[arg] = Constant(self, (arg, "int"), (MathsBlock(self, arg), None))
-            self._spargs.append(self._objs[arg])
-
-    def _gargs_setter(self, args):
-        """ Parse gargs and add to space """
-        for arg in args:
-            self._gate(arg, NullBlock(self), unitary=self.unitary)
-
-    def _new_variable(self, argName, size, classical):
-        if not classical:
-            self._error(failedOpWarning.format("declare carg", self.trueType))
-        else:
-            self._error(failedOpWarning.format("declare qarg", self.trueType))
-
-    def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, byprod=None, modifiers=()):
-        self._is_def(gateName, create=False, argType="Gate")
-        # Perform unitary checks
-        if self.unitary and not self._objs[gateName].unitary:
-            self._error(failedOpWarning.format("call non-unitary gate " + gateName, "unitary gate " + self.name))
-
-        CodeBlock._call_gate(self, gateName, pargs, qargs, gargs, spargs, byprod, modifiers)
-
-    def _measurement(self, qarg, qindex, parg, bindex):
-        self._error(failedOpWarning.format("measure", self.trueType))
-
-    def _loop(self, var, block, start, end, step):
-        self._error(failedOpWarning.format("loop", self.trueType))
-
-    def _cycle(self, var):
-        self._error(failedOpWarning.format("cycle", self.trueType))
-
-    def _escape(self, var):
-        self._error(failedOpWarning.format("escape", self.trueType))
-
-    def _end(self):
-        self._error(failedOpWarning.format("end", self.trueType))
-
-    def _new_while(self, cond, block):
-        self._error(failedOpWarning.format("while", self.trueType))
-
-    def _new_if(self, cond, block):
-        self._error(failedOpWarning.format("if", self.trueType))
-
-    def _leave(self):
-        self._error(failedOpWarning.format("exit", self.trueType))
-
-    qargs = property(lambda self: self._qargs, _qargs_setter)
-    pargs = property(lambda self: self._pargs, _pargs_setter)
-    spargs = property(lambda self: self._spargs, _spargs_setter)
-    gargs = property(lambda self: self._gargs, _gargs_setter)
-    inverse = property(lambda self: self._inverse)
-    control = property(lambda self: self._control)
-
-class Circuit(Gate):
-    """
-    Type reflecting REQASM extension to gate
-    """
-
-    def __init__(self, *args, **kwargs):
-        Gate.__init__(self, *args, **kwargs)
-        self._argType = "Gate"
-
-    def _new_variable(self, argName, size, classical):
-        """ Override new variable of gate to allow classical variables """
-        self._is_def(argName, create=True)
-
-        if classical:
-            variable = DeferredClassicalRegister(self, argName, size)
-            self._to_free += [self]
-            self._objs[argName] = variable
-        else:
-            self._error(gateDeclareWarning.format("qarg", type(self).__name__))
-
-        self._code += [variable]
-
-    # Re-enable functions
-    _measurement = CodeBlock._measurement
-    _loop = CodeBlock._loop
-    _cycle = CodeBlock._cycle
-    _escape = CodeBlock._escape
-    _end = CodeBlock._end
-    _new_while = CodeBlock._new_while
-    _new_if = CodeBlock._new_if
-    _leave = CodeBlock._leave
-
-class Procedure(Circuit):
-    """ Defines a circuit as according to REQASM """
-    def __init__(self, *args, **kwargs):
-        Circuit.__init__(self, *args, **kwargs)
-        self._argType = "Procedure"
-
-class Opaque(Gate):
-    """
-    Type reflecting OpenQASM opaque gate
-    Allows the definition of a block through directive extensions
-    """
-    def __init__(self, parent, name,
-                 pargs=(), qargs=(), spargs=(), gargs=(), byprod=None,
-                 recursive=False, unitary=False, returnType=None):
-        self.parentFile = parent.currentFile
-        Gate.__init__(self, parent, name, NullBlock(self.parentFile),
-                      pargs, qargs, spargs, gargs, byprod,
-                      recursive, unitary, returnType)
-        self._argType = "Gate"
-
-        self._inverse = None
-        self._control = None
-
-    def set_block(self, block):
-        """ Set the block of the opaque gate """
-        CodeBlock.__init__(self, self.parent, block)
-        self.parse_instructions()
-
-    def set_code(self, code):
-        """ Set the code of the opaque block directly """
-        self._code = code
-
-    def set_inverse(self, block):
-        """ Set the inverse of the opaque gate """
-        self._inverse = block
-
-    def set_control(self, block):
-        """ Set the control of the opaque gate """
-        self._control = block
 
 class Dealloc(Operation):
     """ Deallocate assigned memory """
