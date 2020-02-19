@@ -174,7 +174,8 @@ class Operation(CoreOp):
 
         """
         if any(isinstance(parg[0], InlineAlias) for parg in pargs):
-            self._error(inlineAliasLoopWarning)
+            # print(inlineAliasLoopWarning)
+            return
 
         baseStart, baseEnd = pargs[0][1]
         loopable = baseStart != baseEnd
@@ -700,20 +701,21 @@ class CodeBlock(CoreOp):
         nControls = len([a for a in modifiers.asList() if a == "CTRL"])
         if nInvert%2: # If odd number of inverts
             # If inverse doesn't exist, make it
-            if self._check_def("_inv_"+gateName, create=True, argType="Gate"):
+            invGateName = "_inv_"+gateName
+            if self._check_def(invGateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
-                orig.invert(self)
+                self._objs[invGateName] = orig.invert(self.parent)
             gateName = "_inv_"+gateName
         if nControls:
             # If control doesn't exist, make it
-            if self._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
+            ctrlGateName = "_ctrl_"+gateName
+            if self._check_def(ctrlGateName, create=True, argType="Gate"):
                 orig = self.resolve(gateName, argType="Gate")
-                orig.control_gate(self)
+                self._objs[ctrlGateName] = orig.control_gate(self.parent)
             spargs = [nControls, *spargs]
             # Pack qargs automagically
             qargs = [[InlineAlias(self, qargs[0:nControls]), (0, nControls-1)], *qargs[nControls:]]
-            gateName = "_ctrl_"+gateName
-
+            gateName = ctrlGateName
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
 
         self._code += [gate]
@@ -1553,7 +1555,6 @@ class Gate(Referencable, CodeBlock):
         """Initialises the gate object """
         CodeBlock.__init__(self, parent, block)
         Referencable.__init__(self, parent, name)
-
         # Gates are, by definition, unitary
         if isinstance(self, Gate):
             self.unitary = True
