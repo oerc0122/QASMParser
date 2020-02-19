@@ -312,7 +312,7 @@ class CodeBlock(CoreOp):
             if len(resolvedTargets) == 1: # If we don't really need to alias
                 out = resolvedTargets[0]
             else:
-                out = (InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1))
+                out = [InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1)]
 
         elif argType == "Alias":
 
@@ -711,7 +711,7 @@ class CodeBlock(CoreOp):
                 orig.control_gate(self)
             spargs = [nControls, *spargs]
             # Pack qargs automagically
-            qargs = [(InlineAlias(self, qargs[0:nControls]), (0, nControls-1)), *qargs[nControls:]]
+            qargs = [[InlineAlias(self, qargs[0:nControls]), (0, nControls-1)], *qargs[nControls:]]
             gateName = "_ctrl_"+gateName
 
         gate = CallGate(self, gateName, pargs, qargs, gargs, spargs, byprod)
@@ -901,7 +901,6 @@ class CodeBlock(CoreOp):
             gargs = token.get("gargs", [])
             byprod = token.get("byprod", None)
             mods = token.get("mods", [])
-
             self._call_gate(gateName, pargs, qargs, gargs, spargs, byprod, modifiers=mods)
         elif keyword == "measure":
             qarg, qindex = self.parse_reg_ref(token["qreg"])
@@ -1536,7 +1535,7 @@ class Gate(Referencable, CodeBlock):
     _disabledMethods = (("declare var", "new_variable"), ("measurement",), ("loop",), ("cycle",),
                         ("escape",), ("end",), ("if", "new_if"), ("while", "new_while"), ("leave",))
     _nonUnitaryMethods = (("measurement",),)
-    
+
     def __new__(cls, *args, **kwargs):
         """ Override new to allow disabling of methods through list """
         newGate = super(Gate, cls).__new__(cls)
@@ -1622,9 +1621,10 @@ class Gate(Referencable, CodeBlock):
                 gateName = line.name
                 if parent._check_def("_inv_"+gateName, create=True, argType="Gate"):
                     gate = parent.resolve(gateName, argType="Gate")
-                    gate.invert(parent)
+                    invGate = gate.invert(parent)
+                    self._objs[invGate.name] = invGate
                 line.qargs[0][1] = (0, 0)
-                inverse._code.append(CallGate(self, "_inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+                inverse._code += [CallGate(self, "_inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs, line.byprod)]
 
             else:
                 self._error(failedOpWarning.format("invert "+line.name, self.name + " invert"))
@@ -1644,10 +1644,17 @@ class Gate(Referencable, CodeBlock):
 
         control = copy.copy(self)
         control._name = "_ctrl_"+self.name
-        # Need to add sparg
-        control._spargs = [Constant(self, ("_nCtrls", "int"), (MathsBlock(self, "_nCtrls"), None))] + control._spargs
-        # Need to add extra qarg to contain controls
-        control._qargs = [Argument("_ctrls", "_nCtrls")] + control._qargs
+
+        # Need to add extra sparg to contain nControls
+        nCtrlsArg = Constant(self, ("_nCtrls", "int"), (MathsBlock(self, "_nCtrls"), None))
+        control._objs["_nCtrls"] = nCtrlsArg
+        control._spargs = [nCtrlsArg, *control._spargs]
+
+        # And add extra qarg to contain controls
+        ctrlArg = Argument(control, "_ctrls", "_nCtrls")
+        control._objs["_ctrls"] = ctrlArg
+        control._qargs = [ctrlArg, *control._qargs]
+
         control._code = []
 
         for line in self.code:
@@ -1655,11 +1662,13 @@ class Gate(Referencable, CodeBlock):
                 gateName = line.name
                 if parent._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
                     gate = parent.resolve(gateName, argType="Gate")
-                    gate.control(parent)
-                line.qargs[0][1] = (0, 0)
-                line.qargs = [("_ctrls", (0, 0))] + line.qargs
-                line.spargs = ["_nCtrls"] + line.spargs
-                control._code.append(CallGate(self, "_ctrl_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs))
+                    ctrlGate = gate.control_gate(parent)
+                    self._objs[ctrlGate.name] = ctrlGate
+                line._qargs[0][1] = (0, 0)
+                line._qargs = [[ctrlArg, (0, nCtrlsArg)], *line.qargs]
+                line._spargs = [nCtrlsArg, *line.spargs]
+                control._code += [CallGate(control, "_ctrl_"+gateName,
+                                           line.pargs, line.qargs, line.gargs, line.spargs, line.byprod)]
 
             else:
                 self._error(failedOpWarning.format("control "+line.name, self.name + " control"))
@@ -1670,10 +1679,10 @@ class Gate(Referencable, CodeBlock):
         return self._control
 
     def _parse_qarg(self, token):
-        arg = token["var"]
-        size = token.get("ref", {"index":1})
-        if size is not None:
-            size = self.parse_range(size)
+        arg, size = self.parse_reg_ref(token)
+        if size is None:
+            size = {"index": 1}
+        size = self.parse_range(size)
         return Argument(self, arg, size)
 
     def _qargs_setter(self, args):
@@ -1783,6 +1792,14 @@ class Opaque(Gate):
     def set_control(self, block):
         """ Set the control of the opaque gate """
         self._control = block
+
+    @staticmethod
+    def parse_reg_ref(token, ref=False):
+        """ Parse a register reference """
+        if ref: # Raise error if no ref
+            return token["var"], token["ref"]
+
+        return token["var"], token.get("ref", None)
 
 # Operation types
 
@@ -1952,7 +1969,6 @@ class CallGate(Operation):
         elif self.nLoops < 2:
             for parg in pargs:
                 pargStart, pargEnd = parg[1]
-
                 if pargStart == pargEnd:
                     parg[1] = pargStart
                 else:
