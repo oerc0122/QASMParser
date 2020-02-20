@@ -39,7 +39,7 @@ def parse_version(versionIn):
 cops = {}
 qops = {}
 blocks = {}
-_reservedKeys = []
+_reservedKeys = ["pi"]
 
 def _override_keyword(toks, name):
     """Set returned keyword to be name instead of the parser key."""
@@ -374,8 +374,8 @@ def _setup_QASMParser():
         keyOverride=Empty())
 
     # Set-up line parsers
-    reservedNames = Or(_reservedKeys) ^ pi
-    validName <<= (~reservedNames) + Word(alphas, alphanums+"_")
+    reservedNames = Or(map(Keyword, _reservedKeys))
+    validName <<=  (~reservedNames) + Word(alphas, alphanums+"_")
 
     copsParsers = list(map(lambda cop: cop.parser, cops.values()))
 
