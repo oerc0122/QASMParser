@@ -2,6 +2,7 @@
 Module to handle reading of QASM files, blocks and perform error handling with useful output
 """
 
+import sys
 import os.path
 from pyparsing import (ParseException)
 from .tokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parse_version,
@@ -59,7 +60,7 @@ class QASMFile:
                                  file=self.name, line=self.nLine))
         import traceback
         traceback.print_stack()
-        quit()
+        sys.exit(1)
 
     def __del__(self):
         try:
@@ -102,7 +103,7 @@ class QASMFile:
             print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))
             import traceback
             traceback.print_stack()
-            quit()
+            sys.exit(1)
 
     def read_instruction(self):
         """ Generator to read a single instruction from the file """
