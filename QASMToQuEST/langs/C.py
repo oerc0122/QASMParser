@@ -1,13 +1,13 @@
 """
 Module to supply functions to write C from given QASM types
 """
-from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
+from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredQuantumRegister, DeferredClassicalRegister,
                                      Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                      Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                      Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
                                      MathOp, Register, Dealloc, DeferredAlias, InlineAlias)
 from QASMParser.parser.tokens import (Binary, Function)
-from QASMParser.parser.filehandle import (NullBlock)
+#from QASMParser.parser.filehandle import (NullBlock)
 
 def set_lang():
     """
@@ -19,6 +19,7 @@ def set_lang():
     TensorNetwork.to_lang = TensorNetwork_to_c
     ClassicalRegister.to_lang = DeferredClassicalRegister_to_c
     QuantumRegister.to_lang = QuantumRegister_to_c
+    DeferredQuantumRegister.to_lang = DeferredQuantumRegister_to_c
     DeferredClassicalRegister.to_lang = DeferredClassicalRegister_to_c
     Let.to_lang = Let_to_c
     Argument.to_lang = Argument_to_c
@@ -49,15 +50,15 @@ def set_lang():
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
-hoistFuncs = True    # Move functions to front of program
-hoistIncludes = True # Move includes  to front of program
-hoistVars = False    # Move variables to front of program
-bareCode = False     # Can code be bare or does it need to be in function
-blockOpen = "{"      # Block delimiters
-blockClose = "}"     #  ""      ""
-indent = "  "        # Standard indent depth
+HOIST_FUNCS = True    # Move functions to front of program
+HOIST_INCLUDES = True # Move includes  to front of program
+HOIST_VARS = False    # Move variables to front of program
+BARECODE = False     # Can code be bare or does it need to be in function
+BLOCKOPEN = "{"      # Block delimiters
+BLOCKCLOSE = "}"     #  ""      ""
+INDENT = "  "        # Standard indent depth
 
-_typesTranslation = {
+_TYPES_TRANSLATION = {
     "int":"int",
     "float":"qreal",
     "qreg":"Qureg",
@@ -253,8 +254,8 @@ def inc(filename):
     """
     return f'#include "{filename}"'
 
-header = [inc("stdlib.h"), inc("stdio.h"), inc("QuEST.h"), inc("reqasm.h"), inc("reqasm.c")]
-includeTN = inc("QuEST_tn.h") + "\n#define CX tn_controlledNot\n#define U tn_unitary"
+HEADER = [inc("stdlib.h"), inc("stdio.h"), inc("QuEST.h"), inc("reqasm.h"), inc("reqasm.c")]
+INCLUDE_TN = inc("QuEST_tn.h") + "\n#define CX tn_controlledNot\n#define U tn_unitary"
 
 def init_env(self):
     """ Syntax conversion for initialising QuEST environment """
@@ -285,7 +286,10 @@ def Reset_to_c(self):
     """Syntax conversion for resetting quantum state to zero."""
     qarg = self.qargs
     qargRef = resolve_arg(qarg)
-    return f'collapseToOutcome(qreg, {qargRef}, 0);'
+    return f'''{{
+int _{qarg[0].name} = measure(qreg, {qargRef});
+if (_{qarg[0].name}) pauliX(qreg, {qargRef});
+}}'''
 
 def ClassicalRegister_to_c(self):
     """Syntax conversion for creating a classical register."""
@@ -309,6 +313,10 @@ def Dealloc_to_c(self):
 def QuantumRegister_to_c(self):
     """Syntax conversion for creating a quantum register."""
     return f"Qureg {self.name} = createQureg({self.size}, Env);"
+
+def DeferredQuantumRegister_to_c(self):
+    """Syntax conversion for creating a quantum register."""
+    return f"const int[] {self.name} = {{{', '.join(map(str, self.mapping))}}};"
 
 def TensorNetwork_to_c(self):
     """Syntax conversion for creating a TensorNetwork """
@@ -359,7 +367,7 @@ def Let_to_c(self):
     assignee = var.name
 
     if var.varType:
-        assignee = f"{_typesTranslation[var.varType]} {assignee}"
+        assignee = f"{_TYPES_TRANSLATION[var.varType]} {assignee}"
         if var.varType in ["const listint", "listint", "listfloat"]:
             assignee += f"[{len(var.val)}]"
 
@@ -452,7 +460,7 @@ def CreateGate_to_c(self):
         printSpargs = ", ".join(f"const int {sparg.name}" for sparg in self.spargs)
 
     printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
-    returnType = _typesTranslation[self.returnType]
+    returnType = _TYPES_TRANSLATION[self.returnType]
     outStr = f"{returnType} {self.name}({printArgs}) "
     return outStr
 

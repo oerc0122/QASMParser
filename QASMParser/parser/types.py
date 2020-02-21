@@ -181,7 +181,7 @@ class Operation(CoreOp):
         loopable = baseStart != baseEnd
 
         if loopable:
-            loopVar = pargs[0][0].name + "_loop"
+            loopVar = f"_{pargs[0][0].name}_loop"
             self._add_loop(loopVar, baseStart, baseEnd)
         else:
             loopVar = False
@@ -234,7 +234,8 @@ class CodeBlock(CoreOp):
         self._spargs = []
         self._gargs = []
         self._objs = copy.copy(parent.get_objs("Copy")) if copyObjs else {}
-        self._to_free = []
+        self._qregs = []
+        self._cregs = []
         self.currentFile = block
         self.instructions = self.currentFile.read_instruction()
         self._error = self.currentFile.error
@@ -244,6 +245,25 @@ class CodeBlock(CoreOp):
     qargs = property(lambda self: self._qargs)
     spargs = property(lambda self: self._spargs)
     gargs = property(lambda self: self._gargs)
+
+    cregs = property(lambda self: [creg for creg in self._objs.values()
+                                   if isinstance(creg, (ClassicalRegister, DeferredClassicalRegister))])
+    qregs = property(lambda self: [qreg for qreg in self._objs.values()
+                                   if isinstance(qreg, (QuantumRegister, DeferredQuantumRegister))])
+
+    @property
+    def local_cregs(self):
+        """ All cregs declared in the local scope """
+        if self.parent:
+            return [creg for creg in self.cregs if creg not in self.parent.cregs]
+        return self.cregs
+
+    @property
+    def local_qregs(self):
+        """ All qregs declared in the local scope """
+        if self.parent:
+            return [qreg for qreg in self.qregs if qreg not in self.parent.qregs]
+        return self.qregs
 
     def get_objs(self, obj=None):
         """ Return objects dict or element
@@ -471,9 +491,8 @@ class CodeBlock(CoreOp):
             if hasattr(elem, "trueType"):
                 raise NotImplementedError(failedOpWarning.format(
                     f"parse {elem.trueType} {elem}", "resolve_maths"))
-            else:
-                raise NotImplementedError(failedOpWarning.format(
-                    f"parse {type(elem).__name__} {elem}", "resolve_maths"))
+            raise NotImplementedError(failedOpWarning.format(
+                f"parse {type(elem).__name__} {elem}", "resolve_maths"))
         if not outStr:
             return "0"
 
@@ -553,23 +572,28 @@ class CodeBlock(CoreOp):
         """
         self._code += [Comment(self, comment)]
 
-    def _new_variable(self, argName, size, classical):
-        """ Create a new register in scope of self and append it to the code
+    def _qreg(self, argName, size):
+        """ Create a new qreg in scope of self and append it to the code
 
-        :param argName: Name of register to create
-        :param size:    Size of register to create
-        :param classical: Whether register is Classical or Quantum
-
+        :param argName: Name of qreg to create
+        :param size:    Size of qreg to create
         """
         self._is_def(argName, create=True)
 
-        if classical:
-            variable = ClassicalRegister(self, argName, size)
-            self._objs[argName] = variable
-        else:
-            variable = QuantumRegister(self, argName, size)
-            self._objs[argName] = variable
+        variable = QuantumRegister(self, argName, size)
+        self._objs[argName] = variable
+        self._code += [variable]
 
+    def _creg(self, argName, size):
+        """ Create a new creg in scope of self and append it to the code
+
+        :param argName: Name of creg to create
+        :param size:    Size of creg to create
+        """
+        self._is_def(argName, create=True)
+
+        variable = ClassicalRegister(self, argName, size)
+        self._objs[argName] = variable
         self._code += [variable]
 
     def _new_alias(self, argName, size):
@@ -801,7 +825,7 @@ class CodeBlock(CoreOp):
     def _dealloc(self, target):
         """ Free deferred objects """
         targetObj = self.resolve(target, argType="ClassicalRegister")
-        if targetObj not in self._to_free:
+        if targetObj not in self.cregs:
             self._error(freeWarning.format(targetObj.name))
 
         self._code += [Dealloc(self, targetObj)]
@@ -930,17 +954,13 @@ class CodeBlock(CoreOp):
 
         # Variable-like routines
         elif keyword in ["cbit", "creg"]: # Registers default to size 1 if blank
-            argName, size = self.parse_reg_ref(token["arg"])
-            if size is None:
-                size = {"index": 1}
+            argName, size = self.parse_reg_ref(token["arg"], defaultSize=1)
             size = self.parse_range(size)
-            self._new_variable(argName, size, True)
+            self._creg(argName, size)
         elif keyword in ["qbit", "qreg"]:
-            argName, size = self.parse_reg_ref(token["arg"])
-            if size is None:
-                size = {"index": 1}
+            argName, size = self.parse_reg_ref(token["arg"], defaultSize=1)
             size = self.parse_range(size)
-            self._new_variable(argName, size, False)
+            self._qreg(argName, size)
         elif keyword == "val":
             var = token["var"]
             val = token["val"]
@@ -1139,12 +1159,15 @@ class CodeBlock(CoreOp):
         return MathsBlock(self, maths, topLevel=True)
 
     @staticmethod
-    def parse_reg_ref(token, ref=False):
+    def parse_reg_ref(token, refRequired=False, defaultSize=None):
         """ Parse a register reference """
-        if ref: # Raise error if no ref
+        if refRequired: # Raise error if no ref
             return token["var"], token["ref"]
 
-        return token["var"], token.get("ref", None)
+        if defaultSize is None:
+            return token["var"], token.get("ref", None)
+
+        return token["var"], token.get("ref", {"index":defaultSize})
 
 class SubBlock(CodeBlock):
     """ Extending type to inherit overwritten core functions with those of the parent """
@@ -1329,6 +1352,7 @@ class QuantumRegister(Register):
     :param inter: Range of bits
     """
     numQubits = 0
+    numGateQubits = 0
 
     def __init__(self, parent, name, inter):
         """Initialise a quantum register
@@ -1350,6 +1374,33 @@ class QuantumRegister(Register):
         if len(val) != self.size:
             raise ValueError(badMappingWarning.format(self.name, len(val), val, self.size))
         self._mapping = val
+
+class DeferredQuantumRegister(QuantumRegister):
+    """
+    Deferred Quantum register as created by "qreg" when used in a gate
+    - Mapping determined when all qregs sorted
+
+    :param parent: Parent block defining object
+    :param name: Reference name of the object
+    :param inter: Range of bits
+    :param nQbitused: Number of qubits already used in this gate
+    """
+
+    def __init__(self, parent, name, inter, nQubitsUsed):
+        """Initialise a quantum register
+        """
+        Register.__init__(self, parent, name, inter)
+        self._nQubitsUsed = nQubitsUsed
+        self._argType = "QuantumRegister"
+        QuantumRegister.numGateQubits = max(self.end - QuantumRegister.numQubits,
+                                            QuantumRegister.numGateQubits)
+
+    nQubitsUsed = property(lambda self: self._nQubitsUsed)
+    start = property(lambda self: self._start + QuantumRegister.numQubits + self.nQubitsUsed)
+    end = property(lambda self: self._end + QuantumRegister.numQubits + self.nQubitsUsed)
+    mapping = property(lambda self: tuple(range(self.start, self.end)))
+
+        
 class ClassicalRegister(Register):
     """
     Classical register as created by "creg"
@@ -1426,7 +1477,7 @@ class Alias(Register):
     """
     Alias as specified in REQASM
     """
-    def __init__(self, parent, name, inter):
+    def __init__(self, parent, name, inter, targets="size"):
         """Initialise an alias
 
         :param parent: Parent block defining object
@@ -1434,10 +1485,16 @@ class Alias(Register):
         :param inter: Range of bits
         """
         Register.__init__(self, parent, name, inter)
-        self._targets = Targets([(None, None)]*self.size)
+        if targets == "size":
+            self._targets = Targets([(None, None)]*self.size)
+        elif not targets:
+            self._targets = []
+        else:
+            self._targets = Targets(targets)
+        self._argType = "Alias"
 
     targets = property(lambda self: self._targets)
-    unique = property(lambda self: unique(self.targets))
+    is_unique = property(lambda self: unique(self.targets))
 
     def set_target(self, indices, target, interval):
         """ Aliases target to indices
@@ -1449,13 +1506,13 @@ class Alias(Register):
         """
         for index in range(indices[0], indices[1]+1):
             self._targets[index - self.minIndex] = (target, interval[0] + index)
-        if not self.unique:
+        if not self.is_unique:
             self._error(targetUniqueWarning.format(self.name))
 
     @property
     def allSet(self):
         """ Check all targets spread """
-        return all(target != (None, None) for target in self.targets)
+        return (None, None) not in self.targets
 
 class DeferredAlias(Alias):
     """
@@ -1468,9 +1525,7 @@ class DeferredAlias(Alias):
     """
     def __init__(self, parent, name, inter):
         """ Initialise a deferred alias """
-        Register.__init__(self, parent, name, inter)
-        self.targets = []
-        self._argType = "Alias"
+        Alias.__init__(self, parent, name, inter, [])
 
     def set_target(self, indices, target, interval):
         """ Aliases target to indices
@@ -1488,9 +1543,7 @@ class DeferredAlias(Alias):
 class InlineAlias(Alias):
     def __init__(self, parent, args):
         """ Initialise an inline alias """
-        Register.__init__(self, parent, None, len(args))
-        self._targets = Targets(args)
-        self._argType = "Alias"
+        Register.__init__(self, parent, None, len(args), args)
         if not self.unique:
             self._error(targetUniqueWarning.format("<inline alias>"))
 
@@ -1534,7 +1587,7 @@ class Gate(Referencable, CodeBlock):
     :param returnType: Type of return of function
     """
     internalGates = {}
-    _disabledMethods = (("declare var", "new_variable"), ("measurement",), ("loop",), ("cycle",),
+    _disabledMethods = (("qreg",), ("creg",), ("loop",), ("cycle",),
                         ("escape",), ("end",), ("if", "new_if"), ("while", "new_while"), ("leave",))
     _nonUnitaryMethods = (("measurement",),)
 
@@ -1583,7 +1636,10 @@ class Gate(Referencable, CodeBlock):
         self.parse_instructions()
 
         # Free those vars
-        self._code += [Dealloc(self, freeable) for freeable in self._to_free if freeable != byprod]
+        self._code += [Dealloc(self, freeable) for freeable in self.local_cregs if freeable != byprod]
+        # Reset qregs
+        for freeable in self.local_qregs:
+            self._reset(freeable.name, None)
 
         if not byprod:
             self.byprod = None
@@ -1625,7 +1681,8 @@ class Gate(Referencable, CodeBlock):
                     invGate = gate.invert(parent)
                     self._objs[invGate.name] = invGate
                 line.qargs[0][1] = (0, 0)
-                inverse._code += [CallGate(self, "_inv_"+gateName, line.pargs, line.qargs, line.gargs, line.spargs, line.byprod)]
+                inverse._code += [CallGate(self, "_inv_"+gateName,
+                                           line.pargs, line.qargs, line.gargs, line.spargs, line.byprod)]
 
             else:
                 self._error(failedOpWarning.format("invert "+line.name, self.name + " invert"))
@@ -1680,9 +1737,7 @@ class Gate(Referencable, CodeBlock):
         return self._control
 
     def _parse_qarg(self, token):
-        arg, size = self.parse_reg_ref(token)
-        if size is None:
-            size = {"index": 1}
+        arg, size = self.parse_reg_ref(token, defaultSize=1)
         size = self.parse_range(size)
         return Argument(self, arg, size)
 
@@ -1739,17 +1794,16 @@ class Circuit(Gate):
         Gate.__init__(self, *args, **kwargs)
         self._argType = "Gate"
 
-    def _new_variable(self, argName, size, classical):
-        """ Override new variable of gate to allow classical variables """
+    def _creg(self, argName, size):
         self._is_def(argName, create=True)
+        variable = DeferredClassicalRegister(self, argName, size)
+        self._objs[argName] = variable
 
-        if classical:
-            variable = DeferredClassicalRegister(self, argName, size)
-            self._to_free += [self]
-            self._objs[argName] = variable
-        else:
-            self._error(gateDeclareWarning.format("qarg", type(self).__name__))
-
+    def _qreg(self, argName, size):
+        self._is_def(argName, create=True)
+        nQubitsUsed = sum(reg.size for reg in self.local_qregs)
+        variable = DeferredQuantumRegister(self, argName, size, nQubitsUsed)
+        self._objs[argName] = variable
         self._code += [variable]
 
 class Procedure(Circuit):
@@ -1794,13 +1848,7 @@ class Opaque(Gate):
         """ Set the control of the opaque gate """
         self._control = block
 
-    @staticmethod
-    def parse_reg_ref(token, ref=False):
-        """ Parse a register reference """
-        if ref: # Raise error if no ref
-            return token["var"], token["ref"]
-
-        return token["var"], token.get("ref", None)
+    parse_reg_ref = staticmethod(CodeBlock.parse_reg_ref)
 
 # Operation types
 

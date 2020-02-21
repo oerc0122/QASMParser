@@ -33,7 +33,7 @@ def to_lang(codeObj, filename=None, langOut="C", **options):
     except ImportError:
         raise NotImplementedError(langNotDefWarning.format(langOut))
 
-    indent = lang.indent
+    indent = lang.INDENT
     if codeObj.classLang is not None and codeObj.classLang != langOut:
         raise NotImplementedError(langMismatchWarning.format(codeObj.classLang, langOut))
 
@@ -49,23 +49,23 @@ def to_lang(codeObj, filename=None, langOut="C", **options):
                 writeln(line.inlineComment.to_lang())
 
             if hasattr(line, "loops") and line.loops: # Handle loops
-                writeln(line.loops.to_lang() + lang.blockOpen)
+                writeln(line.loops.to_lang() + lang.BLOCKOPEN)
                 print_code(codeObj, line.loops.code, outputFile)
-                writeln(lang.blockClose)
+                writeln(lang.BLOCKCLOSE)
 
             elif isinstance(line, CBlock): # Handle verbatim language blocks
                 writeln(line.to_lang())
 
             elif hasattr(line, "code"): # Print children
-                writeln(line.to_lang() + lang.blockOpen)
+                writeln(line.to_lang() + lang.BLOCKOPEN)
                 print_code(codeObj, line.code, outputFile)
-                writeln(lang.blockClose)
+                writeln(lang.BLOCKCLOSE)
 
             elif issubclass(type(line), Verbatim):
-                if lang.blockClose and lang.blockClose in line.line:
+                if lang.BLOCKCLOSE and lang.BLOCKCLOSE in line.line:
                     depth -= 1
                 writeln(line.to_lang())
-                if lang.blockOpen and lang.blockOpen in line.line:
+                if lang.BLOCKOPEN and lang.BLOCKOPEN in line.line:
                     depth += 1
 
             else: # Print codeObj
@@ -96,12 +96,12 @@ def to_lang(codeObj, filename=None, langOut="C", **options):
             funcName = "module"
     else:
         funcName = "main"
-        if hasattr(lang, 'header'):
-            if isinstance(lang.header, (list, tuple)):
-                for line in lang.header:
+        if hasattr(lang, 'HEADER'):
+            if isinstance(lang.HEADER, (list, tuple)):
+                for line in lang.HEADER:
                     writeln(line)
-            elif isinstance(lang.header, str):
-                writeln(lang.header)
+            elif isinstance(lang.HEADER, str):
+                writeln(lang.HEADER)
 
     incs = (x for x in codeToWrite if isinstance(x, Include))
     for include in incs:
@@ -111,19 +111,19 @@ def to_lang(codeObj, filename=None, langOut="C", **options):
         else:
             codeToWrite[target:target+1] = include.raw_code
 
-    if lang.hoistIncludes:
+    if lang.HOIST_INCLUDES:
         codeToWrite = sorted(codeToWrite, key=lambda x: isinstance(x, Include))
         while isinstance(codeToWrite[-1], Include):
             print_code(codeObj, [codeToWrite.pop()], outputFile)
 
     if codeObj.useTN:
         lang.UseTN()
-        writeln(lang.includeTN)
+        writeln(lang.INCLUDE_TN)
 
     if options["include_internals"]:
         codeToWrite = list(Gate.internalGates.values()) + codeToWrite
 
-    if lang.hoistFuncs:
+    if lang.HOIST_FUNCS:
         codeToWrite = sorted(codeToWrite, key=lambda x: issubclass(type(x), Gate))
         gate = []
         while codeToWrite and issubclass(type(codeToWrite[-1]), Gate):
@@ -151,7 +151,7 @@ def fix_qureg(codeObj):
         code += [Let(codeObj, (reg.name, "const listint"), (reg.mapping, None))]
 
     if not codeObj.useTN:
-        code += [QuantumRegister(codeObj, "qreg", QuantumRegister.numQubits)]
+        code += [QuantumRegister(codeObj, "qreg", QuantumRegister.numQubits + QuantumRegister.numGateQubits)]
     else:
         for reg in codeObj.quantumRegisters:
             code += [Comment(codeObj, f'{reg.name}[{reg.start}:{reg.end-1}] => {", ".join(map(str, reg.TNMapping))}')]

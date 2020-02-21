@@ -49,13 +49,13 @@ def set_lang():
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
-hoistFuncs = False    # Move functions to front of program
-hoistIncludes = False # Move includes  to front of program
-hoistVars = False     # Move variables to front of program
-bareCode = False      # Can code be bare or does it need to be in function
-blockOpen = ":"       # Block delimiters
-blockClose = "\n"       #  ""      ""
-indent = "    "       # Standard indent depth
+HOIST_FUNCS = False    # Move functions to front of program
+HOIST_INCLUDES = False # Move includes  to front of program
+HOIST_VARS = False     # Move variables to front of program
+BARECODE = False      # Can code be bare or does it need to be in function
+BLOCKOPEN = ":"       # Block delimiters
+BLOCKCLOSE = "\n"       #  ""      ""
+INDENT = "    "       # Standard indent depth
 
 def init_core_QASM_gates():
     """ Set up the core gates in python """
@@ -219,7 +219,7 @@ def python_include(filename: str):
 
     """
     return f'from {filename} import *'
-header = [python_include("QuESTLibs"), python_include("math")]
+HEADER = [python_include("QuESTLibs"), python_include("math")]
 
 def Include_to_Python(self):
     """Syntax conversion for Python imports."""
@@ -415,13 +415,16 @@ def Reset_to_Python(self):
     """Syntax conversion for resetting quantum state to zero."""
     qarg = self.qargs
     qargRef = self.resolve_arg(qarg)
-    return f'collapseToOutcome(qreg, {qargRef}, 0)'
+    return f'''_a = measure(qreg, {qargRef})
+if (_a) pauliX(qreg, {qargRef})
+del _a
+'''
 
 
 def UseTN():
     CallGate.to_lang = CallGateTN_to_Python
 #    Reset.to_lang = ResetTN_to_Python
-includeTN = python_include("TNPy")
+INCLUDE_TN = python_include("TNPy")
 
 def CallGateTN_to_Python(self):
     """Syntax conversion for calling a gate."""

@@ -6,9 +6,9 @@ import sys
 import os.path
 from pyparsing import (ParseException)
 from .tokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parse_version,
-                         qops, cops, blocks)
+                     qops, cops, blocks)
 from .errors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
-                         unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning)
+                     unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning)
 
 class QASMFile:
     """

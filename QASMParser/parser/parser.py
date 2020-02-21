@@ -6,7 +6,7 @@ from .types import (QuantumRegister, CodeBlock, Constant, Include, Gate, Circuit
 from .filehandle import (QASMFile)
 from .errors import (includeWarning)
 
-langConstants = ["pi", "T", "F"]
+LANG_CONSTANTS = ["pi", "T", "F"]
 
 class ProgFile(CodeBlock):
     """
@@ -17,7 +17,7 @@ class ProgFile(CodeBlock):
     quantumRegisters = property(lambda self: [reg for reg in self.code if isinstance(reg, QuantumRegister)])
     gates = property(lambda self: [gate for gate in self.code if isinstance(gate, (Gate, Circuit, Procedure, Opaque))])
     nQubits = property(lambda self: sum(reg.size for reg in self.quantumRegisters))
-    
+
     def __init__(self, filename):
         self.filename = filename
         self._name = filename
@@ -44,7 +44,7 @@ class ProgFile(CodeBlock):
         for objName, obj in other.get_objs():
             if objName in Gate.internalGates:
                 continue
-            if objName in langConstants:
+            if objName in LANG_CONSTANTS:
                 continue
             if objName in self._objs:
                 self._error(includeWarning.format(name=objName,
