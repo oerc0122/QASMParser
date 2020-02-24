@@ -75,12 +75,28 @@ class Binary(MathOp):
                 (tokens.pop(0), tokens.pop(0))
             )
 
+    def dump(self):
+        for op, elem in self.args:
+            print(op, end=" ")
+            if isinstance(elem, (Function, Binary)):
+                elem.dump()
+            else:
+                print(elem, end=" ")
+            
 class Function(MathOp):
     """ Mathematical functions token """
     def __init__(self, tokens):
         self.op = tokens[0]
         self.args = tokens["args"]
 
+    def dump(self):
+        print(self.op, "(")
+        for elem in self.args:
+            if isinstance(elem, (Function, Binary)):
+                elem.dump()
+            else:
+                print(elem, end=" ")
+        print(")")
 
 def _setup_QASMParser():
     """

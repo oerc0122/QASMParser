@@ -26,6 +26,7 @@ dupTokenWarning = "{} token {} already defined"
 QASMWarning = "Unrecognised QASM Version statement {}"
 
 # Tree building and arg parsing
+recursiveDefWarning = "Recusive definition of {} in resolve_maths"
 aliasIndexWarning = "Mismatched indices {}: Requested {}, received {}"
 argParseWarning = "Cannot parse args of type {}"
 argSizeWarning = "Args {Var} and {Var2} are different sizes and cannot be implicitly assigned."

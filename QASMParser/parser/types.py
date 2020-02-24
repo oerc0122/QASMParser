@@ -16,7 +16,7 @@ from .errors import (argWarning, langWarning, badMappingWarning,
                      inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                      rangeToIndexWarning, gateDeclareWarning, freeWarning,
                      badConstantWarning, recursiveGateWarning, targetModifyWarning,
-                     inlineAliasLoopWarning, targetUniqueWarning)
+                     inlineAliasLoopWarning, targetUniqueWarning, recursiveDefWarning)
 from .tokens import (MathOp, Binary, Function)
 from .filehandle import (QASMBlock, NullBlock)
 
@@ -324,9 +324,11 @@ class CodeBlock(CoreOp):
             for elem in var:
                 name, ref = self.parse_reg_ref(elem)
                 target = self.resolve(name, "QuantumRegister", ref)
-                if target[1][1] - target[1][0] > 0: # If needs expanding
+                if isinstance(target[1], int) and target[1][1] - target[1][0] > 0: # If needs expanding
                     for i in range(target[1][0], target[1][1]+1):
                         resolvedTargets.append((target[0], (i, i)))
+                elif target[1][1] != target[1][0]:
+                    self._error("Cannot expand unknown alias at compile time")
                 else:
                     resolvedTargets.append(target)
 
@@ -419,7 +421,7 @@ class CodeBlock(CoreOp):
 
         return out
 
-    def resolve_maths(self, elem, additionalVars=None, topLevel=True, tempDict=None):
+    def resolve_maths(self, elem, additionalVars=None, topLevel=True, tempDict=None, original=None):
         """Perform the set of maths operations to return the final value or an error if it cannot be evaluated
 
         :param elem: Element to be resolved
@@ -445,8 +447,7 @@ class CodeBlock(CoreOp):
                 for key, val in additionalVars.items():
                     tempDict[key] = val
 
-        recurse = lambda elem: self.resolve_maths(elem, additionalVars, False, tempDict)
-
+        recurse = lambda elem: self.resolve_maths(elem, additionalVars, False, tempDict, original)
         if isinstance(elem, MathsBlock):
             for point in elem.maths:
                 outStr += recurse(point)
@@ -458,7 +459,13 @@ class CodeBlock(CoreOp):
             else:
                 outStr += elem.name
         elif isinstance(elem, str) and elem in tempDict:
-            outStr += recurse(tempDict[elem])
+            if elem == original: # Possibly recursive, try parent
+                if "_p_"+elem in tempDict:
+                    outStr += recurse(tempDict["_p_"+elem])
+                else:
+                    raise RecursionError(recursiveDefWarning.format(elem))
+            else:
+                outStr += self.resolve_maths(tempDict[elem], additionalVars, False, tempDict, original=elem)
         elif isinstance(elem, Binary):
             for operator, operand in elem.args:
                 if operator == "nop":
@@ -1236,6 +1243,16 @@ class MathsBlock(CoreOp):
     def __mul__(self, val):
         return MathsBlock(self.parent, Binary([[self.maths, "*", val]]))
 
+    def dump(self, final=True):
+        for elem in self.maths:
+            if isinstance(elem, (Function, Binary)):
+                elem.dump()
+            if isinstance(elem, MathsBlock):
+                elem.dump(False)
+            else:
+                print(elem, end=" ")
+        if final:
+            print()
 
 # Variable types
 
@@ -1400,7 +1417,6 @@ class DeferredQuantumRegister(QuantumRegister):
     end = property(lambda self: self._end + QuantumRegister.numQubits + self.nQubitsUsed)
     mapping = property(lambda self: tuple(range(self.start, self.end)))
 
-        
 class ClassicalRegister(Register):
     """
     Classical register as created by "creg"
@@ -1416,6 +1432,7 @@ class ClassicalRegister(Register):
         """
         Register.__init__(self, parent, name, inter)
 
+        self._argType = "ClassicalRegister"
         self._start = 0
         self._end = self.size
 
@@ -1433,8 +1450,6 @@ class DeferredClassicalRegister(ClassicalRegister):
         """
         ClassicalRegister.__init__(self, parent, name, size)
         self._end -= 1
-        self._argType = "ClassicalRegister"
-
 
 class Targets(list):
     """ Type to protect alias targets """
@@ -1543,8 +1558,8 @@ class DeferredAlias(Alias):
 class InlineAlias(Alias):
     def __init__(self, parent, args):
         """ Initialise an inline alias """
-        Register.__init__(self, parent, None, len(args), args)
-        if not self.unique:
+        Alias.__init__(self, parent, None, len(args), args)
+        if not self.is_unique:
             self._error(targetUniqueWarning.format("<inline alias>"))
 
 class Argument(Register):
@@ -1850,6 +1865,7 @@ class Opaque(Gate):
 
     parse_reg_ref = staticmethod(CodeBlock.parse_reg_ref)
 
+
 # Operation types
 
 class Return(Operation):
@@ -1951,9 +1967,8 @@ class CallGate(Operation):
         newSpargs = {sparg.name: spargs[i] for i, sparg in enumerate(self.callee.spargs)}
         newQargs = []
 
-        for sparg in spargs: # Disambiguate?
-            if sparg in self.parent.spargs:
-                newSpargs[sparg.name] = 0
+        for sparg in self.parent.spargs:
+            newSpargs["_p_"+sparg.name] = 0
 
         for qarg in self.callee.qargs:
             newQargs.append([qarg, int(self.parent.resolve_maths(qarg.size, additionalVars=newSpargs))])
