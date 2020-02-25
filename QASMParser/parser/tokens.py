@@ -77,9 +77,16 @@ class Binary(MathOp):
 
     def dump(self):
         for op, elem in self.args:
-            print(op, end=" ")
-            if isinstance(elem, (Function, Binary)):
+            if op != "nop":
+                print(op, end=" ")
+            if hasattr(elem, "dump"):
                 elem.dump()
+            elif isinstance(elem, (tuple, list)):
+                for subElem in elem:
+                    if hasattr(subElem, "dump"):
+                        subElem.dump()
+                    else:
+                        print(subElem, end=" ")
             else:
                 print(elem, end=" ")
             
