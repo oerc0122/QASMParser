@@ -194,7 +194,6 @@ def _setup_QASMParser():
 
     integer = Combine(number + Optional(expo))
     real = Combine(Optional(sign) + (("." + number) ^ (number + "." + Optional(number))) + Optional(expo))
-    boolean = Word("TF", exact=1)
     validName = Forward()
     lineEnd = Literal(";")
 
@@ -352,7 +351,7 @@ def _setup_QASMParser():
     # Variable-like structures
     _Op("creg", regRef("arg"))
     _Op("qreg", regRef("arg"))
-    _Op("cbit", Group(regNoRef("arg")), version="REQASM 1.0")
+    _Op("cbit", Group(regNoRef)("arg"), version="REQASM 1.0")
     _Op("qbit", Group(regNoRef)("arg"), version="REQASM 1.0")
     _Op("defAlias", regMustRef("alias"), keyOverride="alias", version="REQASM 1.0")
     _Op("alias", regRef("alias") + _is_ + aliasQarg("target"), version="REQASM 1.0")
