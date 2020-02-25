@@ -3,21 +3,21 @@
 REQASM 1.0;
 include "qelib1.inc";
 
-gate maj a,b,c
+unitary gate maj a,b,c
 {
     cx c,b;
     cx c,a;
     ccx a,b,c;
 }
 
-gate unmaj a,b,c
+unitary gate unmaj a,b,c
 {
     ccx a,b,c;
     cx c,a;
     cx a,b;
 }
 
-unitary circuit add[nBits] a[nBits],b[nBits],in,out -> ans {
+circuit add[nBits] a[nBits],b[nBits],in,out -> ans {
     maj in, b[0], a[0];
     for bit in [1:nBits-1] {
 	maj a[bit-1], b[bit], a[bit];

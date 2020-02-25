@@ -48,21 +48,21 @@ def resolve_arg(block, var, args, spargs, loopVar=None):
 
 
     var, ind = var
-    maths = lambda x: block.resolve_maths(x, additionalVars=spargs)
+    resolve_maths = lambda x: block.resolve_maths(x, additionalVars=spargs)
 
     if isinstance(ind, (list, tuple)):
-        *ind, = map(maths, ind)
+        *ind, = map(resolve_maths, ind)
     elif isinstance(ind, str) and loopVar is not None:
         shift = ind.split("_loop")[1]
         shift = shift if shift else 0
         ind = loopVar + int(shift)
     elif isinstance(ind, Constant):
         if ind.name in spargs: # If we can do a direct sub
-            ind = maths(spargs[ind.name])
+            ind = resolve_maths(spargs[ind.name])
         else:
             raise KeyError(badConstantWarning.format(ind.name))
     else:
-        ind = maths(ind)
+        ind = resolve_maths(ind)
 
     if var.name in args:
         out = copy.copy(args[var.name])
@@ -94,6 +94,7 @@ def to_lang_error(self):
     print("Not implemented:", langWarning.format(type(self).__name__))
     quit()
 
+
 class CoreOp:
     """ Abstract base class for QASM operations """
     def __init__(self, parent):
@@ -107,6 +108,7 @@ class CoreOp:
     to_lang = to_lang_error
 
 # Base types
+
 class Operation(CoreOp):
     """ Base class for callable function-like objects
 
@@ -197,7 +199,6 @@ class Operation(CoreOp):
             for parg in pargs:
                 parg[1] = parg[1][0]
 
-
 class Referencable(CoreOp):
     """ Base class for any element which will exist within scope
 
@@ -252,14 +253,14 @@ class CodeBlock(CoreOp):
                                    if isinstance(qreg, (QuantumRegister, DeferredQuantumRegister))])
 
     @property
-    def local_cregs(self):
+    def localCregs(self):
         """ All cregs declared in the local scope """
         if self.parent:
             return [creg for creg in self.cregs if creg not in self.parent.cregs]
         return self.cregs
 
     @property
-    def local_qregs(self):
+    def localQregs(self):
         """ All qregs declared in the local scope """
         if self.parent:
             return [qreg for qreg in self.qregs if qreg not in self.parent.qregs]
@@ -321,16 +322,22 @@ class CodeBlock(CoreOp):
 
             # Resolve targets
             resolvedTargets = []
+
+
             for elem in var:
                 name, ref = self.parse_reg_ref(elem)
                 target = self.resolve(name, "QuantumRegister", ref)
                 if isinstance(target[1], int) and target[1][1] - target[1][0] > 0: # If needs expanding
                     for i in range(target[1][0], target[1][1]+1):
                         resolvedTargets.append((target[0], (i, i)))
-                elif target[1][1] != target[1][0]:
-                    self._error("Cannot expand unknown alias at compile time")
                 else:
                     resolvedTargets.append(target)
+
+            for target in resolvedTargets:
+                if target[1][1] != target[1][0]:
+                    print(target)
+                    self._error("Cannot expand unknown alias at compile time")
+
 
             if len(resolvedTargets) == 1: # If we don't really need to alias
                 out = resolvedTargets[0]
@@ -460,10 +467,7 @@ class CodeBlock(CoreOp):
                 outStr += elem.name
         elif isinstance(elem, str) and elem in tempDict:
             if elem == original: # Possibly recursive, try parent
-                if "_p_"+elem in tempDict:
-                    outStr += recurse(tempDict["_p_"+elem])
-                else:
-                    raise RecursionError(recursiveDefWarning.format(elem))
+                outStr += elem
             else:
                 outStr += self.resolve_maths(tempDict[elem], additionalVars, False, tempDict, original=elem)
         elif isinstance(elem, Binary):
@@ -508,6 +512,8 @@ class CodeBlock(CoreOp):
                 return eval(str(outStr))
             except ValueError:
                 self._error(mathsEvalWarning.format(outStr))
+            except NameError:
+                return outStr
         else:
             return outStr
 
@@ -974,7 +980,7 @@ class CodeBlock(CoreOp):
             argType = token["type"]
             self._let((var, argType), (val, None))
         elif keyword == "defAlias":
-            name, index = self.parse_reg_ref(token["alias"], ref=True)
+            name, index = self.parse_reg_ref(token["alias"], refRequired=True)
             index = self.parse_range(index)
             self._new_alias(name, index)
         elif keyword == "alias":
@@ -1199,6 +1205,7 @@ class MathsBlock(CoreOp):
         """
         CoreOp.__init__(self, parent)
         self.topLevel = topLevel
+
         elem = copy.deepcopy(maths)
 
         self.logical = False
@@ -1243,16 +1250,13 @@ class MathsBlock(CoreOp):
     def __mul__(self, val):
         return MathsBlock(self.parent, Binary([[self.maths, "*", val]]))
 
-    def dump(self, final=True):
+    def dump(self):
         for elem in self.maths:
-            if isinstance(elem, (Function, Binary)):
+            if isinstance(elem, (Function, Binary, MathsBlock)):
                 elem.dump()
-            if isinstance(elem, MathsBlock):
-                elem.dump(False)
             else:
                 print(elem, end=" ")
-        if final:
-            print()
+
 
 # Variable types
 
@@ -1552,8 +1556,8 @@ class DeferredAlias(Alias):
         """
         for index in range(indices[0], indices[1]+1):
             if index - self.minIndex > len(self.targets) - 1:
-                self.targets += [(None, None)] * (len(self.targets) + 1 - index + self.minIndex)
-            self.targets[index - self.minIndex] = (target, interval[0] + index)
+                self._targets += [(None, None)] * (len(self.targets) + 1 - index + self.minIndex)
+            self._targets[index - self.minIndex] = (target, interval[0] + index)
 
 class InlineAlias(Alias):
     def __init__(self, parent, args):
@@ -1581,7 +1585,6 @@ class Argument(Register):
         self._argType = "QuantumRegister"
         self._start = name
         self._end = self.size
-
 
 # Gate types
 
@@ -1651,9 +1654,9 @@ class Gate(Referencable, CodeBlock):
         self.parse_instructions()
 
         # Free those vars
-        self._code += [Dealloc(self, freeable) for freeable in self.local_cregs if freeable != byprod]
+        self._code += [Dealloc(self, freeable) for freeable in self.localCregs if freeable != byprod]
         # Reset qregs
-        for freeable in self.local_qregs:
+        for freeable in self.localQregs:
             self._reset(freeable.name, None)
 
         if not byprod:
@@ -1788,6 +1791,20 @@ class Gate(Referencable, CodeBlock):
 
         CodeBlock._call_gate(self, gateName, pargs, qargs, gargs, spargs, byprod, modifiers)
 
+    def _new_alias(self, argName, size):
+        """ Create a new alias in scope of self
+
+        :param argName: Name of alias to create
+        :param size:    Size of alias to create
+
+        """
+        self._is_def(argName, create=True)
+        if any(isinstance(elem, (MathsBlock, Constant)) for elem in size):
+            alias = DeferredAlias(self, argName, size)
+        else:
+            alias = Alias(self, argName, size)
+        self._objs[argName] = alias
+        self._code += [alias]
 
     qargs = property(lambda self: self._qargs, _qargs_setter)
     pargs = property(lambda self: self._pargs, _pargs_setter)
@@ -1816,7 +1833,7 @@ class Circuit(Gate):
 
     def _qreg(self, argName, size):
         self._is_def(argName, create=True)
-        nQubitsUsed = sum(reg.size for reg in self.local_qregs)
+        nQubitsUsed = sum(reg.size for reg in self.localQregs)
         variable = DeferredQuantumRegister(self, argName, size, nQubitsUsed)
         self._objs[argName] = variable
         self._code += [variable]
@@ -1964,14 +1981,12 @@ class CallGate(Operation):
                 received = len(args)
                 self._error(argWarning.format(place, expect, received))
 
+
         newSpargs = {sparg.name: spargs[i] for i, sparg in enumerate(self.callee.spargs)}
         newQargs = []
 
-        for sparg in self.parent.spargs:
-            newSpargs["_p_"+sparg.name] = 0
-
         for qarg in self.callee.qargs:
-            newQargs.append([qarg, int(self.parent.resolve_maths(qarg.size, additionalVars=newSpargs))])
+            newQargs.append([qarg, self.parent.resolve_maths(qarg.size, additionalVars=newSpargs)])
 
         self.resolvedQargs = newQargs
 
@@ -1980,19 +1995,21 @@ class CallGate(Operation):
 
         if self.callee.byprod:
             resolvedByprod = self.parent.resolve(byprod, "ClassicalRegister")
-            received = int(self.parent.resolve_maths(resolvedByprod.size, additionalVars=newSpargs))
-            expect = int(self.parent.resolve_maths(self.callee.byprod.size, additionalVars=newSpargs))
+            received = self.parent.resolve_maths(resolvedByprod.size, additionalVars=newSpargs)
+            expect = self.parent.resolve_maths(self.callee.byprod.size, additionalVars=newSpargs)
             if received != expect:
                 place = "call to {}".format(self.name)
                 expect = "{} {}".format(expect, "return")
                 self._error(argWarning.format(place, expect, received))
 
         self.nLoops = 0
+
         # Implicit loops mean we handle qargs separately
         for index, qarg in enumerate(qargs):
             # Hack to bypass stupidity of Python's object fiddling
             if any((isinstance(qarg[1][1], (Constant, MathsBlock)),
                     isinstance(qarg[1][0], (Constant, MathsBlock)),
+                    isinstance(newQargs[index][1], str),
                     newQargs[index][1] == 0)):
                 continue
             nArg = qarg[1][1] - qarg[1][0] + 1
