@@ -250,7 +250,7 @@ def _setup_QASMParser():
 
     intVar = integer | regRef
     realVar = real | integer | pi | regRef
-    boolVar = boolean | interRef | regRef | realExp | intExp
+    boolVar = interRef | regRef | realExp | intExp
     intFuncVar = (intFunc  + brL + Group(Optional(delimitedList(intVar)))("args") + brR).setParseAction(Function)
     realFuncVar = ((realFunc ^ intFunc)
                    + brL + Group(Optional(delimitedList(realVar)))("args") + brR).setParseAction(Function)
