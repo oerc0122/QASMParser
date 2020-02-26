@@ -8,7 +8,7 @@ from pyparsing import (ParseException)
 from .tokens import (QASMcodeParser, lineParser, errorKeywordParser, reserved, parse_version,
                      qops, cops, blocks)
 from .errors import (headerVerWarning, QASMVerWarning, fileWarning, recursionError, fnfWarning,
-                     unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning)
+                     unknownParseWarning, instructionWarning, eofWarning, QASMBlockWarning, internalFileWarning)
 
 class QASMFile:
     """
@@ -54,10 +54,25 @@ class QASMFile:
         if reqVersion[0] > self.version[0]:
             self.error(QASMVerWarning.format(*self.version))
 
-    def error(self, message=""):
+    def warning(self, message="", caller=None):
+        """ Raise warning formatted with filename and line number for help debugging """
+        print("WARNING:", end=" ")
+        if caller is not None:
+            print(fileWarning.format(message=message,
+                                     callerType=caller.trueType, caller=caller.name,
+                                     file=self.name, line=self.nLine))
+        else:
+            print(internalFileWarning.format(message=message, file=self.name, line=self.nLine))
+
+    def error(self, message="", caller=None):
         """ Raise error formatted with filename and line number for help debugging """
-        print(fileWarning.format(message=message,
-                                 file=self.name, line=self.nLine))
+        print("ERROR:", end=" ")
+        if caller is not None:
+            print(fileWarning.format(message=message,
+                                     callerType=caller.trueType, caller=caller.name,
+                                     file=self.name, line=self.nLine))
+        else:
+            print(internalFileWarning.format(message=message, file=self.name, line=self.nLine))
         import traceback
         traceback.print_stack()
         sys.exit(1)
@@ -100,10 +115,7 @@ class QASMFile:
             raise ParseException(unknownParseWarning + f" with parsing {problem['keyword']}")
 
         except ParseException as subErr:
-            print(fileWarning.format(message=subErr.msg, file=self.name, line=self.nLine))
-            import traceback
-            traceback.print_stack()
-            sys.exit(1)
+            self.error(subErr.msg)
 
     def read_instruction(self):
         """ Generator to read a single instruction from the file """

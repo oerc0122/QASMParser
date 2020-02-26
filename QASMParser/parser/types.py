@@ -16,8 +16,9 @@ from .errors import (argWarning, langWarning, badMappingWarning,
                      inlineOpaqueWarning, badDirectiveWarning, rangeSpecWarning,
                      rangeToIndexWarning, gateDeclareWarning, freeWarning,
                      badConstantWarning, recursiveGateWarning, targetModifyWarning,
-                     inlineAliasLoopWarning, targetUniqueWarning, recursiveDefWarning)
-from .tokens import (MathOp, Binary, Function)
+                     inlineAliasLoopWarning, targetUniqueWarning, recursiveDefWarning,
+                     possibleMismatchWarning)
+from .tokens import (MathOp, Binary, Function, mathsParser)
 from .filehandle import (QASMBlock, NullBlock)
 
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
@@ -102,6 +103,12 @@ class CoreOp:
         self._name = type(self).__name__
         self._trueType = type(self).__name__
 
+    def _error(self, message):
+        self.parent.currentFile.error(message, self.parent)
+
+    def _warning(self, message):
+        self.parent.currentFile.warning(message, self.parent)
+
     trueType = property(lambda self: self._trueType)
     name = property(lambda self: self._name)
     parent = property(lambda self: self._parent)
@@ -127,7 +134,6 @@ class Operation(CoreOp):
         self._pargs = pargs
         self._spargs = spargs
         self._gargs = gargs
-        self._error = self.parent.currentFile.error
         self.innermost = None
 
     @property
@@ -209,7 +215,7 @@ class Referencable(CoreOp):
         CoreOp.__init__(self, parent)
         self._name = name
         self._argType = type(self).__name__
-        self._error = self.parent.currentFile.error
+
     argType = property(lambda self: self._argType)
 
 class CodeBlock(CoreOp):
@@ -239,7 +245,12 @@ class CodeBlock(CoreOp):
         self._cregs = []
         self.currentFile = block
         self.instructions = self.currentFile.read_instruction()
-        self._error = self.currentFile.error
+
+    def _error(self, message):
+        self.currentFile.error(message, self)
+
+    def _warning(self, message):
+        self.currentFile.warning(message, self)
 
     code = property(lambda self: self._code)
     pargs = property(lambda self: self._pargs)
@@ -251,6 +262,8 @@ class CodeBlock(CoreOp):
                                    if isinstance(creg, (ClassicalRegister, DeferredClassicalRegister))])
     qregs = property(lambda self: [qreg for qreg in self._objs.values()
                                    if isinstance(qreg, (QuantumRegister, DeferredQuantumRegister))])
+    aliases = property(lambda self: [alias for alias in self._objs.values()
+                                     if isinstance(alias, (Alias, DeferredAlias))])
 
     @property
     def localCregs(self):
@@ -265,6 +278,14 @@ class CodeBlock(CoreOp):
         if self.parent:
             return [qreg for qreg in self.qregs if qreg not in self.parent.qregs]
         return self.qregs
+
+
+    @property
+    def localAliases(self):
+        """ All aliases in local scope """
+        if self.parent:
+            return [alias for alias in self.aliases if alias not in self.parent.cregs]
+        return self.aliases
 
     def get_objs(self, obj=None):
         """ Return objects dict or element
@@ -327,19 +348,41 @@ class CodeBlock(CoreOp):
             for elem in var:
                 name, ref = self.parse_reg_ref(elem)
                 target = self.resolve(name, "QuantumRegister", ref)
-                if isinstance(target[1], int) and target[1][1] - target[1][0] > 0: # If needs expanding
+                if target[0].isKnownSize and target[1][1] - target[1][0] > 0: # If needs expanding
                     for i in range(target[1][0], target[1][1]+1):
                         resolvedTargets.append((target[0], (i, i)))
                 else:
                     resolvedTargets.append(target)
 
-            for target in resolvedTargets:
-                if target[1][1] != target[1][0]:
-                    print(target)
-                    self._error("Cannot expand unknown alias at compile time")
+            if not all(target[0].isKnownSize for target in resolvedTargets):
+                newSize = MathsBlock(self, resolvedTargets[0][1][1] - resolvedTargets[0][1][0] + 1)
+                sizes = [MathsBlock(self, 0), newSize]
 
+                for target in resolvedTargets[1:]:
+                    newSize = newSize + MathsBlock(self, target[1][1] - target[1][0] + 1)
+                    sizes.append(newSize)
 
-            if len(resolvedTargets) == 1: # If we don't really need to alias
+                newAliasName = "_tmpAlias"
+                i = 0
+                while self._objs.get(newAliasName, None) is not None:
+                    i += 1
+                    newAliasName = "_tmpAlias"+str(i)
+                    
+                alias = self._new_alias(newAliasName, f"({newSize.dump()})")
+
+                for ref, target in enumerate(resolvedTargets):
+                    indices = (f"{sizes[ref].dump()}", f"({sizes[ref+1].dump()})")
+                    start, end = target[1]
+                    if isinstance(start, MathsBlock):
+                        start = start.dump()
+                    if isinstance(end, MathsBlock):
+                        end = end.dump()
+
+                    self._code += [SetAlias(self, (alias, indices), (target[0], (start, end)), noSet=True)]
+
+                out = [alias, (0, newSize)]
+
+            elif len(resolvedTargets) == 1: # If we don't really need to alias
                 out = resolvedTargets[0]
             else:
                 out = [InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1)]
@@ -454,7 +497,12 @@ class CodeBlock(CoreOp):
                 for key, val in additionalVars.items():
                     tempDict[key] = val
 
-        recurse = lambda elem: self.resolve_maths(elem, additionalVars, False, tempDict, original)
+        recurse = lambda elem, **kw: self.resolve_maths(elem,
+                                                        kw.get("additionalVars", additionalVars),
+                                                        False,
+                                                        kw.get("tempDict", tempDict),
+                                                        kw.get("original", original))
+
         if isinstance(elem, MathsBlock):
             for point in elem.maths:
                 outStr += recurse(point)
@@ -466,10 +514,10 @@ class CodeBlock(CoreOp):
             else:
                 outStr += elem.name
         elif isinstance(elem, str) and elem in tempDict:
-            if elem == original: # Possibly recursive, try parent
+            if elem == original:
                 outStr += elem
             else:
-                outStr += self.resolve_maths(tempDict[elem], additionalVars, False, tempDict, original=elem)
+                outStr += recurse(tempDict[elem], original=elem)
         elif isinstance(elem, Binary):
             for operator, operand in elem.args:
                 if operator == "nop":
@@ -495,7 +543,7 @@ class CodeBlock(CoreOp):
 
         elif isinstance(elem, ParseResults):
             var = self.resolve(elem, argType="Constant")
-            outStr += self.resolve_maths(var, additionalVars, False)
+            outStr += recurse(var, tempDict=None)
         elif isinstance(elem, list) and isinstance(elem[0], ClassicalRegister):
             self._error(failedOpWarning.format("resolve " + elem[0].name + " to constant value", "resolve_maths"))
         else:
@@ -608,6 +656,7 @@ class CodeBlock(CoreOp):
         variable = ClassicalRegister(self, argName, size)
         self._objs[argName] = variable
         self._code += [variable]
+        return variable
 
     def _new_alias(self, argName, size):
         """ Create a new alias in scope of self
@@ -620,6 +669,7 @@ class CodeBlock(CoreOp):
         alias = Alias(self, argName, size)
         self._objs[argName] = alias
         self._code += [alias]
+        return alias
 
     def _alias(self, aliasName, argIndex, referee):
         """
@@ -1206,8 +1256,11 @@ class MathsBlock(CoreOp):
         CoreOp.__init__(self, parent)
         self.topLevel = topLevel
 
-        elem = copy.deepcopy(maths)
-
+        if isinstance(maths, (MathsBlock, Binary, Function)):
+            # Perform rudimentary copy
+            elem = mathsParser.parseString(maths.dump()).asList()[0]
+        else:
+            elem = copy.deepcopy(maths)
         self.logical = False
         if isinstance(elem, Binary):
             newArgs = []
@@ -1251,11 +1304,13 @@ class MathsBlock(CoreOp):
         return MathsBlock(self.parent, Binary([[self.maths, "*", val]]))
 
     def dump(self):
+        outStr = ""
         for elem in self.maths:
             if isinstance(elem, (Function, Binary, MathsBlock)):
-                elem.dump()
+                outStr += elem.dump()
             else:
-                print(elem, end=" ")
+                outStr += f"{elem} "
+        return outStr
 
 
 # Variable types
@@ -1277,16 +1332,16 @@ class Constant(Referencable):
         self.loopVar = False
 
     def __add__(self, val):
-        return MathsBlock(self.parent, Binary([[self, "+", val]]))
+        return MathsBlock(self.parent, Binary([[self.val, "+", val]]))
 
     def __sub__(self, val):
-        return MathsBlock(self.parent, Binary([[self, "-", val]]))
+        return MathsBlock(self.parent, Binary([[self.val, "-", val]]))
 
     def __div__(self, val):
-        return MathsBlock(self.parent, Binary([[self, "/", val]]))
+        return MathsBlock(self.parent, Binary([[self.val, "/", val]]))
 
     def __mul__(self, val):
-        return MathsBlock(self.parent, Binary([[self, "*", val]]))
+        return MathsBlock(self.parent, Binary([[self.val, "*", val]]))
 
     def __deepcopy__(self, memo):
         return Constant(self.parent, (self.name, self.varType), (self.val, self.cast))
@@ -1344,6 +1399,7 @@ class Register(Referencable):
 
         return size
 
+    isKnownSize = property(lambda self: all(isinstance(par, int) for par in (self.start, self.end)))
     minIndex = property(lambda self: self._minIndex)
     maxIndex = property(lambda self: self._maxIndex)
     start = property(lambda self: self._start)
@@ -1560,6 +1616,7 @@ class DeferredAlias(Alias):
             self._targets[index - self.minIndex] = (target, interval[0] + index)
 
 class InlineAlias(Alias):
+    """ Class describing an inline alias """
     def __init__(self, parent, args):
         """ Initialise an inline alias """
         Alias.__init__(self, parent, None, len(args), args)
@@ -1637,7 +1694,7 @@ class Gate(Referencable, CodeBlock):
 
         if recursive:
             if self.trueType == "Gate":
-                print(recursiveGateWarning)
+                self._warning(recursiveGateWarning)
             self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
             self._code = []
             self.entry = EntryExit(self.name)
@@ -1649,12 +1706,11 @@ class Gate(Referencable, CodeBlock):
         self.pargs = pargs
         self.gargs = gargs
 
-        # List of vars declared only in scope
-
         self.parse_instructions()
 
-        # Free those vars
-        self._code += [Dealloc(self, freeable) for freeable in self.localCregs if freeable != byprod]
+        # Free vars
+        self._code += [Dealloc(self, freeable.name) for freeable in self.localCregs if freeable.name != byprod]
+        self._code += [Dealloc(self, freeable.name) for freeable in self.localAliases]
         # Reset qregs
         for freeable in self.localQregs:
             self._reset(freeable.name, None)
@@ -1676,6 +1732,7 @@ class Gate(Referencable, CodeBlock):
         if returnType is not None:
             self.returnType = returnType
 
+
         if recursive and self.entry.depth > 0:
             self._error(noExitWarning.format(self.name))
 
@@ -1693,6 +1750,7 @@ class Gate(Referencable, CodeBlock):
 
         for line in reversed(self.code):
             if isinstance(line, CallGate):
+                line = copy.copy(line)
                 gateName = line.name
                 if parent._check_def("_inv_"+gateName, create=True, argType="Gate"):
                     gate = parent.resolve(gateName, argType="Gate")
@@ -1735,6 +1793,7 @@ class Gate(Referencable, CodeBlock):
 
         for line in self.code:
             if isinstance(line, CallGate):
+                line = copy.copy(line)
                 gateName = line.name
                 if parent._check_def("_ctrl_"+gateName, create=True, argType="Gate"):
                     gate = parent.resolve(gateName, argType="Gate")
@@ -1799,12 +1858,13 @@ class Gate(Referencable, CodeBlock):
 
         """
         self._is_def(argName, create=True)
-        if any(isinstance(elem, (MathsBlock, Constant)) for elem in size):
+        if not all(isinstance(elem, int) for elem in size):
             alias = DeferredAlias(self, argName, size)
         else:
             alias = Alias(self, argName, size)
         self._objs[argName] = alias
         self._code += [alias]
+        return alias
 
     qargs = property(lambda self: self._qargs, _qargs_setter)
     pargs = property(lambda self: self._pargs, _pargs_setter)
@@ -1990,7 +2050,7 @@ class CallGate(Operation):
 
         self.resolvedQargs = newQargs
 
-        if not unique(qargs):
+        if all(not isinstance(qarg, DeferredAlias) for qarg in qargs) and not unique(qargs):
             self._error("Arguments are not unique")
 
         if self.callee.byprod:
@@ -2009,11 +2069,15 @@ class CallGate(Operation):
             # Hack to bypass stupidity of Python's object fiddling
             if any((isinstance(qarg[1][1], (Constant, MathsBlock)),
                     isinstance(qarg[1][0], (Constant, MathsBlock)),
-                    isinstance(newQargs[index][1], str),
                     newQargs[index][1] == 0)):
                 continue
             nArg = qarg[1][1] - qarg[1][0] + 1
             expect = newQargs[index][1]
+            if isinstance(expect, str):
+                received = str(self.parent.resolve_maths(nArg))
+                if received != expect:
+                    self._warning(possibleMismatchWarning.format(self.name, index+1, expect, received))
+                continue
             if not isinstance(nArg, int): # Skip constants which cannot be resolved
                 continue
             if not self.nLoops:  # Assume all vars must have the same number of loops
@@ -2059,7 +2123,7 @@ class CallGate(Operation):
 
 class SetAlias(Operation):
     """ Set an alias to refer to a quantum register """
-    def __init__(self, parent, alias, target):
+    def __init__(self, parent, alias, target, noSet=False):
         """FIXME! briefly describe function
 
         :param parent: Parent block defining object
@@ -2071,6 +2135,8 @@ class SetAlias(Operation):
         """
         Operation.__init__(self, parent, pargs=alias, qargs=target)
         self.alias = alias[0]
+        if noSet:
+            return
         self.alias.set_target(alias[1], target[0], target[1])
 
 class Measure(Operation):

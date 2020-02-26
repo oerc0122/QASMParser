@@ -161,6 +161,8 @@ def Maths_to_c(parent, maths: MathsBlock):
             outStr += f"{elem}({', '.join(args)})"
         elif isinstance(element, str):
             outStr += element
+        elif isinstance(element, (int, float)):
+            outStr += str(element)
         else: raise NotImplementedError("Maths cannot parse type {} {}".format(type(element).__name__, element))
 
     return outStr
@@ -268,7 +270,12 @@ def Output_to_c(self):
 
 def Return_to_c(self):
     """Syntax conversion for breaking out of a function."""
-    return f'return {self.pargs.name};'
+    start, end = (self.pargs.start, self.pargs.end)
+    if start != end:
+        parg = resolve_arg((self.pargs, (start, end)))
+    else:
+        parg = resolve_arg((self.pargs, start))
+    return f'return {parg};'
 
 def Cycle_to_c(self):
     """Syntax conversion for cycling a loop."""
@@ -288,7 +295,7 @@ def Reset_to_c(self):
     qargRef = resolve_arg(qarg)
     return f'''{{
 int _{qarg[0].name} = measure(qreg, {qargRef});
-if (_{qarg[0].name}) pauliX(qreg, {qargRef});
+if (_{qarg[0].name}) U(qreg, {qargRef}, pi, 0, 0);
 }}'''
 
 def ClassicalRegister_to_c(self):
@@ -354,8 +361,12 @@ def SetAlias_to_c(self):
     """Syntax conversion for setting an alias."""
     outStr = ""
 
-    if self.parent.resolve_maths(self.pargs[1][1] - self.pargs[1][0] + 1) > 1:
-        outStr += f"memcpy({resolve_arg(self.pargs)}, {resolve_arg(self.qargs)}, sizeof(int)*{1 +self.qargs[1][1] - self.qargs[1][0]});"
+    if self.pargs[1][1] != self.pargs[1][0]:
+        numCopy = self.qargs[1][1] - self.qargs[1][0] + 1
+        if isinstance(numCopy, MathsBlock):
+            outStr += f"memcpy({resolve_arg(self.pargs)}, {resolve_arg(self.qargs)}, sizeof(int)*({resolve_maths(self, numCopy)}));"
+        else:
+            outStr += f"memcpy({resolve_arg(self.pargs)}, {resolve_arg(self.qargs)}, sizeof(int)*{numCopy}));"
     else:
         qargs = (self.qargs[0], self.qargs[1][0])
         outStr = f"{self.alias.name}[{self.pargs[1][0]}] = {resolve_arg(qargs)};"

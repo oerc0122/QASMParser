@@ -20,9 +20,9 @@ class ProgFile(CodeBlock):
 
     def __init__(self, filename):
         self.filename = filename
-        self._name = filename
         self.classLang = None
         CodeBlock.__init__(self, self, QASMFile(filename), False)
+        self._name = "<main>"
         for gate in Gate.internalGates.values():
             self._objs[gate.name] = gate
         for constant in ["pi"]:

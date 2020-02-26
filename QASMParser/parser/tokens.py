@@ -2,7 +2,7 @@
 Module containing parsing tokens for reading QASM.
 """
 
-from pyparsing import (ParserElement,
+from pyparsing import (ParserElement, ParseResults,
                        CaselessKeyword, Keyword, Literal, CaselessLiteral,
                        Empty, White, CharsNotIn, Word,
                        Group, Combine,
@@ -76,19 +76,23 @@ class Binary(MathOp):
             )
 
     def dump(self):
+        outStr = ""
         for op, elem in self.args:
             if op != "nop":
-                print(op, end=" ")
-            if hasattr(elem, "dump"):
-                elem.dump()
+                outStr += f"{op} "
+            if isinstance(elem, ParseResults):
+                outStr += f'{elem["var"]} '
+            elif hasattr(elem, "dump"):
+                outStr += elem.dump()
             elif isinstance(elem, (tuple, list)):
                 for subElem in elem:
                     if hasattr(subElem, "dump"):
-                        subElem.dump()
+                        outStr += subElem.dump()
                     else:
-                        print(subElem, end=" ")
+                        outStr += f"{subElem} "
             else:
-                print(elem, end=" ")
+                outStr += f"{elem} "
+        return outStr
             
 class Function(MathOp):
     """ Mathematical functions token """
@@ -97,13 +101,14 @@ class Function(MathOp):
         self.args = tokens["args"]
 
     def dump(self):
-        print(self.op, "(")
+        outStr = f"{self.op}("
         for elem in self.args:
             if isinstance(elem, (Function, Binary)):
-                elem.dump()
+                outStr += elem.dump()
             else:
-                print(elem, end=" ")
-        print(")")
+                outStr += f"{elem} "
+        outStr += ")"
+        return outStr
 
 def _setup_QASMParser():
     """
@@ -429,7 +434,7 @@ def _setup_QASMParser():
 
     code = (Group(directiveBlock)) | Group(validLine)
 
-    return code, testLine, testKeyword, reservedNames
+    return code, testLine, testKeyword, reservedNames, mathExp
 
 
-QASMcodeParser, lineParser, errorKeywordParser, reserved = _setup_QASMParser()
+QASMcodeParser, lineParser, errorKeywordParser, reserved, mathsParser = _setup_QASMParser()
