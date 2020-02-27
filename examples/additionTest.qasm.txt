@@ -1,0 +1,82 @@
+REQASM 1.0;
+
+/* -------------------
+   Some standard gates
+   ------------------- */
+
+gate H a { U(pi/2,0,pi) a; }
+gate T a { U(0,0,pi/4) a; }
+
+gate CCZ a,b,c {
+  CX b,c; Inv-T c; CX a,c; T c;
+  CX b,c; Inv-T c; CX a,c; T c;
+
+  CX a,b; Inv-T b; CX a,b; T b; 
+
+  T a;
+}
+
+gate CCX a,b,c { H c; CCZ a,b,c; H c; }
+
+/* ----------------------------
+   Gates/circuits for the adder
+   ---------------------------- */
+
+gate Maj a,b,c {
+  CX c,b;
+  CX c,a;
+  CCX a,b,c;
+}
+
+gate Unmaj a,b,c {
+  CCX a,b,c;
+  CX c,a;
+  CX a,b;
+}
+
+// quantum ripple-carry adder from Cuccaro et al
+// [arXiv:quant-ph/0410184]
+unitary circuit Add[n] a[n], b[n+1], cin {
+  Maj cin, b[0], a[0];
+
+  for j in [1:n-1] {
+    Maj a[j-1], b[j], a[j];
+  }
+
+  CX a[n-1], b[n];
+
+  for j in [n-1:1:-1] {
+    Unmaj a[j-1], b[j], a[j];
+  }
+    
+  Unmaj cin, b[0], a[0];
+}
+
+circuit TestAddTwice[n](k) a[n], b[n+2], cin -> out {
+  qbit d;
+  Add[n] a[n], b[0:n+1], cin;
+  Add[n+1] |d,a[n]|, b, cin;
+  measure b[k] -> out;
+  reset d;
+}
+
+qreg a[12];
+qreg b[14];
+qbit c;
+cbit r;
+ 
+H a;
+TestAddTwice[12](0) a, b, c -> r;
+reset a;
+
+*** begin classical
+printf("Test outcome (measuring last qubit): %d\n", r);
+*** end
+
+H a;
+TestAddTwice[12](1) a, b, c -> r;
+reset a;
+
+*** begin classical
+printf("Test outcome (measuring penultimate qubit): %d\n", r);
+*** end
