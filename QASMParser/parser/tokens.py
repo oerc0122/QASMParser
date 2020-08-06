@@ -7,7 +7,7 @@ from pyparsing import (ParserElement, ParseResults,
                        Empty, White, CharsNotIn, Word,
                        Group, Combine,
                        ungroup, removeQuotes, downcaseTokens,
-                       Or, Each, oneOf, Optional, ZeroOrMore,
+                       Or, Each, oneOf, Optional, ZeroOrMore, OneOrMore,
                        alphas, alphanums, nums, printables,
                        nestedExpr, delimitedList, restOfLine, quotedString, cStyleComment,
                        infixNotation, opAssoc, Forward,
@@ -93,7 +93,7 @@ class Binary(MathOp):
             else:
                 outStr += f"{elem} "
         return outStr
-            
+
 class Function(MathOp):
     """ Mathematical functions token """
     def __init__(self, tokens):
@@ -197,10 +197,13 @@ def _setup_QASMParser():
 
     pi = CaselessKeyword("pi")
 
+    bitstring = Combine(Literal("0b") + OneOrMore(oneOf("0" "1")))
+
     integer = Combine(number + Optional(expo))
     real = Combine(Optional(sign) + (("." + number) ^ (number + "." + Optional(number))) + Optional(expo))
     validName = Forward()
     lineEnd = Literal(";")
+
 
     _is_ = Keyword("to").suppress()
     _in_ = Keyword("in")
@@ -221,12 +224,13 @@ def _setup_QASMParser():
     dirOpenSyntax = CaselessLiteral(dirOpenStr)
     dirCloseSyntax = CaselessLiteral(dirCloseStr)
 
-    intFunc = oneOf("abs rempow countof fllog")
-    realFunc = oneOf("abs rempow arcsin arccos arctan sin cos tan exp ln sqrt")
+    intFunc = oneOf("abs powrem countof fllog")
+    realFunc = oneOf("abs powrem arcsin arccos arctan sin cos tan exp ln sqrt")
     boolFunc = oneOf("andof orof xorof")
 
     inL, inS, inR = map(Suppress, "[:]")
     vBar = Suppress("|")
+    bSlash = Suppress("\\")
     brL, brR = map(Suppress, "()")
 
     intExp = Forward()
@@ -235,19 +239,24 @@ def _setup_QASMParser():
 
     index = intExp.setResultsName("index")
     interval = Optional(intExp.setResultsName("start"), default=None) + inS \
-        + Optional(intExp.setResultsName("end"), default=None)
+        + Optional(intExp.setResultsName("end"), default=None) \
+        + Optional(inS + Optional(intExp.setResultsName("step"), default=1))
     interRef = Group(inL + interval + inR)
     loopRef = Group(inL + intExp.setResultsName("start") + inS + intExp.setResultsName("end") +
-                    Optional(inS) + Optional(intExp.setResultsName("step"), default=1) + inR)
+                    Optional(inS + Optional(intExp.setResultsName("step"), default=1)) + inR)
     ref = inL + Group(delimitedList(index ^ interval))("ref") + inR
     regNoRef = validName("var")
     regRef = Group(validName("var") + Optional(ref))
     regMustRef = Group(validName("var") + ref)
     regListNoRef = Group(delimitedList(regNoRef))
     regListRef = Group(delimitedList(regRef))
+
     inPlaceAlias = vBar + regListRef + vBar
     validQarg = regRef | inPlaceAlias
     aliasQarg = Group(regRef) | inPlaceAlias
+
+    inPlaceCreg = bSlash + regListRef + bSlash
+    validCreg = regRef | inPlaceCreg
 
     def set_maths_type(toks, mathsType):
         """ Set logical or integer or floating point """
@@ -282,7 +291,7 @@ def _setup_QASMParser():
 
     mathExp = intExp ^ realExp ^ boolExp
 
-    prefixes = ["unitary", "recursive"]
+    prefixes = ["unitary"]
     callMods = ["CTRL", "INV"]
 
     def prefix_setter(toks):
@@ -309,7 +318,7 @@ def _setup_QASMParser():
                           Optional(callSpargParser("spargs")),
                           Optional(gargParser("gargs"))))
 
-    returnParser = Optional(_to_ + validName("byprod"))
+    returnParser = Optional(_to_ + validCreg("byprod"))
 
     modifiers = ZeroOrMore(Combine(oneOf(callMods) + Suppress("-")))
 
@@ -361,6 +370,7 @@ def _setup_QASMParser():
     _Op("defAlias", regMustRef("alias"), keyOverride="alias", version="REQASM 1.0")
     _Op("alias", regRef("alias") + _is_ + aliasQarg("target"), version="REQASM 1.0")
     _Op("val", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM 1.0")
+    _Op("set", validCreg("var") + Literal("=").suppress() + (validCreg | bitstring)("val"), version="REQASM 1.0")
 
     # Operations-like structures
     _Op("measure", regRef("qreg") + _to_ + regRef("creg"), qop=True)
@@ -371,7 +381,7 @@ def _setup_QASMParser():
 
     _Op("free", validName("target"), version="REQASM 1.0")
     _Op("next", validName("loopVar"), qop=True, version="REQASM 1.0")
-    _Op("escape", validName("loopVar"), qop=True, version="REQASM 1.0")
+    _Op("finish", validName("loopVar"), qop=True, version="REQASM 1.0")
     _Op("end", validName("process"), qop=True, version="REQASM 1.0")
 
     # Special gate call handler

@@ -32,6 +32,7 @@ _Bool xorOfBits(bitstr bits);
 _Bool andOfBits(bitstr bits);
 
 int fllog(int c, int a);
+int ceillog(int c, int a);
 int powrem(int a, int c);
 
 void setArr(int n, int* inArr, int* outArr);

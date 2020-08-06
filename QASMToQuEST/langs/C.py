@@ -4,8 +4,9 @@ Module to supply functions to write C from given QASM types
 from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredQuantumRegister, DeferredClassicalRegister,
                                      Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                      Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
-                                     Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
-                                     MathOp, Register, Dealloc, DeferredAlias, InlineAlias)
+                                     Include, Alias, SetAlias, MathsBlock, Constant,
+                                     MathOp, Register, Dealloc, DeferredAlias, InlineAlias,
+                                     Next, Cycle, Finish, FinishTarget, CycleTarget)
 from QASMParser.parser.tokens import (Binary, Function)
 #from QASMParser.parser.filehandle import (NullBlock)
 
@@ -40,13 +41,16 @@ def set_lang():
     InitEnv.to_lang = init_env
     Return.to_lang = Return_to_c
     Include.to_lang = Include_to_c
-    Cycle.to_lang = Cycle_to_c
-    Escape.to_lang = Escape_to_c
     Alias.to_lang = Alias_to_c
     SetAlias.to_lang = SetAlias_to_c
     MathsBlock.to_lang = resolve_maths
     Dealloc.to_lang = Dealloc_to_c
     DeferredAlias.to_lang = DeferredAlias_to_c
+    Next.to_lang = Next_to_c
+    Cycle.to_lang = Cycle_to_c
+    CycleTarget.to_lang = CycleTarget_to_c
+    Finish.to_lang = Finish_to_c
+    FinishTarget.to_lang = FinishTarget_to_c
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
@@ -277,13 +281,25 @@ def Return_to_c(self):
         parg = resolve_arg((self.pargs, start))
     return f'return {parg};'
 
-def Cycle_to_c(self):
-    """Syntax conversion for cycling a loop."""
+def Next_to_c(self):
+    """Syntax conversion for simple cycle."""
     return "continue;"
 
-def Escape_to_c(self):
+def Cycle_to_c(self):
+    """Syntax conversion for cycling a loop."""
+    return f"goto cycle{self.targetID};"
+
+def Finish_to_c(self):
     """Syntax conversion for breaking a loop."""
-    return "break;"
+    return f"goto break{self.targetID};"
+
+def CycleTarget_to_c(self):
+    """Syntax for a target of a cycle."""
+    return f"cycle_{self.targetID}: continue;"
+
+def FinishTarget_to_c(self):
+    """Syntax for a target of a break."""
+    return f"break_{self.targetID}: break;"
 
 def End_to_c(self):
     """Syntax conversion for early return from function."""
@@ -491,6 +507,7 @@ def Loop_to_c(self):
     var = (f"int {var} = {init}" for var, init in zip(self.var, start))
     term = (f"{var} <= {term}" if not inv else f"{var} >= {term}" for var, term, inv in zip(self.var, end, neg))
     incr = (f"{var} += {incr}"   for var, incr  in zip(self.var, step))
+
     return f"for ( {', '.join(var)}; {' && '.join(term)}; {', '.join(incr)} )"
 
 def NestLoop_to_c(self):

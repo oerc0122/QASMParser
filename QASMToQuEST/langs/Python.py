@@ -1,11 +1,12 @@
 """
 Module to supply functions to write Python from given QASM types
 """
-from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredClassicalRegister,
-                                  Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
-                                  Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
-                                  Include, Cycle, Escape, Alias, SetAlias, MathsBlock, Constant,
-                                  MathOp, Register, Dealloc, DeferredAlias)
+from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRegister, DeferredQuantumRegister, DeferredClassicalRegister,
+                                     Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
+                                     Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
+                                     Include, Alias, SetAlias, MathsBlock, Constant,
+                                     MathOp, Register, Dealloc, DeferredAlias, InlineAlias,
+                                     Next, Cycle, Finish, FinishTarget, CycleTarget, SubBlock)
 from QASMParser.parser.tokens import (Binary, Function)
 from QASMParser.parser.filehandle import (NullBlock)
 
@@ -39,13 +40,17 @@ def set_lang():
     InitEnv.to_lang = init_env
     Return.to_lang = Return_to_Python
     Include.to_lang = Include_to_Python
-    Cycle.to_lang = Cycle_to_Python
-    Escape.to_lang = Escape_to_Python
     Alias.to_lang = Alias_to_Python
     DeferredAlias.to_lang = Alias_to_Python
     Dealloc.to_lang = lambda: ""
     SetAlias.to_lang = SetAlias_to_Python
     MathsBlock.to_lang = resolve_maths
+    Next.to_lang = Next_to_Python
+    Cycle.to_lang = Cycle_to_Python
+    CycleTarget.to_lang = CycleTarget_to_Python
+    Finish.to_lang = Finish_to_Python
+    FinishTarget.to_lang = FinishTarget_to_Python
+
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
@@ -211,7 +216,6 @@ def resolve_arg(arg):
 
     return out
 
-
 def python_include(filename: str):
     """Syntax conversion for python imports.
 
@@ -237,18 +241,6 @@ def Output_to_Python(self):
 def Return_to_Python(self):
     """Syntax conversion for breaking out of a function."""
     return f'return {self.pargs[0]}'
-
-def Cycle_to_Python(self):
-    """Syntax conversion for cycling a loop."""
-    return "continue"
-
-def Escape_to_Python(self):
-    """Syntax conversion for breaking a loop."""
-    return "break"
-
-def End_to_Python(self):
-    """Syntax conversion for early return from function."""
-    return "return"
 
 def ClassicalRegister_to_Python(self):
     """Syntax conversion for creating a classical register."""
@@ -350,6 +342,48 @@ def CreateGate_to_Python(self):
     outStr = f"def {self.name}({printArgs})"
     return outStr
 
+def Next_to_Python(self):
+    return f"""if skip.id != '{self.parentID}':
+    raise skip"""
+
+def Cycle_to_Python(self):
+    """Syntax conversion for cycling a loop."""
+    return f"raise LoopSkip('{self.targetID}', 'cycle')"
+
+def CycleTarget_to_Python(self):
+    """Syntax conversion for catching a loop cycle."""
+    return f"""if skip.op == 'cycle':
+        continue"""
+
+def Finish_to_Python(self):
+    """Syntax conversion for breaking a loop."""
+    return f"raise LoopSkip('{self.targetID}', 'finish')"
+
+def FinishTarget_to_Python(self):
+    """Syntax conversion for catching a loop finish."""
+    return f"""if skip.op == 'finish':
+        break"""
+
+def End_to_Python(self):
+    """Syntax conversion for early return from function."""
+    return "return"
+
+class Try(SubBlock):
+    def __init__(self, parent, block):
+        SubBlock.__init__(self, parent, NullBlock(block))
+        self._code = parent.code
+
+    def to_lang(self):
+        return "try"
+
+class Except(SubBlock):
+    def __init__(self, parent, block, code):
+        SubBlock.__init__(self, parent, NullBlock(block))
+        self._code = code
+
+    def to_lang(self):
+        return "except LoopSkip as skip"
+
 
 def Loop_to_Python(self):
     """Syntax conversion for declaring a loop (inclusive)."""
@@ -358,10 +392,24 @@ def Loop_to_Python(self):
     end = map(resolve, self.end)
     step = map(resolve, self.step)
 
+    if self.finish or self.cycle:
+
+
+        for i in range(len(self.code)-1, 0, -1):
+            if not isinstance(self._code[i-1], (Next, CycleTarget, FinishTarget)):
+                break
+
+        nonBlock = self.code[i:]
+        del self._code[i:]
+        self._code = [Try(self, self.currentFile), Except(self, self.currentFile, nonBlock)]
+
+
     if len(self.var) == 1:
         return f"for {''.join(self.var)} in range({''.join(start)}, {''.join(end)}+1, {''.join(step)})"
 
     ranges = [f"range({init}, {term}+1, {incr})" for init, term, incr in zip(start, end, step)]
+
+
     return f"for {', '.join(self.var)} in zip({', '.join(ranges)})"
 
 def NestLoop_to_Python(self):
@@ -443,7 +491,7 @@ def CallGateTN_to_Python(self):
             printSpargs = ", ".join(f"{resolve_maths(self.parent, sparg)}" for sparg in self.spargs)
     else:
         pass
-        
+
     printArgs = ", ".join(args for args in (printQargs, printPargs, printSpargs) if args).rstrip(", ")
     printGate = self.name
     outString = f"{printGate}({printArgs})"
@@ -476,4 +524,3 @@ def resolve_argTN(arg):
         raise NotImplementedError("Resolution of {}".format(type(obj).__name__))
 
     return out
-

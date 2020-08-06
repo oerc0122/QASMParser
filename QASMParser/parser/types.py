@@ -4,6 +4,8 @@ Main module for tokenising parsed files
 
 import re
 import copy
+import sys
+from abc import ABC
 from collections import Iterable
 
 from pyparsing import (ParseResults)
@@ -77,7 +79,7 @@ def resolve_arg(block, var, args, spargs, loopVar=None):
             else:
                 raise Exception("Cannot handle request")
         elif isinstance(out, int):
-            out = out
+            pass
 
     elif isinstance(ind, (list, tuple)):
         *out, = map(lambda x: var.start + x, ind)
@@ -90,13 +92,14 @@ def resolve_arg(block, var, args, spargs, loopVar=None):
 
     return out
 
+
 def to_lang_error(self):
     """ Standard error handle for undefined function """
     print("Not implemented:", langWarning.format(type(self).__name__))
-    quit()
+    sys.exit(1)
 
 
-class CoreOp:
+class CoreOp(ABC):
     """ Abstract base class for QASM operations """
     def __init__(self, parent):
         self._parent = parent
@@ -116,7 +119,7 @@ class CoreOp:
 
 # Base types
 
-class Operation(CoreOp):
+class Operation(CoreOp, ABC):
     """ Base class for callable function-like objects
 
     :param parent: Parent block defining object
@@ -205,7 +208,7 @@ class Operation(CoreOp):
             for parg in pargs:
                 parg[1] = parg[1][0]
 
-class Referencable(CoreOp):
+class Referencable(CoreOp, ABC):
     """ Base class for any element which will exist within scope
 
     :param parent: Parent block defining object
@@ -218,7 +221,7 @@ class Referencable(CoreOp):
 
     argType = property(lambda self: self._argType)
 
-class CodeBlock(CoreOp):
+class CodeBlock(CoreOp, ABC):
     """  Base class for an object which creates its own scope and contains code """
     def __init__(self, parent, block, copyObjs=True):
         """Initialise a code block
@@ -367,7 +370,7 @@ class CodeBlock(CoreOp):
                 while self._objs.get(newAliasName, None) is not None:
                     i += 1
                     newAliasName = "_tmpAlias"+str(i)
-                    
+
                 alias = self._new_alias(newAliasName, f"({newSize.dump()})")
 
                 for ref, target in enumerate(resolvedTargets):
@@ -712,7 +715,6 @@ class CodeBlock(CoreOp):
         :param spargs: Input special arguments
         :param gargs: Input gate arguments
         :param byprod: Output classical bit
-        :param recursive: Gate allowed to recurse
         :param unitary: Gate allowed to contain non-unitaries
         :param argType: Type of gate to return
 
@@ -722,7 +724,7 @@ class CodeBlock(CoreOp):
         if argType == "gate":
             gate = Gate(self, gateName, block,
                         pargs, qargs,
-                        recursive=recursive, unitary=unitary)
+                        recursive=False, unitary=unitary)
         elif argType == "opaque":
             gate = Opaque(self, gateName,
                           pargs, qargs, spargs,
@@ -760,11 +762,22 @@ class CodeBlock(CoreOp):
             letobj = Constant(self, var, val)
             self._objs[letobj.name] = letobj
         else:
-            var = (self.resolve(varName, argType="Constant").name, None)
-            letobj = Constant(self, var, val)
-            self._objs[letobj.name] = letobj
+            raise TypeError("Attempt to reassign let constant")
+        #     var = (self.resolve(varName, argType="Constant").name, None)
+        #     letobj = Constant(self, var, val)
+        #     self._objs[letobj.name] = letobj
 
         self._code += [Let(self, letobj)]
+
+    def _set(self, var, val):
+        """ Set a creg to a given classical value """
+        varName, _ = var
+        value, valType = val
+
+        var = (self.resolve(varName, argType="ClassicalRegister"), valType)
+        val = (self.resolve(value, argType="ClassicalRegister"), valType)
+
+        self._code += [Set(self, var, val)]
 
     def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, byprod=None, modifiers=()):
         """ Check gate exists, if it does, call it, else raise error
@@ -777,6 +790,16 @@ class CodeBlock(CoreOp):
         :param modifiers: Modifiers on call such as invert and control
 
         """
+        if gateName == self.name: # Recursive
+            if self.canRecurse:
+                self._gate(self.name, NullBlock(self.currentFile),
+                           self.pargs, self.qargs, self.spargs, self.gargs,
+                           recursive=False, unitary=self.unitary, argType="circuit")
+                self.entry = EntryExit(self.name)
+                self.recursive = True
+            else:
+                self._error(f"Attempted to recurse non-recursive gate type {self.trueType}")
+
         self._is_def(gateName, create=False, argType="Gate")
 
         pargs = self.parse_args(pargs, argType="Constant")
@@ -870,7 +893,7 @@ class CodeBlock(CoreOp):
             self._error(failedOpWarning.format("cycle", "non-loop"))
         self._code += [Cycle(self, var)]
 
-    def _escape(self, var):
+    def _finish(self, var):
         """ Break out of loop
 
         :param var:
@@ -878,12 +901,8 @@ class CodeBlock(CoreOp):
         """
         var = self.resolve(var, argType="Constant")
         if not var.loopVar:
-            self._error(failedOpWarning.format("escape", "non-loop"))
-        self._code += [Escape(self, var)]
-
-    def _end(self):
-        """ End current process """
-        self._code += [TheEnd(self, self)]
+            self._error(failedOpWarning.format("finish", "non-loop"))
+        self._code += [Finish(self, var)]
 
     def _dealloc(self, target):
         """ Free deferred objects """
@@ -1051,9 +1070,9 @@ class CodeBlock(CoreOp):
         elif keyword == "next":
             var = token["loopVar"]
             self._cycle(var)
-        elif keyword == "escape":
+        elif keyword == "finish":
             var = token["loopVar"]
-            self._escape(var)
+            self._finish(var)
         elif keyword == "exit":
             self._leave()
         elif keyword == "end":
@@ -1066,9 +1085,8 @@ class CodeBlock(CoreOp):
             pargs = token.get("pargs", [])
             qargs = token.get("qargs", [])
             unitary = token.get("unitary", False)
-            recursive = token.get("recursive", False)
             block = QASMBlock(self.currentFile, token.get("block", None))
-            self._gate(gateName, block, pargs, qargs, unitary=unitary, recursive=recursive)
+            self._gate(gateName, block, pargs, qargs, unitary=unitary)
 
         elif keyword == "circuit":
             gateName = token["gateName"]
@@ -1077,10 +1095,10 @@ class CodeBlock(CoreOp):
             spargs = token.get("spargs", [])
             byprod = token.get("byprod", [])
             unitary = token.get("unitary", False)
-            recursive = token.get("recursive", False)
             block = QASMBlock(self.currentFile, token.get("block", None))
             self._gate(gateName, block,
-                       pargs, qargs, spargs, byprod=byprod, unitary=unitary, recursive=recursive, argType="circuit")
+                       pargs, qargs, spargs, byprod=byprod,
+                       recursive=True, unitary=unitary, argType="circuit")
 
         elif keyword == "opaque":
 
@@ -1091,7 +1109,6 @@ class CodeBlock(CoreOp):
             gateInfo['spargs'] = token.get("spargs", [])
             gateInfo['byprod'] = token.get("byprod", [])
             gateInfo['unitary'] = token.get("unitary", False)
-            gateInfo['recursive'] = token.get("recursive", False)
             self._gate(**gateInfo)
 
 
@@ -1185,7 +1202,7 @@ class CodeBlock(CoreOp):
         elif "start" in rangeSpec or "end" in rangeSpec:
             if indexOnly:
                 self._error(rangeToIndexWarning)
-            start, end = rangeSpec.get("start", None), rangeSpec.get("end", None)
+            start, end = rangeSpec.get("start", None), rangeSpec.get("end", None),
 
             start = self.resolve(start, argType="Constant")
             end = self.resolve(end, argType="Constant")
@@ -1204,7 +1221,7 @@ class CodeBlock(CoreOp):
                 step = self.resolve(step, argType="Constant")
                 interval = (start, end, step)
             else:
-                interval = (start, end)
+                interval = (start, end, 1)
 
             self._check_bounds(interval, arg)
 
@@ -1663,10 +1680,10 @@ class Gate(Referencable, CodeBlock):
     """
     internalGates = {}
     _disabledMethods = (("qreg",), ("creg",), ("loop",), ("cycle",),
-                        ("escape",), ("end",), ("if", "new_if"), ("while", "new_while"), ("leave",))
+                        ("finish",), ("end",), ("if", "new_if"), ("while", "new_while"), ("leave",))
     _nonUnitaryMethods = (("measurement",),)
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **kwargs):
         """ Override new to allow disabling of methods through list """
         newGate = super(Gate, cls).__new__(cls)
         if cls is Gate or kwargs.get("unitary", False):
@@ -1692,14 +1709,9 @@ class Gate(Referencable, CodeBlock):
         self._inverse = None
         self._control = None
 
-        if recursive:
-            if self.trueType == "Gate":
-                self._warning(recursiveGateWarning)
-            self._gate(name, NullBlock(block), pargs, qargs, unitary=unitary)
-            self._code = []
-            self.entry = EntryExit(self.name)
-        else:
-            self.entry = None
+        self.canRecurse = recursive
+        self.recursive = False
+        self.entry = None
 
         self.spargs = spargs
         self.qargs = qargs
@@ -1732,8 +1744,7 @@ class Gate(Referencable, CodeBlock):
         if returnType is not None:
             self.returnType = returnType
 
-
-        if recursive and self.entry.depth > 0:
+        if self.recursive and self.entry.depth > 0:
             self._error(noExitWarning.format(self.name))
 
     def invert(self, parent):
@@ -1993,6 +2004,20 @@ class Let(CoreOp):
         else:
             raise TypeError(failedOpWarning.format("assign " + var.trueType, "let"))
 
+class Set(CoreOp):
+    """ Set a classical register """
+    def __init__(self, parent, var, val):
+        """Set a classical register
+
+        :param parent: Parent block defining object
+        :param var: Variable to assign to
+        :param val: Value to assign
+        """
+        CoreOp.__init__(self, parent)
+
+        self.var = var
+        self.val = val
+
 class CallGate(Operation):
     """ Call a gate """
     name = property(lambda self: self._name)
@@ -2204,7 +2229,6 @@ class EntryExit(CoreOp):
         """ Depth is defined """
         self.depth = 0
 
-
 class Dealloc(Operation):
     """ Deallocate assigned memory """
     def __init__(self, parent, targ):
@@ -2253,6 +2277,10 @@ class Loop(SubBlock):
         self._name = var+"_loop"
         self.depth = 1
 
+        self.targetID = None
+        self.finish = False
+        self.cycle = False
+
         if not isinstance(var, (list, tuple)):
             var = [var]
         if not isinstance(start, (list, tuple)):
@@ -2267,6 +2295,16 @@ class Loop(SubBlock):
         if not isinstance(self.step, (list, tuple)):
             self.step = [step]
         self.parse_instructions()
+
+        if self.cycle or self.finish:
+            self._code += [Next(self.targetID)]
+
+            if self.cycle:
+                self._code += [CycleTarget(self.targetID)]
+
+            if self.finish:
+                self._code += [FinishTarget(self.targetID)]
+
 class NestLoop(Loop):
     """ Nested loop structure """
     def __init__(self, block, var, start, end, step=1):
@@ -2288,10 +2326,7 @@ class NestLoop(Loop):
 
     def finalise(self):
         """ Dereference nested references to self to avoid infinite nesting """
-#        self._code = [# copy.copy(self)
-#        ]
         self._code[0].loops = []
-
 
 class InitEnv(CoreOp):
     """ Initialise QuESTEnv """
@@ -2317,22 +2352,63 @@ class Include(CoreOp):
     filename = property(lambda self: self._filename)
 
     def set_import(self, filename):
+        """ Set import name """
         self._filename = filename
 
-class Cycle(CoreOp):
+class LoopOp(CoreOp):
+    """ Class for loop ops """
+
+    ID = 0
+
+    def __init__(self, parent, var):
+        CoreOp.__init__(self, parent)
+        self.var = var
+        self.target = self.backtrack(var)
+        if not self.target.targetID:
+            self.target.targetID = f"{self.target.name}_{LoopOp.ID}"
+            LoopOp.ID += 1
+        self.targetID = self.target.targetID
+
+    def backtrack(self, var):
+        """ Backtrack through loops to find loop variable affects """
+        if not self.parent.resolve(var, "Constant").loopVar:
+            self._error(f"Variable {var} is not a loop variable")
+        targetLoop = self
+        var = var.name
+
+        while targetLoop.name != var+"_loop":
+            if targetLoop.name == "<main>":
+                self._error(f"Cannot find loop for variable {var} in stack")
+            targetLoop = targetLoop.parent
+
+        return targetLoop
+
+class Next:
+    """ Simple next """
+    def __init__(self, parentID):
+        self.parentID = parentID
+
+class Cycle(LoopOp):
     """ Jump to end of loop """
     def __init__(self, parent, var):
-        CoreOp.__init__(self, parent)
-        self.var = var
+        LoopOp.__init__(self, parent, var)
+        self.target.cycle = True
 
-class Escape(CoreOp):
+
+class CycleTarget:
+    """ Class to add a point for cycling """
+    def __init__(self, targetID):
+        self.targetID = targetID
+
+
+class Finish(LoopOp):
     """ Break out of loop """
     def __init__(self, parent, var):
-        CoreOp.__init__(self, parent)
-        self.var = var
+        LoopOp.__init__(self, parent, var)
+        self.target.finish = True
 
-class TheEnd(CoreOp):
-    """ Kill running process """
-    def __init__(self, parent, process):
-        CoreOp.__init__(self, parent)
-        self.process = process
+
+class FinishTarget:
+    """ Class to add a point for breaking """
+    def __init__(self, targetID):
+        self.targetID = targetID
