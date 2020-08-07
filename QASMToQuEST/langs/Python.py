@@ -6,7 +6,7 @@ from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRe
                                      Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                      Include, Alias, SetAlias, MathsBlock, Constant,
                                      MathOp, Register, Dealloc, DeferredAlias, InlineAlias,
-                                     Next, Cycle, Finish, FinishTarget, CycleTarget, SubBlock)
+                                     Next, Cycle, Finish, FinishTarget, CycleTarget, SubBlock, TheEnd)
 from QASMParser.parser.tokens import (Binary, Function)
 from QASMParser.parser.filehandle import (NullBlock)
 
@@ -50,7 +50,7 @@ def set_lang():
     CycleTarget.to_lang = CycleTarget_to_Python
     Finish.to_lang = Finish_to_Python
     FinishTarget.to_lang = FinishTarget_to_Python
-
+    TheEnd.to_lang = TheEnd_to_Python
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
@@ -363,6 +363,11 @@ def FinishTarget_to_Python(self):
     """Syntax conversion for catching a loop finish."""
     return f"""if skip.op == 'finish':
         break"""
+
+def TheEnd_to_Python(self):
+    """Syntax conversion for program termination"""
+    return f"quit()"
+
 
 def End_to_Python(self):
     """Syntax conversion for early return from function."""

@@ -899,6 +899,10 @@ class CodeBlock(CoreOp, ABC):
         :param var:
 
         """
+        if var == 'process':
+            self._code += [TheEnd(self)]
+            return
+
         var = self.resolve(var, argType="Constant")
         if not var.loopVar:
             self._error(failedOpWarning.format("finish", "non-loop"))
@@ -2407,8 +2411,12 @@ class Finish(LoopOp):
         LoopOp.__init__(self, parent, var)
         self.target.finish = True
 
-
 class FinishTarget:
     """ Class to add a point for breaking """
     def __init__(self, targetID):
         self.targetID = targetID
+
+class TheEnd(CoreOp):
+    """ Class to end the process """
+    def __init__(self, parent):
+        CoreOp.__init__(self, parent)

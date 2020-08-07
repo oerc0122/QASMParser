@@ -6,7 +6,7 @@ from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRe
                                      Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                      Include, Alias, SetAlias, MathsBlock, Constant,
                                      MathOp, Register, Dealloc, DeferredAlias, InlineAlias,
-                                     Next, Cycle, Finish, FinishTarget, CycleTarget)
+                                     Next, Cycle, Finish, FinishTarget, CycleTarget, TheEnd)
 from QASMParser.parser.tokens import (Binary, Function)
 #from QASMParser.parser.filehandle import (NullBlock)
 
@@ -51,6 +51,7 @@ def set_lang():
     CycleTarget.to_lang = CycleTarget_to_c
     Finish.to_lang = Finish_to_c
     FinishTarget.to_lang = FinishTarget_to_c
+    TheEnd.to_lang = TheEnd_to_c
     init_core_QASM_gates()
 
 # Several details pertaining to the language in question
@@ -300,6 +301,10 @@ def CycleTarget_to_c(self):
 def FinishTarget_to_c(self):
     """Syntax for a target of a break."""
     return f"break_{self.targetID}: break;"
+
+def TheEnd_to_c(self):
+    """Syntax for early termination."""
+    return f"exit 0;"
 
 def End_to_c(self):
     """Syntax conversion for early return from function."""
