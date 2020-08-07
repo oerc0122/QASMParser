@@ -911,8 +911,9 @@ class CodeBlock(CoreOp, ABC):
 
         """
 
+        print(var)
         # End program
-        if var == 'process':
+        if var == 'quantum process':
             self._code += [TheEnd(self)]
             return
 
@@ -925,11 +926,10 @@ class CodeBlock(CoreOp, ABC):
             return
 
         # Exit function
-        self.backtrack(var) # Check on current stack
-        self._code += [TheEnd(self, var)]
+        var = self.backtrack(var) # Check on current stack
+        self._code += [TheEnd(self, var.name)]
         if var.entry is not None: # For recursive tell it it has an exit
             var.entry.exited()
-
 
     def _dealloc(self, target):
         """ Free deferred objects """
@@ -2398,11 +2398,11 @@ class LoopOp(CoreOp):
             LoopOp.ID += 1
         self.targetID = self.target.targetID
 
-
 class Next:
     """ Simple next """
     def __init__(self, parentID):
         self.parentID = parentID
+
 
 class Cycle(LoopOp):
     """ Jump to end of loop """

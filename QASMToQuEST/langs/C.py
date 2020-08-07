@@ -288,11 +288,11 @@ def Next_to_c(self):
 
 def Cycle_to_c(self):
     """Syntax conversion for cycling a loop."""
-    return f"goto cycle{self.targetID};"
+    return f"goto cycle_{self.targetID};"
 
 def Finish_to_c(self):
     """Syntax conversion for breaking a loop."""
-    return f"goto break{self.targetID};"
+    return f"goto break_{self.targetID};"
 
 def CycleTarget_to_c(self):
     """Syntax for a target of a cycle."""

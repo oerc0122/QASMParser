@@ -8,7 +8,9 @@ circuit test[nBits] a[nBits] {
 	  if (j == 7) {
 	    next i;
 	    finish i;
+	    finish test;
 	  }
 	}
     }
 }
+finish quantum process;

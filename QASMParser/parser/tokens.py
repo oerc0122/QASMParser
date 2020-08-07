@@ -381,7 +381,7 @@ def _setup_QASMParser():
 
     _Op("free", validName("target"), version="REQASM 1.0")
     _Op("next", validName("loopVar"), qop=True, version="REQASM 1.0")
-    _Op("finish", validName("loopVar"), qop=True, version="REQASM 1.0")
+    _Op("finish", (Literal("quantum process") | validName)("loopVar"), qop=True, version="REQASM 1.0")
     _Op("end", validName("process"), qop=True, version="REQASM 1.0")
 
     # Special gate call handler
