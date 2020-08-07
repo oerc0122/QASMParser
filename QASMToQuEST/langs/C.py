@@ -304,10 +304,8 @@ def FinishTarget_to_c(self):
 
 def TheEnd_to_c(self):
     """Syntax for early termination."""
-    return f"exit 0;"
-
-def End_to_c(self):
-    """Syntax conversion for early return from function."""
+    if self.var is None:
+        return f"exit 0;"
     return "return;"
 
 def Reset_to_c(self):

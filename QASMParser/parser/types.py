@@ -112,6 +112,17 @@ class CoreOp(ABC):
     def _warning(self, message):
         self.parent.currentFile.warning(message, self.parent)
 
+    def backtrack(self, targetName):
+        """ Backtrack through stack parents to find target targetName """
+        target = self
+
+        while target.name != targetName:
+            if target.name == "<main>":
+                self._error(f"Cannot find {targetName} in stack")
+            target = target.parent
+
+        return target
+
     trueType = property(lambda self: self._trueType)
     name = property(lambda self: self._name)
     parent = property(lambda self: self._parent)
@@ -894,19 +905,31 @@ class CodeBlock(CoreOp, ABC):
         self._code += [Cycle(self, var)]
 
     def _finish(self, var):
-        """ Break out of loop
+        """ End labelled action (be it program, function or loop)
 
         :param var:
 
         """
+
+        # End program
         if var == 'process':
             self._code += [TheEnd(self)]
             return
 
-        var = self.resolve(var, argType="Constant")
-        if not var.loopVar:
-            self._error(failedOpWarning.format("finish", "non-loop"))
-        self._code += [Finish(self, var)]
+        if self._check_def(var, False, argType="Constant"):
+            # Cycle loop
+            var = self.resolve(var, argType="Constant")
+            if not var.loopVar:
+                self._error(failedOpWarning.format("finish", "non-loop"))
+            self._code += [Finish(self, var)]
+            return
+
+        # Exit function
+        self.backtrack(var) # Check on current stack
+        self._code += [TheEnd(self, var)]
+        if var.entry is not None: # For recursive tell it it has an exit
+            var.entry.exited()
+
 
     def _dealloc(self, target):
         """ Free deferred objects """
@@ -2367,25 +2390,14 @@ class LoopOp(CoreOp):
     def __init__(self, parent, var):
         CoreOp.__init__(self, parent)
         self.var = var
-        self.target = self.backtrack(var)
+        if not self.parent.resolve(var, "Constant").loopVar:
+            self._error(f"Variable {var} is not a loop variable")
+        self.target = self.backtrack(f"{var.name}_loop")
         if not self.target.targetID:
             self.target.targetID = f"{self.target.name}_{LoopOp.ID}"
             LoopOp.ID += 1
         self.targetID = self.target.targetID
 
-    def backtrack(self, var):
-        """ Backtrack through loops to find loop variable affects """
-        if not self.parent.resolve(var, "Constant").loopVar:
-            self._error(f"Variable {var} is not a loop variable")
-        targetLoop = self
-        var = var.name
-
-        while targetLoop.name != var+"_loop":
-            if targetLoop.name == "<main>":
-                self._error(f"Cannot find loop for variable {var} in stack")
-            targetLoop = targetLoop.parent
-
-        return targetLoop
 
 class Next:
     """ Simple next """
@@ -2418,5 +2430,6 @@ class FinishTarget:
 
 class TheEnd(CoreOp):
     """ Class to end the process """
-    def __init__(self, parent):
+    def __init__(self, parent, var=None):
         CoreOp.__init__(self, parent)
+        self.var = var

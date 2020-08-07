@@ -366,11 +366,8 @@ def FinishTarget_to_Python(self):
 
 def TheEnd_to_Python(self):
     """Syntax conversion for program termination"""
-    return f"quit()"
-
-
-def End_to_Python(self):
-    """Syntax conversion for early return from function."""
+    if self.var is None:
+        return f"quit()"
     return "return"
 
 class Try(SubBlock):
