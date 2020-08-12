@@ -41,12 +41,17 @@ qops = {}
 blocks = {}
 _reservedKeys = ["pi"]
 
+def _set_tok(toks, key, val):
+    """Override a given token"""
+    toks[key] = val
+
 def _override_keyword(toks, name):
     """Set returned keyword to be name instead of the parser key."""
-    toks["keyword"] = name
+    _set_tok(toks, "keyword", name)
+
 def _set_version(toks, version):
     """ Apply version to parsing tokens. """
-    toks["reqVersion"] = version
+    _set_tok(toks, "reqVersion", version)
 
 def ungroup_non_groups(tokens):
     """ Ungroup groups which contain only one element."""
@@ -197,18 +202,16 @@ def _setup_QASMParser():
 
     pi = CaselessKeyword("pi")
 
-    bitstring = Combine(Literal("0b") + OneOrMore(oneOf("0" "1")))
+    bitstring = Combine(OneOrMore(oneOf("0 1")) + Literal("b"))
 
     integer = Combine(number + Optional(expo))
     real = Combine(Optional(sign) + (("." + number) ^ (number + "." + Optional(number))) + Optional(expo))
     validName = Forward()
     lineEnd = Literal(";")
 
-
     _is_ = Keyword("to").suppress()
     _in_ = Keyword("in")
     _to_ = Literal("->").suppress()
-
 
     commentSyntax = "//"
     commentOpenStr = "/*"
@@ -255,8 +258,8 @@ def _setup_QASMParser():
     validQarg = regRef | inPlaceAlias
     aliasQarg = Group(regRef) | inPlaceAlias
 
-    inPlaceCreg = bSlash + regListRef + bSlash
-    validCreg = regRef | inPlaceCreg
+    inPlaceCreg = bSlash + delimitedList(regRef | bitstring) + bSlash
+    validCreg = (regRef | inPlaceCreg)
 
     def set_maths_type(toks, mathsType):
         """ Set logical or integer or floating point """
@@ -264,7 +267,7 @@ def _setup_QASMParser():
 
     intVar = integer | regRef
     realVar = real | integer | pi | regRef
-    boolVar = interRef | regRef | realExp | intExp
+    boolVar = interRef | regRef | realExp | intExp | validCreg | bitstring
     intFuncVar = (intFunc  + brL + Group(Optional(delimitedList(intVar)))("args") + brR).setParseAction(Function)
     realFuncVar = ((realFunc ^ intFunc)
                    + brL + Group(Optional(delimitedList(realVar)))("args") + brR).setParseAction(Function)
@@ -290,6 +293,7 @@ def _setup_QASMParser():
     boolExp <<= infixNotation(boolFuncVar | boolVar, logOp).setParseAction(lambda s, l, t: set_maths_type(t, "bool"))
 
     mathExp = intExp ^ realExp ^ boolExp
+    cregExp = bitstring("bit") ^ validCreg("reg")
 
     prefixes = ["unitary"]
     callMods = ["CTRL", "INV"]
@@ -368,9 +372,12 @@ def _setup_QASMParser():
     _Op("cbit", Group(regNoRef)("arg"), version="REQASM 1.0")
     _Op("qbit", Group(regNoRef)("arg"), version="REQASM 1.0")
     _Op("defAlias", regMustRef("alias"), keyOverride="alias", version="REQASM 1.0")
-    _Op("alias", regRef("alias") + _is_ + aliasQarg("target"), version="REQASM 1.0")
+
+    # No more on-definition aliases
+    _Op("alias", regRef("alias") + _is_ + aliasQarg("target"), keyOverride="set", version="REQASM 1.0")
     _Op("val", validName("var") + Literal("=").suppress() + mathExp("val"), version="REQASM 1.0")
-    _Op("set", validCreg("var") + Literal("=").suppress() + (validCreg | bitstring)("val"), version="REQASM 1.0")
+
+    _Op("set", (Group(regRef)("var") ^ inPlaceCreg("var")) + Literal("=").suppress() + cregExp("val"), version="REQASM 1.0")
 
     # Operations-like structures
     _Op("measure", regRef("qreg") + _to_ + regRef("creg"), qop=True)

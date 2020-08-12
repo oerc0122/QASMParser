@@ -5,7 +5,7 @@ from QASMParser.parser.types import (TensorNetwork, ClassicalRegister, QuantumRe
                                      Let, Argument, CallGate, Comment, Measure, IfBlock, While, Gate, Circuit,
                                      Procedure, Opaque, CBlock, Loop, NestLoop, Reset, Output, InitEnv, Return,
                                      Include, Alias, SetAlias, MathsBlock, Constant,
-                                     MathOp, Register, Dealloc, DeferredAlias, InlineAlias,
+                                     MathOp, Register, Dealloc, DeferredAlias, InlineAlias, Bitstring, Set,
                                      Next, Cycle, Finish, FinishTarget, CycleTarget, TheEnd)
 from QASMParser.parser.tokens import (Binary, Function)
 #from QASMParser.parser.filehandle import (NullBlock)
@@ -43,6 +43,7 @@ def set_lang():
     Include.to_lang = Include_to_c
     Alias.to_lang = Alias_to_c
     SetAlias.to_lang = SetAlias_to_c
+    Set.to_lang = Set_to_c
     MathsBlock.to_lang = resolve_maths
     Dealloc.to_lang = Dealloc_to_c
     DeferredAlias.to_lang = DeferredAlias_to_c
@@ -215,25 +216,29 @@ def resolve_arg(arg):
     :rtype: str
     """
 
-    obj, index = arg
+    obj, origIndex = arg
 
-    if isinstance(index, (list, tuple)):
+    if isinstance(origIndex, (list, tuple)):
         ref = "&"
-        index = index[0]
+        index = origIndex[0]
     else:
         ref = ""
 
-    if isinstance(index, Constant):
-        index = index.name
-    elif isinstance(index, MathsBlock):
+    if isinstance(origIndex, Constant):
+        index = origIndex.name
 
-        index = resolve_maths(None, index)
+    elif isinstance(origIndex, MathsBlock):
+        index = resolve_maths(None, origIndex)
 
     if isinstance(obj, Argument):
         if obj.size == 1:
             out = obj.start
         else:
             out = f"{ref}{obj.start}[{index}]"
+
+    elif isinstance(obj, Bitstring):
+
+        out = f"{{{', '.join(obj.val[slice(origIndex[0], origIndex[1]+1)])}}}"
 
     elif isinstance(obj, InlineAlias):
         deref = [resolve_arg(targ).strip('&') for targ in obj.targets]
@@ -425,6 +430,12 @@ def Let_to_c(self):
         out = f"{assignee} = {value};"
 
     return out
+
+def Set_to_c(self):
+    """Syntax conversion for setting creg """
+    value = resolve_arg(self.value)
+    size = self.value[1][1] - self.value[1][0] + 1
+    return f"memcpy({resolve_arg(self.variable)}, {value}, {size});"
 
 def CBlock_to_c(self):
     """Syntax conversion for classical block."""

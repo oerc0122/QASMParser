@@ -25,6 +25,7 @@ from .filehandle import (QASMBlock, NullBlock)
 
 isInt = re.compile(r"[+-]?(\d+)(?:[eE][+-]?\d+)?")
 isReal = re.compile(r"[+-]?(\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?")
+isBitStr = re.compile(r"[01]+b$")
 
 def unique(listCheck):
     """ Check that all elements of list are unique
@@ -339,6 +340,10 @@ class CodeBlock(CoreOp, ABC):
             elif self._check_def(var, create=False, argType="Alias"):
                 var = self._objs[var]
 
+            elif argType == "ClassicalRegister" and isinstance(var, str) and re.fullmatch(isBitStr, var):
+                temp = Bitstring(self, var)
+                var = [temp, (temp.minIndex, temp.maxIndex)]
+
             else:
                 self._is_def(var, create=False, argType=argType)
 
@@ -351,13 +356,61 @@ class CodeBlock(CoreOp, ABC):
             else:
                 out = var
 
+        elif argType == "InlineClassAlias":
+            if not isinstance(var, Iterable):
+                self._error("Bad inline classical alias")
+
+            # Resolve targets
+            resolvedTargets = []
+
+            for elem in var:
+                name, ref = self.parse_reg_ref(elem)
+                target = self.resolve(name, "ClassicalRegister", ref)
+                if target[0].isKnownSize and target[1][1] - target[1][0] > 0: # If needs expanding
+                    for i in range(target[1][0], target[1][1]+1):
+                        resolvedTargets.append((target[0], (i, i)))
+                else:
+                    resolvedTargets.append(target)
+
+            if not all(target[0].isKnownSize for target in resolvedTargets):
+                newSize = MathsBlock(self, resolvedTargets[0][1][1] - resolvedTargets[0][1][0] + 1)
+                sizes = [MathsBlock(self, 0), newSize]
+
+                for target in resolvedTargets[1:]:
+                    newSize = newSize + MathsBlock(self, target[1][1] - target[1][0] + 1)
+                    sizes.append(newSize)
+
+                newAliasName = "_tmpAlias"
+                i = 0
+                while self._objs.get(newAliasName, None) is not None:
+                    i += 1
+                    newAliasName = "_tmpAlias"+str(i)
+
+                alias = self._new_alias(newAliasName, f"({newSize.dump()})")
+
+                for ref, target in enumerate(resolvedTargets):
+                    indices = (f"{sizes[ref].dump()}", f"({sizes[ref+1].dump()})")
+                    start, end = target[1]
+                    if isinstance(start, MathsBlock):
+                        start = start.dump()
+                    if isinstance(end, MathsBlock):
+                        end = end.dump()
+
+                    self._code += [SetAlias(self, (alias, indices), (target[0], (start, end)), noSet=True)]
+
+                out = [alias, (0, newSize)]
+
+            elif len(resolvedTargets) == 1: # If we don't really need to alias
+                out = resolvedTargets[0]
+            else:
+                out = [InlineAlias(self, resolvedTargets), (0, len(resolvedTargets)-1)]
+
         elif argType == "InlineAlias":
             if not isinstance(var, Iterable):
                 self._error("Bad inline alias")
 
             # Resolve targets
             resolvedTargets = []
-
 
             for elem in var:
                 name, ref = self.parse_reg_ref(elem)
@@ -447,6 +500,8 @@ class CodeBlock(CoreOp, ABC):
                 out = int(var)
             elif isinstance(var, str) and re.fullmatch(isReal, var):
                 out = float(var)
+            elif isinstance(var, str) and re.fullmatch(isBitStr, var):
+                out = tuple(map(int, var[2:].split))
             elif issubclass(type(var), MathOp):
                 out = self.parse_maths(var)
             elif isinstance(var, ParseResults):
@@ -688,7 +743,6 @@ class CodeBlock(CoreOp, ABC):
     def _alias(self, aliasName, argIndex, referee):
         """
         If an alias called aliasName exists: assign values to this alias
-        If it does not exist:  Create it and if values assign it
 
         :param aliasName: Name of alias to create
         :param argIndex:  Index of alias to assign to
@@ -703,9 +757,6 @@ class CodeBlock(CoreOp, ABC):
             referee, refInter = self.resolve(referee, "InlineAlias")
         refInter = refInter[0], refInter[1]
         refSize = self.resolve_maths(refInter[1] - refInter[0] + 1)
-
-        if self._check_def(aliasName, create=True, argType="Alias"):
-            self._new_alias(aliasName, refSize)
 
         alias, aliasInter = self.resolve(aliasName, argType="Alias", index=argIndex)
         aliasSize = 1 + aliasInter[1] - aliasInter[0]
@@ -782,13 +833,52 @@ class CodeBlock(CoreOp, ABC):
 
     def _set(self, var, val):
         """ Set a creg to a given classical value """
-        varName, _ = var
-        value, valType = val
 
-        var = (self.resolve(varName, argType="ClassicalRegister"), valType)
-        val = (self.resolve(value, argType="ClassicalRegister"), valType)
+        setteeSize = lambda: setteeIndex[1] - setteeIndex[0] + 1
+        valueSize = lambda: valueIndex[1] - valueIndex[0] + 1
 
-        self._code += [Set(self, var, val)]
+        values = ((settee, setteeIndex) for settee, setteeIndex in var)
+
+        settee, setteeIndex = [], []
+        def next_var():
+            nonlocal settee, setteeIndex
+            settee, setteeIndex = next(values)
+            settee, setteeIndex = self.resolve(settee, argType="ClassicalRegister", index=setteeIndex)
+            setteeIndex = list(setteeIndex) # Ensure mutable
+
+        next_var()
+
+        for value in val:
+            if "var" in value:
+                value, valueIndex = self.parse_reg_ref(value)
+                value, valueIndex = self.resolve(value, argType="ClassicalRegister", index=valueIndex)
+            else: # Bitstring
+                value, valueIndex = self.resolve(value, argType="ClassicalRegister")
+            valueIndex = list(valueIndex) # Ensure mutable
+
+            while valueSize() > 0:
+                if setteeSize() <= 0:
+                    self._error(f"Creg {var} to small to receive values")
+
+                if valueSize() <= setteeSize():
+                    self._code += [Set(self,
+                                       (settee, (setteeIndex[0], setteeIndex[0] + valueSize())),
+                                       (value, (valueIndex[0], valueIndex[1])))]
+                    valsSet = valueSize()
+                else:
+                    self._code += [Set(self,
+                                       (settee, (setteeIndex[0], setteeIndex[1])),
+                                       (value, (valueIndex[0], valueIndex[0] - 1 + setteeSize())))]
+                    valsSet = setteeSize()
+
+                setteeIndex[0] += valsSet
+                valueIndex[0] += valsSet
+                if setteeSize() == 0:
+                    try:
+                        next_var()
+                    except StopIteration: # No more vars
+                        pass
+
 
     def _call_gate(self, gateName, pargs, qargs, gargs=None, spargs=None, byprod=None, modifiers=()):
         """ Check gate exists, if it does, call it, else raise error
@@ -806,7 +896,6 @@ class CodeBlock(CoreOp, ABC):
                 self._gate(self.name, NullBlock(self.currentFile),
                            self.pargs, self.qargs, self.spargs, self.gargs,
                            recursive=False, unitary=self.unitary, argType="circuit")
-                self.entry = EntryExit(self.name)
                 self.recursive = True
             else:
                 self._error(f"Attempted to recurse non-recursive gate type {self.trueType}")
@@ -911,7 +1000,6 @@ class CodeBlock(CoreOp, ABC):
 
         """
 
-        print(var)
         # End program
         if var == 'quantum process':
             self._code += [TheEnd(self)]
@@ -928,8 +1016,6 @@ class CodeBlock(CoreOp, ABC):
         # Exit function
         var = self.backtrack(var) # Check on current stack
         self._code += [TheEnd(self, var.name)]
-        if var.entry is not None: # For recursive tell it it has an exit
-            var.entry.exited()
 
     def _dealloc(self, target):
         """ Free deferred objects """
@@ -1075,6 +1161,7 @@ class CodeBlock(CoreOp, ABC):
             val = token["val"]
             argType = token["type"]
             self._let((var, argType), (val, None))
+
         elif keyword == "defAlias":
             name, index = self.parse_reg_ref(token["alias"], refRequired=True)
             index = self.parse_range(index)
@@ -1083,6 +1170,10 @@ class CodeBlock(CoreOp, ABC):
             name, index = self.parse_reg_ref(token["alias"])
             qarg = token["target"][0]
             self._alias(name, index, qarg)
+        elif keyword == "set":
+            var = [self.parse_reg_ref(tok) for tok in token["var"]]
+            val = token["val"]
+            self._set(var, val)
 
         # Loop routines
         elif keyword == "for":
@@ -1102,9 +1193,7 @@ class CodeBlock(CoreOp, ABC):
             self._finish(var)
         elif keyword == "exit":
             self._leave()
-        elif keyword == "end":
-            var = token["process"]
-            self._end()
+
 
         # Gate declaration routines
         elif keyword == "gate":
@@ -1450,6 +1539,14 @@ class Register(Referencable):
     end = property(lambda self: self._end)
     size = property(lambda self: self._size)
 
+class Bitstring(Register):
+    """ Class pertaining to a bitstring constant """
+    def __init__(self, parent, val):
+        self.val = tuple(x for x in val[:-1])
+        Register.__init__(self, parent, None, (0, self.size-1))
+
+    size = property(lambda self: len(self.val))
+
 class TensorNetwork(Register):
     """ Tensor network of register nodes """
     nQubits = property(lambda self: self._nQubits)
@@ -1738,7 +1835,6 @@ class Gate(Referencable, CodeBlock):
 
         self.canRecurse = recursive
         self.recursive = False
-        self.entry = None
 
         self.spargs = spargs
         self.qargs = qargs
@@ -1770,9 +1866,6 @@ class Gate(Referencable, CodeBlock):
 
         if returnType is not None:
             self.returnType = returnType
-
-        if self.recursive and self.entry.depth > 0:
-            self._error(noExitWarning.format(self.name))
 
     def invert(self, parent):
         """Calculates the inverse of the gate and called gates and assigns it to self._inverse """
@@ -2042,8 +2135,8 @@ class Set(CoreOp):
         """
         CoreOp.__init__(self, parent)
 
-        self.var = var
-        self.val = val
+        self.variable = var
+        self.value = val
 
 class CallGate(Operation):
     """ Call a gate """
@@ -2240,21 +2333,6 @@ class Output(Operation):
         """
         Operation.__init__(self, parent, pargs=parg)
         self.handle_loops([self.pargs])
-
-class EntryExit(CoreOp):
-    """ Exit recursive routine
-
-    :param parent: Parent block defining object
-
-    """
-    def __init__(self, parent):
-        """ Initialise entry-exit construct """
-        CoreOp.__init__(self, parent)
-        self.depth = 1
-
-    def exited(self):
-        """ Depth is defined """
-        self.depth = 0
 
 class Dealloc(Operation):
     """ Deallocate assigned memory """
